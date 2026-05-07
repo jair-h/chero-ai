@@ -1,5 +1,5 @@
 streamlit
-google-generativeai
+google-genai
 supabase
 pandas
 pytrends
@@ -9,3 +9,4 @@ Pillow
 plotly
 python-dotenv
 google-api-python-client
+reportlab
