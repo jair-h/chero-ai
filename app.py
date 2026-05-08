@@ -158,7 +158,7 @@ _TRANS = {
         "sel_herramienta": "Herramienta:",
         "mkt_tools": [
             "Auditoría Visual (Video/Foto)", "Experto TikTok/Reels", "Segmentación Ads",
-            "Generador de Personas", "Espía de Competencia", "Embudo de Ventas",
+            "Generador de Personas", "Embudo de Ventas",
             "Storytelling de Marca", "Plan de Crisis",
             "SEO y Palabras Clave", "Artículo de Blog SEO",
             "Compliance Checker", "Gaps del Competidor", "Campaña de Catálogo",
@@ -220,7 +220,7 @@ _TRANS = {
         "sel_herramienta": "Tool:",
         "mkt_tools": [
             "Visual Audit (Video/Photo)", "TikTok/Reels Expert", "Ads Segmentation",
-            "Persona Generator", "Competitor Spy", "Sales Funnel",
+            "Persona Generator", "Sales Funnel",
             "Brand Storytelling", "Crisis Plan",
             "SEO & Keywords", "SEO Blog Article",
             "Compliance Checker", "Competitor Gaps", "Catalog Campaign",
@@ -427,17 +427,20 @@ def validar_input(texto, max_chars=3000):
     texto = texto.replace('<iframe', '')
     return texto, None
 
-def generar_multimodal(prompt, mime_type, file_bytes, temperatura=None):
+def generar_multimodal(prompt, mime_type, file_bytes, temperatura=None, max_out=None):
     try:
+        cfg = {}
+        if temperatura is not None:
+            cfg["temperature"] = temperatura
+        if max_out is not None:
+            cfg["max_output_tokens"] = max_out
         response = client.models.generate_content(
             model=MODELO_FUERTE,
             contents=[
                 prompt,
                 types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
             ],
-            config=types.GenerateContentConfig(
-                **({} if temperatura is None else {"temperature": temperatura})
-            )
+            config=types.GenerateContentConfig(**cfg)
         )
         return response.text
     except Exception as e:
@@ -1456,22 +1459,29 @@ with tabs[0]:
                 cliente_tab = st.session_state.get("cliente_ideal_guardado", cliente_ideal)
                 marca_tab = st.session_state.get("marca_guardada", nombre_marca)
                 pais_tab = st.session_state.get("pais_guardado", pais)
-                prompt = f"""
-Actúa como consultor experto en negocios digitales.
-Analiza este negocio:
-Marca: {marca_tab}
-Nicho: {nicho_tab}
-Producto/Servicio: {st.session_state.get('producto_servicio', '')}
+                fecha_hoy = dt.now().strftime('%d/%m/%Y')
+                prompt = f"""Actúa como consultor de negocios senior.
+Analiza este negocio HOY ({fecha_hoy}):
+Marca: {marca_tab} | Nicho: {nicho_tab} | País: {pais_tab}
+Producto: {st.session_state.get('producto_servicio', '')}
 Cliente ideal: {cliente_tab}
-País: {pais_tab}
-Dame:
-1. Qué debería hacer HOY para vender más
-2. Qué está haciendo mal
-3. Una oportunidad que no está aprovechando
-4. Una acción concreta inmediata
-Sé directo, accionable y claro.
-"""
-                resultado = generar_texto(prompt, max_out=8000)
+
+Responde en este formato EXACTO sin introducciones:
+
+## ⚡ ACCIÓN #1 — MÁXIMO IMPACTO HOY
+**Qué hacer:** [acción específica]
+**Cómo:** [pasos concretos en menos de 30 min]
+**Por qué ahora:** [razón urgente]
+
+## 🔴 ERROR QUE ESTÁS COMETIENDO HOY
+[El error más costoso con solución inmediata]
+
+## 💡 OPORTUNIDAD QUE NADIE ESTÁ VIENDO
+[Oportunidad concreta para este negocio hoy]
+
+## 📱 POST PARA PUBLICAR HOY
+[Copy completo listo para publicar con emojis y CTA]"""
+                resultado = generar_texto(prompt, max_out=3000)
                 st.markdown(resultado)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
@@ -1851,17 +1861,6 @@ Sé directo, accionable y claro.
                     st.caption(_step_desc)
 
 
-    if st.button(t("btn_acciones")):
-        if verificar_creditos(1):
-            nicho_tab = st.session_state.get("nicho_guardado", nicho)
-            pais_tab = st.session_state.get("pais_guardado", pais)
-            resultado_acciones = generar_texto(f"Dame 3 acciones para vender {nicho_tab} ({st.session_state.get('producto_servicio', '')}) hoy en {pais_tab}.")
-            st.markdown(resultado_acciones)
-            email_tab = (st.session_state.get("user_email") or "").strip().lower()
-            if email_tab:
-                guardar_reporte(email_tab, "acciones_hoy", f"3 acciones para hoy - {dt.now().strftime('%d/%m/%Y')}", resultado_acciones)
-            consumir(1)
-
     st.markdown(t("plan_semanal_titulo"))
     st.caption("\U0001f4c5 Planifica tu semana en 1 clic · 1 crédito" if st.session_state.get("lang") != "en" else "\U0001f4c5 Plan your week in 1 click · 1 credit")
     email_tab = (st.session_state.get("user_email") or "").strip().lower()
@@ -1881,20 +1880,29 @@ Sé directo, accionable y claro.
                         nicho_plan = st.session_state.get("nicho_guardado", "")
                         cliente_plan = st.session_state.get("cliente_ideal_guardado", "")
                         marca_plan = st.session_state.get("marca_guardada", "")
-                        prompt = f"""
-Crea un NUEVO plan semanal de contenido para:
-Marca: {marca_plan}
-Nicho: {nicho_plan}
-Producto/Servicio: {st.session_state.get('producto_servicio', '')}
-Cliente ideal: {cliente_plan}
-Incluye:
-- 5 ideas de contenido
-- tipo de contenido (reel, post, historia)
-- objetivo de cada contenido
-- CTA sugerido
-Hazlo diferente al plan anterior, claro, directo y aplicable.
-"""
-                        nuevo_resultado = generar_texto(prompt, max_out=8000)
+                        prompt = f"""Eres estratega de contenidos para {pais}.
+Marca: {marca_plan} | Nicho: {nicho_plan} | País: {pais}
+Producto: {st.session_state.get('producto_servicio', '')} | Cliente: {cliente_plan}
+
+Crea el plan semanal en este formato EXACTO:
+
+## 📅 PLAN DE CONTENIDO — ESTA SEMANA
+
+| Día | Red Social | Tipo | Tema | CTA |
+|---|---|---|---|---|
+| Lunes | | | | |
+| Martes | | | | |
+| Miércoles | | | | |
+| Jueves | | | | |
+| Viernes | | | | |
+
+## 🎯 OBJETIVO DE LA SEMANA
+- Meta principal: [número concreto]
+- Cómo medirlo: [herramienta]
+
+## 🔥 EL POST MÁS IMPORTANTE DE LA SEMANA
+[Copy completo del post con mayor potencial viral]"""
+                        nuevo_resultado = generar_texto(prompt, max_out=4000)
                         guardar_plan_semanal(email_tab, semana, nuevo_resultado)
                         guardar_reporte(email_tab, "plan_semanal", f"Plan semanal regenerado {semana}", nuevo_resultado)
                         st.success("🔁 Nuevo plan generado")
@@ -1906,20 +1914,29 @@ Hazlo diferente al plan anterior, claro, directo y aplicable.
                     nicho_plan = st.session_state.get("nicho_guardado", "")
                     cliente_plan = st.session_state.get("cliente_ideal_guardado", "")
                     marca_plan = st.session_state.get("marca_guardada", "")
-                    prompt = f"""
-Crea un plan semanal de contenido para:
-Marca: {marca_plan}
-Nicho: {nicho_plan}
-Producto/Servicio: {st.session_state.get('producto_servicio', '')}
-Cliente ideal: {cliente_plan}
-Incluye:
-- 5 ideas de contenido
-- tipo de contenido (reel, post, historia)
-- objetivo de cada contenido
-- CTA sugerido
-Hazlo claro, directo y aplicable.
-"""
-                    resultado = generar_texto(prompt, max_out=8000)
+                    prompt = f"""Eres estratega de contenidos para {pais}.
+Marca: {marca_plan} | Nicho: {nicho_plan} | País: {pais}
+Producto: {st.session_state.get('producto_servicio', '')} | Cliente: {cliente_plan}
+
+Crea el plan semanal en este formato EXACTO:
+
+## 📅 PLAN DE CONTENIDO — ESTA SEMANA
+
+| Día | Red Social | Tipo | Tema | CTA |
+|---|---|---|---|---|
+| Lunes | | | | |
+| Martes | | | | |
+| Miércoles | | | | |
+| Jueves | | | | |
+| Viernes | | | | |
+
+## 🎯 OBJETIVO DE LA SEMANA
+- Meta principal: [número concreto]
+- Cómo medirlo: [herramienta]
+
+## 🔥 EL POST MÁS IMPORTANTE DE LA SEMANA
+[Copy completo del post con mayor potencial viral]"""
+                    resultado = generar_texto(prompt, max_out=4000)
                     guardar_plan_semanal(email_tab, semana, resultado)
                     guardar_reporte(email_tab, "plan_semanal", f"Plan semanal {semana}", resultado)
                     st.success("🔥 Plan generado y guardado")
@@ -2027,7 +2044,7 @@ with tabs[2]:
     st.write(t("motor_desc"))
     _mkt_keys = [
         "Auditoría Visual (Video/Foto)", "Experto TikTok/Reels", "Segmentación Ads",
-        "Generador de Personas", "Espía de Competencia", "Embudo de Ventas",
+        "Generador de Personas", "Embudo de Ventas",
         "Storytelling de Marca", "Plan de Crisis",
         "SEO y Palabras Clave", "Artículo de Blog SEO",
         "Compliance Checker", "Gaps del Competidor", "Campaña de Catálogo",
@@ -2058,7 +2075,7 @@ Analiza este contenido visual y entrégame:
    - 3 bullets de estructura
    - CTA final claro
 """
-                    texto = generar_multimodal(prompt, archivo.type, archivo.getvalue())
+                    texto = generar_multimodal(prompt, archivo.type, archivo.getvalue(), max_out=4000)
                     st.markdown(texto)
                     consumir(costo=costo)
 
@@ -2068,8 +2085,41 @@ Analiza este contenido visual y entrégame:
         if modo == "Ideas Virales":
             if st.button("Generar 5 Ideas (1 Crédito)"):
                 if verificar_creditos(1):
-                    prompt = f"Eres estratega viral. País: {pais}. Nicho: {nicho}. Marca: {nombre_marca}. Producto/Servicio: {producto_servicio}.\nDame 5 ideas de TikToks/Reels ganadores.\nFormato: [HOOK VISUAL] + [EXPLICACIÓN] + [AUDIO SUGERIDO]"
-                    st.markdown(generar_texto(prompt))
+                    prompt = f"""Eres estratega viral de TikTok para {pais}.
+Marca: {nombre_marca} | Nicho: {nicho} | Producto: {producto_servicio}
+
+Genera 5 ideas de TikToks/Reels para esta semana:
+
+### IDEA 1 — [Nombre del concepto]
+🎣 HOOK (primeros 3 segundos): [frase exacta]
+📹 ESTRUCTURA: [descripción de los 15-60 segundos]
+🎵 AUDIO SUGERIDO: [tipo de audio o canción]
+📊 POR QUÉ VA A FUNCIONAR: [razón basada en {pais}]
+
+### IDEA 2 — [Nombre del concepto]
+🎣 HOOK (primeros 3 segundos): [frase exacta]
+📹 ESTRUCTURA: [descripción de los 15-60 segundos]
+🎵 AUDIO SUGERIDO: [tipo de audio o canción]
+📊 POR QUÉ VA A FUNCIONAR: [razón basada en {pais}]
+
+### IDEA 3 — [Nombre del concepto]
+🎣 HOOK (primeros 3 segundos): [frase exacta]
+📹 ESTRUCTURA: [descripción de los 15-60 segundos]
+🎵 AUDIO SUGERIDO: [tipo de audio o canción]
+📊 POR QUÉ VA A FUNCIONAR: [razón basada en {pais}]
+
+### IDEA 4 — [Nombre del concepto]
+🎣 HOOK (primeros 3 segundos): [frase exacta]
+📹 ESTRUCTURA: [descripción de los 15-60 segundos]
+🎵 AUDIO SUGERIDO: [tipo de audio o canción]
+📊 POR QUÉ VA A FUNCIONAR: [razón basada en {pais}]
+
+### IDEA 5 — [Nombre del concepto]
+🎣 HOOK (primeros 3 segundos): [frase exacta]
+📹 ESTRUCTURA: [descripción de los 15-60 segundos]
+🎵 AUDIO SUGERIDO: [tipo de audio o canción]
+📊 POR QUÉ VA A FUNCIONAR: [razón basada en {pais}]"""
+                    st.markdown(generar_texto(prompt, max_out=4000))
                     consumir(1)
         elif modo == "Mejorar Guion":
             txt = st.text_area("Pega tu guion borrador:")
@@ -2148,15 +2198,6 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 prompt = f"Crea un BUYER PERSONA profundo para: {nicho} en {pais}.\nMarca: {nombre_marca}. Producto/Servicio: {producto_servicio}.\nIncluye nombre ficticio, edad, ocupación, dolores, deseos, objeciones y redes que usa."
                 texto = generar_texto(prompt)
                 st.markdown(texto)
-                consumir(1)
-
-    elif opcion_mkt == "Espía de Competencia":
-        st.write("Analiza a un rival para superarlo.")
-        rival = st.text_input("Nombre o Link del Competidor:")
-        if rival and st.button("Analizar Estrategia (1 Crédito)"):
-            if verificar_creditos(1):
-                prompt = f"Analiza al competidor: '{rival}' en el nicho {nicho} ({pais}).\nNuestra marca: {nombre_marca}. Producto/Servicio: {producto_servicio}.\nDime:\n1. Qué están haciendo bien.\n2. Dónde están fallando.\n3. Cómo {nombre_marca} puede ganarles.\n4. 3 ideas de contenido para robarles audiencia."
-                st.markdown(generar_texto(prompt, temperatura=0.2))
                 consumir(1)
 
     elif opcion_mkt == "Embudo de Ventas":
@@ -3154,7 +3195,7 @@ Sé muy específico con los números que ves en la imagen."""
                 with st.spinner("Analizando métricas con IA..."):
                     file_bytes = imagen_metricas.read()
                     mime = "image/png" if imagen_metricas.name.endswith(".png") else "image/jpeg"
-                    resultado_metricas = generar_multimodal(prompt_metricas, mime, file_bytes, temperatura=0.2)
+                    resultado_metricas = generar_multimodal(prompt_metricas, mime, file_bytes, temperatura=0.2, max_out=4000)
 
                 st.markdown(resultado_metricas)
                 st.session_state["ultimo_analisis_metricas"] = resultado_metricas
