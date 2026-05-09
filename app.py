@@ -70,17 +70,17 @@ MODELO_FUERTE = "gemini-2.5-flash"
 
 PLANES = {
     "Free":   {"limite": 15,   "video": True, "max_output": 1000},
-    "Starter": {"limite": 40,   "video": True, "max_output": 1500},
-    "Pro":     {"limite": 150,  "video": True, "max_output": 2500},
-    "Agency":  {"limite": 400,  "video": True, "max_output": 4000},
-    "Admin":   {"limite": 9999, "video": True, "max_output": 8000},
+    "Demo":   {"limite": 50,   "video": True, "max_output": 1500},
+    "Starter": {"limite": 40,  "video": True, "max_output": 1500},
+    "Pro":     {"limite": 150, "video": True, "max_output": 2500},
+    "Agency":  {"limite": 400, "video": True, "max_output": 4000},
+    "Admin":   {"limite": 9999,"video": True, "max_output": 8000},
 }
 
 # =========================
 # SESSION STATE INICIAL (una sola vez, al inicio)
 # =========================
 defaults = {
-    "password_correct": False,
     "plan": "Free",
     "usados": 0,
     "cliente_sugerido": "",
@@ -487,8 +487,8 @@ def asegurar_usuario_desde_db():
             st.session_state.plan = datos.get("plan", "Free")
             st.session_state.usados = datos.get("creditos_usados", 0)
         else:
-            db_upsert_usuario(email, "Free", 0)
-            st.session_state.plan = "Free"
+            db_upsert_usuario(email, "Demo", 0)
+            st.session_state.plan = "Demo"
             st.session_state.usados = 0
         if email in ADMIN_EMAILS:
             st.session_state.plan = "Admin"
@@ -987,23 +987,6 @@ st.markdown("""
 # =========================
 # SEGURIDAD
 # =========================
-def check_password():
-    if st.session_state.get("password_correct", False):
-        return True
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("### 🔒 Acceso a CHERO AI")
-        pwd = st.text_input("Contraseña:", type="password")
-        if st.button("Ingresar"):
-            if pwd == "chero2026":
-                st.session_state.password_correct = True
-                st.rerun()
-            else:
-                st.error("Contraseña incorrecta.")
-    return False
-
-if not check_password():
-    st.stop()
 
 # =========================
 # CRÉDITOS
@@ -1223,20 +1206,8 @@ Sé muy específico, como si describieras a una persona real."""
                 st.error("No se pudo guardar el perfil.")
                 st.exception(e)
 
-    _email_plan = (st.session_state.get("user_email") or "").strip().lower()
-    plan_opciones = [k for k in PLANES.keys() if k != "Admin" or _email_plan == "jairh798@gmail.com"]
     plan_actual = st.session_state.get("plan", "Free")
-    if plan_actual not in plan_opciones:
-        plan_actual = plan_opciones[0]
-    plan_seleccionado = st.selectbox(
-        "Plan (cambiar manualmente):",
-        plan_opciones,
-        index=plan_opciones.index(plan_actual)
-    )
-    if plan_seleccionado != st.session_state.get("plan"):
-        st.session_state.plan = plan_seleccionado
-        st.session_state.usados = 0
-    plan_actual = st.session_state.get("plan", "Free")
+    st.caption(f"Plan actual: {plan_actual}")
     limite = PLANES.get(plan_actual, PLANES["Free"])["limite"]
     usados_sidebar = int(st.session_state.get("usados", 0))
     progreso = 0.0 if plan_actual == "Admin" else (min(usados_sidebar / limite, 1.0) if limite > 0 else 0)
