@@ -1452,7 +1452,7 @@ Responde en este formato EXACTO sin introducciones:
 
 ## 📱 POST PARA PUBLICAR HOY
 [Copy completo listo para publicar con emojis y CTA]"""
-                resultado = generar_texto(prompt, max_out=3000)
+                resultado = generar_texto(prompt, max_out=6000)
                 st.markdown(resultado)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
@@ -1542,7 +1542,7 @@ Responde en este formato EXACTO sin introducciones:
                     f"No cortes ninguna oración. Termina cada una con punto."
                 )
                 with st.spinner("Generando análisis..."):
-                    explicacion = generar_texto(prompt_explicacion, max_out=500, modelo=MODELO_FUERTE, temperatura=0.2)
+                    explicacion = generar_texto(prompt_explicacion, max_out=4000, modelo=MODELO_FUERTE, temperatura=0.2)
                 if explicacion and not explicacion.startswith("❌"):
                     st.markdown(explicacion)
 
@@ -1653,7 +1653,7 @@ Responde en este formato EXACTO sin introducciones:
                     f"ventana debe ser exactamente: urgente, normal, o largo.\n"
                     f"fuente debe ser exactamente uno de: \U0001f534 GOOGLE VIRAL, \U0001f4fa YOUTUBE VIRAL, \U0001f4ac REDDIT VIRAL"
                 )
-                _raw_trends = generar_texto(_prompt_radar, max_out=2000, modelo=MODELO_FUERTE)
+                _raw_trends = generar_texto(_prompt_radar, max_out=3000, modelo=MODELO_FUERTE)
                 try:
                     import json as _json_mod
                     _jm = re.search(r'\[.*?\]', _raw_trends, re.DOTALL)
@@ -1662,11 +1662,11 @@ Responde en este formato EXACTO sin introducciones:
                         st.session_state["radar_ts"] = dt.now().timestamp()
                     else:
                         _parse_err = "Could not parse trends." if st.session_state.get("lang") == "en" else "No se pudo parsear tendencias."
-                        st.error(_parse_err)
-                        st.code(_raw_trends[:500])
+                        st.warning(_parse_err)
+                        st.markdown(_raw_trends)
                 except Exception as _je:
                     st.error(f"JSON error: {_je}")
-                    st.code(_raw_trends[:500])
+                    st.markdown(_raw_trends)
 
     if st.session_state.get("tendencias_virales"):
         _adaptar_lbl = "Adapt to my business (1 credit)" if st.session_state.get("lang") == "en" else "Adaptar a mi negocio (1 cr\u00e9dito)"
@@ -1712,7 +1712,7 @@ Responde en este formato EXACTO sin introducciones:
                             f"TIMING: cu\u00e1ndo publicar cada pieza exactamente."
                         )
                         with st.spinner("Adaptando tendencia..."):
-                            _adapt_res = generar_texto(_prompt_adapt, max_out=3000, modelo=MODELO_FUERTE)
+                            _adapt_res = generar_texto(_prompt_adapt, max_out=4000, modelo=MODELO_FUERTE)
                         st.markdown(_adapt_res)
                         _email_r = (st.session_state.get("user_email") or "").strip().lower()
                         if _email_r:
@@ -1873,7 +1873,7 @@ Crea el plan semanal en este formato EXACTO:
 
 ## 🔥 EL POST MÁS IMPORTANTE DE LA SEMANA
 [Copy completo del post con mayor potencial viral]"""
-                        nuevo_resultado = generar_texto(prompt, max_out=4000)
+                        nuevo_resultado = generar_texto(prompt, max_out=6000)
                         guardar_plan_semanal(email_tab, semana, nuevo_resultado)
                         guardar_reporte(email_tab, "plan_semanal", f"Plan semanal regenerado {semana}", nuevo_resultado)
                         st.success("🔁 Nuevo plan generado")
@@ -1907,7 +1907,7 @@ Crea el plan semanal en este formato EXACTO:
 
 ## 🔥 EL POST MÁS IMPORTANTE DE LA SEMANA
 [Copy completo del post con mayor potencial viral]"""
-                    resultado = generar_texto(prompt, max_out=4000)
+                    resultado = generar_texto(prompt, max_out=6000)
                     guardar_plan_semanal(email_tab, semana, resultado)
                     guardar_reporte(email_tab, "plan_semanal", f"Plan semanal {semana}", resultado)
                     st.success("🔥 Plan generado y guardado")
@@ -2090,21 +2090,42 @@ Genera 5 ideas de TikToks/Reels para esta semana:
 📹 ESTRUCTURA: [descripción de los 15-60 segundos]
 🎵 AUDIO SUGERIDO: [tipo de audio o canción]
 📊 POR QUÉ VA A FUNCIONAR: [razón basada en {pais}]"""
-                    st.markdown(generar_texto(prompt, max_out=4000))
+                    try:
+                        _tiktok_res = generar_texto(prompt, max_out=6000)
+                        if _tiktok_res and not _tiktok_res.startswith("❌"):
+                            st.markdown(_tiktok_res)
+                        else:
+                            st.error(f"Error generando ideas TikTok: {_tiktok_res or 'Respuesta vacía del modelo'}")
+                    except Exception as _te:
+                        st.error(f"Error al generar ideas TikTok: {_te}")
                     consumir(1)
         elif modo == "Mejorar Guion":
             txt = st.text_area("Pega tu guion borrador:")
             if txt and st.button("Viralizar Guion (1 Crédito)"):
                 if verificar_creditos(1):
                     prompt = f"Mejora este guion para máxima retención en {pais}.\nNicho: {nicho}. Producto/Servicio: {producto_servicio}.\nHazlo más dinámico, corta el relleno y pon un HOOK explosivo al inicio.\nGuion Original: \"{txt}\""
-                    st.markdown(generar_texto(prompt))
+                    try:
+                        _guion_res = generar_texto(prompt, max_out=6000)
+                        if _guion_res and not _guion_res.startswith("❌"):
+                            st.markdown(_guion_res)
+                        else:
+                            st.error(f"Error mejorando guion: {_guion_res or 'Respuesta vacía del modelo'}")
+                    except Exception as _ge:
+                        st.error(f"Error al mejorar guion: {_ge}")
                     consumir(1)
         elif modo == "Anti-Ban":
             txt = st.text_area("Texto que te preocupa:")
             if txt and st.button("Revisar Políticas (1 Crédito)"):
                 if verificar_creditos(1):
                     prompt = f"Reescribe este texto para evitar bloqueos en TikTok/Meta Ads.\nMantén la intención de venta pero usa palabras seguras.\nTexto: \"{txt}\""
-                    st.success(generar_texto(prompt))
+                    try:
+                        _ban_res = generar_texto(prompt, max_out=6000)
+                        if _ban_res and not _ban_res.startswith("❌"):
+                            st.success(_ban_res)
+                        else:
+                            st.error(f"Error Anti-Ban: {_ban_res or 'Respuesta vacía del modelo'}")
+                    except Exception as _be:
+                        st.error(f"Error al revisar políticas Anti-Ban: {_be}")
                     consumir(1)
 
     elif opcion_mkt == "Segmentación Ads":
@@ -2155,7 +2176,7 @@ Genera una estrategia de segmentación completa:
 
 Completa todas las secciones. No cortes el texto a la mitad."""
                 with st.spinner("Generando estrategia de segmentación..."):
-                    texto = generar_texto(prompt, max_out=4000)
+                    texto = generar_texto(prompt, max_out=6000)
                 st.markdown(texto)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
@@ -2185,16 +2206,23 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 consumir(2)
 
     elif opcion_mkt == "Storytelling de Marca":
+        _st_marca   = st.session_state.get("marca_guardada", "") or nombre_marca
+        _st_nicho   = st.session_state.get("nicho_guardado", "") or nicho
+        _st_pais    = st.session_state.get("pais_guardado", "") or pais
+        _st_prod    = st.session_state.get("producto_servicio", "") or producto_servicio
+        _st_cliente = st.session_state.get("cliente_ideal_guardado", "") or cliente_ideal
+        if _st_marca or _st_nicho:
+            st.info(f"✅ Perfil cargado: **{_st_marca}** | {_st_nicho} | {_st_pais}")
         st.write("Construye una historia de marca que conecte y venda.")
         historia_base = st.text_area("Cuéntame brevemente tu historia o la de tu negocio:", placeholder="Ej: Empecé buscando mejorar mi energía con productos naturales...")
         if historia_base and st.button("Crear Storytelling (1 Crédito)"):
             if verificar_creditos(1):
-                prompt = f"Eres experto en branding y storytelling.\nConstruye una historia de marca para:\nMarca: {nombre_marca}\nNicho: {nicho}\nProducto/Servicio: {producto_servicio}\nPaís: {pais}\nCliente ideal: {cliente_ideal}\nHistoria base: {historia_base}\nDame: historia corta emocional, historia larga, versión para Instagram bio y frase de posicionamiento."
+                prompt = f"Eres experto en branding y storytelling.\nConstruye una historia de marca para:\nMarca: {_st_marca}\nNicho: {_st_nicho}\nProducto/Servicio: {_st_prod}\nPaís: {_st_pais}\nCliente ideal: {_st_cliente}\nHistoria base: {historia_base}\nDame: historia corta emocional, historia larga, versión para Instagram bio y frase de posicionamiento."
                 texto = generar_texto(prompt, max_out=8000)
                 st.markdown(texto)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
-                    guardar_reporte(email_tab, "storytelling", f"Storytelling de marca - {nombre_marca}", texto)
+                    guardar_reporte(email_tab, "storytelling", f"Storytelling de marca - {_st_marca}", texto)
                 consumir(1)
 
     elif opcion_mkt == "Plan de Crisis":
@@ -2279,12 +2307,12 @@ Completa todas las oraciones. No cortes el texto a la mitad."""
 
                 texto_completo = ""
                 with st.spinner("Redactando parte 1 de 2..."):
-                    parte1 = generar_texto(prompt_p1, max_out=3000)
+                    parte1 = generar_texto(prompt_p1, max_out=4000)
                 st.markdown(parte1)
                 texto_completo += parte1 + "\n\n"
 
                 with st.spinner("Redactando parte 2 de 2..."):
-                    parte2 = generar_texto(prompt_p2, max_out=3000)
+                    parte2 = generar_texto(prompt_p2, max_out=4000)
                 st.markdown(parte2)
                 texto_completo += parte2
 
@@ -2323,7 +2351,7 @@ Completa todas las oraciones. No cortes el texto a la mitad."""
                     f"Completa todas las secciones sin cortar el texto a la mitad."
                 )
                 with st.spinner("Generando anuncio seguro..."):
-                    _res_seguro = generar_texto(_prompt_seguro, max_out=3000, modelo=MODELO_FUERTE)
+                    _res_seguro = generar_texto(_prompt_seguro, max_out=6000, modelo=MODELO_FUERTE)
                 st.markdown(_res_seguro)
                 _email_cc = (st.session_state.get("user_email") or "").strip().lower()
                 if _email_cc:
@@ -2364,13 +2392,13 @@ Para cada idea escribe:
 Completa todas las oraciones. No cortes el texto a la mitad."""
 
                 with st.spinner("Analizando compliance..."):
-                    texto_check = generar_texto(prompt_check, max_out=2000)
+                    texto_check = generar_texto(prompt_check, max_out=6000)
                 st.markdown(texto_check)
 
                 st.markdown("---")
                 st.markdown("### 💡 Ideas de Publicidad Seguras")
                 with st.spinner("Generando ideas seguras..."):
-                    texto_ideas = generar_texto(prompt_ideas, max_out=2000)
+                    texto_ideas = generar_texto(prompt_ideas, max_out=6000)
                 st.markdown(texto_ideas)
 
                 texto_completo = texto_check + "\n\n---\n### 💡 Ideas de Publicidad Seguras\n" + texto_ideas
@@ -2398,7 +2426,7 @@ Basándote en lo que típicamente se ve en perfiles de este nicho en {pais}, gen
 
 Sé concreto y accionable para el mercado de {pais}."""
                 with st.spinner("Analizando sentimiento..."):
-                    texto = generar_texto(prompt, max_out=3000, temperatura=0.2)
+                    texto = generar_texto(prompt, max_out=6000, temperatura=0.2)
                 st.markdown(texto)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
@@ -2923,7 +2951,7 @@ with tabs[3]:
                     f"## ⚖️ COMPARACIÓN DE VALOR\n[Cómo anclar el precio frente a alternativas]\n\n"
                     f"## 🎯 COPY DEL PRECIO (listo para usar)\n[Frase para Instagram/WhatsApp]"
                 )
-                st.markdown(generar_texto(prompt, max_out=5000))
+                st.markdown(generar_texto(prompt, max_out=6000))
                 consumir(1)
 
     elif opcion_vta == "Mata-Objeciones":
@@ -2939,7 +2967,7 @@ with tabs[3]:
                     f"## 🧠 POR QUÉ FUNCIONA\n[Técnica de venta usada]\n\n"
                     f"## ⚡ CTA DE CIERRE\n[Frase final para cerrar la venta]"
                 )
-                st.markdown(generar_texto(prompt, max_out=5000))
+                st.markdown(generar_texto(prompt, max_out=6000))
                 consumir(1)
 
     elif opcion_vta == "Calculadora Descuentos":
@@ -2960,7 +2988,7 @@ with tabs[3]:
                     f"## 🛡️ 3 TIPS PARA NO PERDER PERCEPCIÓN DE VALOR\n\n"
                     f"## 📢 COPY PARA PUBLICAR EL DESCUENTO\n[Texto listo para redes]"
                 )
-                st.markdown(generar_texto(prompt, max_out=5000))
+                st.markdown(generar_texto(prompt, max_out=6000))
                 consumir(1)
 
 # --- TAB 4: ADMIN ---
@@ -3065,7 +3093,7 @@ with tabs[4]:
                     f"Adapta el lenguaje legal a {_cont_pais}. Hazlo profesional pero claro."
                 )
                 with st.spinner("Redactando contrato..."):
-                    texto = generar_texto(prompt, max_out=5000)
+                    texto = generar_texto(prompt, max_out=6000)
                 st.markdown(texto)
                 _cont_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _cont_email:
@@ -3102,7 +3130,7 @@ Nicho: {nicho}
 {reglas_texto}
 Escribe las reglas de forma clara y aplicable para redactar contenido."""
                     with st.spinner("Generando manual de marca..."):
-                        texto = generar_texto(prompt_reglas, max_out=3000)
+                        texto = generar_texto(prompt_reglas, max_out=6000)
                     st.markdown(texto)
                     email_tab = (st.session_state.get("user_email") or "").strip().lower()
                     if email_tab:
@@ -3356,7 +3384,7 @@ Sé muy específico con los números que ves en la imagen."""
                             f"## 📉 MÉTRICA A MEJORAR PRIMERO\n"
                             f"[Una sola métrica con objetivo numérico]"
                         )
-                        _res_ga = generar_texto(_prompt_ga, max_out=2000)
+                        _res_ga = generar_texto(_prompt_ga, max_out=4000)
                         st.session_state["ga_ia_result"] = _res_ga
 
                     if st.session_state.get("ga_ia_result"):
@@ -3665,7 +3693,7 @@ with tabs[6]:
                     f"\U0001f4a1 TIP ANTI-SPAM: [1 consejo para evitar carpeta de spam]\n"
                     f"================\n")
                 with st.spinner("Generando secuencia..." if not _is_en_pw else "Generating sequence..."):
-                    _em_res = generar_texto(_em_prompt, max_out=4000, modelo=MODELO_FUERTE)
+                    _em_res = generar_texto(_em_prompt, max_out=6000, modelo=MODELO_FUERTE)
                 st.markdown(_em_res)
                 _em_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _em_email:
@@ -3709,7 +3737,7 @@ with tabs[6]:
                     f"TONO USADO: [emp\u00e1tico / profesional / entusiasta / resolutivo]\n"
                     f"---\n\nComentarios:\n{_cm_texto}")
                 with st.spinner("Generando respuestas..." if not _is_en_pw else "Generating responses..."):
-                    _cm_res = generar_texto(_cm_prompt, max_out=3000, modelo=MODELO_FUERTE)
+                    _cm_res = generar_texto(_cm_prompt, max_out=4000, modelo=MODELO_FUERTE)
                 st.markdown(_cm_res)
                 _cm_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _cm_email:
@@ -3875,7 +3903,7 @@ with tabs[6]:
                     f"Semana | D\u00eda | Red | Horario | Tipo de contenido | Objetivo\n"
                     f"(28 filas, una por publicaci\u00f3n sugerida)\n")
                 with st.spinner("Generando calendario..." if not _is_en_pw else "Generating schedule..."):
-                    _cal_res = generar_texto(_cal_prompt, max_out=3000, modelo=MODELO_FUERTE)
+                    _cal_res = generar_texto(_cal_prompt, max_out=6000, modelo=MODELO_FUERTE)
                 st.markdown(_cal_res)
                 _cal_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _cal_email:
@@ -3932,7 +3960,7 @@ with tabs[6]:
                     f"5. \u23f0 TIMING RECOMENDADO:\n"
                     f"   Mejor d\u00eda y hora para distribuir en {_pr_pais}\n")
                 with st.spinner("Generando kit de PR..." if not _is_en_pw else "Generating PR kit..."):
-                    _pr_res = generar_texto(_pr_prompt, max_out=3000, modelo=MODELO_FUERTE)
+                    _pr_res = generar_texto(_pr_prompt, max_out=6000, modelo=MODELO_FUERTE)
                 st.markdown(_pr_res)
                 _pr_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _pr_email:
@@ -4020,7 +4048,7 @@ with tabs[6]:
                         f"3. 3 ACCIONES CONCRETAS para la pr\u00f3xima semana\n"
                         f"4. PROYECCI\u00d3N DEL MES si sigue a este ritmo\n")
                     with st.spinner("Analizando KPIs..." if not _is_en_pw else "Analyzing KPIs..."):
-                        _kpi_res = generar_texto(_kpi_prompt, max_out=2000, modelo=MODELO_FUERTE)
+                        _kpi_res = generar_texto(_kpi_prompt, max_out=6000, modelo=MODELO_FUERTE)
                     st.markdown(_kpi_res)
                     guardar_reporte(_kpi_email, "kpi_tracker",
                                     f"KPIs {_kpi_semana_display}", _kpi_res)
@@ -4088,7 +4116,7 @@ with tabs[6]:
                     f"   \"Con estos cambios podr\u00edas pasar del X% al Y% de conversi\u00f3n\"\n"
                     f"   (usa benchmarks reales del nicho {_cro_nicho})\n")
                 with st.spinner("Optimizando landing page..." if not _is_en_pw else "Optimizing landing page..."):
-                    _cro_res = generar_texto(_cro_prompt, max_out=4000, modelo=MODELO_FUERTE, temperatura=0.2)
+                    _cro_res = generar_texto(_cro_prompt, max_out=6000, modelo=MODELO_FUERTE, temperatura=0.2)
                 st.markdown(_cro_res)
                 _cro_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _cro_email:
@@ -4892,7 +4920,7 @@ with tabs[8]:
                             f"## PRÓXIMO PASO SUGERIDO\n"
                             f"[qué hacer si responde / si no responde]"
                         )
-                        _ia_res = generar_texto(_prompt_ia, max_out=1500, modelo=MODELO_FUERTE)
+                        _ia_res = generar_texto(_prompt_ia, max_out=4000, modelo=MODELO_FUERTE)
                         st.session_state["crm_ia_result"] = _ia_res
                         consumir(1)
 
