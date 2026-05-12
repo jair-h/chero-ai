@@ -2054,9 +2054,15 @@ Analiza este contenido visual y entrégame:
         modo = st.radio("¿Qué necesitas?", ["Ideas Virales", "Mejorar Guion", "Anti-Ban (Políticas)"])
         st.divider()
         if modo == "Ideas Virales":
-            if st.button("Generar 5 Ideas (1 Crédito)"):
-                if verificar_creditos(1):
-                    prompt = f"""Eres estratega viral de TikTok para {pais}.
+            modo_ideas = st.radio(
+                "¿Qué quieres hacer?",
+                ["💡 Generar ideas virales nuevas", "🔍 Evaluar mi idea", "✨ Mejorar una idea que me gustó"],
+                key="modo_ideas_tiktok"
+            )
+            if modo_ideas == "💡 Generar ideas virales nuevas":
+                if st.button("Generar 5 Ideas (1 Crédito)"):
+                    if verificar_creditos(1):
+                        prompt = f"""Eres estratega viral de TikTok para {pais}.
 Marca: {nombre_marca} | Nicho: {nicho} | Producto: {producto_servicio}
 
 Genera 5 ideas de TikToks/Reels para esta semana:
@@ -2090,29 +2096,229 @@ Genera 5 ideas de TikToks/Reels para esta semana:
 📹 ESTRUCTURA: [descripción de los 15-60 segundos]
 🎵 AUDIO SUGERIDO: [tipo de audio o canción]
 📊 POR QUÉ VA A FUNCIONAR: [razón basada en {pais}]"""
-                    try:
-                        _tiktok_res = generar_texto(prompt, max_out=6000)
-                        if _tiktok_res and not _tiktok_res.startswith("❌"):
-                            st.markdown(_tiktok_res)
-                        else:
-                            st.error(f"Error generando ideas TikTok: {_tiktok_res or 'Respuesta vacía del modelo'}")
-                    except Exception as _te:
-                        st.error(f"Error al generar ideas TikTok: {_te}")
-                    consumir(1)
+                        try:
+                            _tiktok_res = generar_texto(prompt, max_out=6000)
+                            if _tiktok_res and not _tiktok_res.startswith("❌"):
+                                st.markdown(_tiktok_res)
+                            else:
+                                st.error(f"Error generando ideas TikTok: {_tiktok_res or 'Respuesta vacía del modelo'}")
+                        except Exception as _te:
+                            st.error(f"Error al generar ideas TikTok: {_te}")
+                        consumir(1)
+            elif modo_ideas == "🔍 Evaluar mi idea":
+                idea_usuario = st.text_area(
+                    "Describe tu idea de video",
+                    placeholder="Ej: Quiero hacer un video mostrando cómo es por dentro un departamento de lujo en construcción...",
+                    height=150,
+                    key="idea_evaluar_input"
+                )
+                if idea_usuario and st.button("Evaluar mi idea (1 Crédito)", key="btn_evaluar_idea"):
+                    if verificar_creditos(1):
+                        prompt = f"""Eres experto en contenido viral para TikTok e Instagram en {pais}, nicho: {nicho}.
+
+El usuario tiene esta idea de video:
+{idea_usuario}
+
+Analiza:
+
+## 📊 POTENCIAL VIRAL
+Puntuación: [X/10]
+Por qué: [razón específica para {pais}]
+
+## ✅ LO QUE FUNCIONA
+[qué tiene de bueno esta idea]
+
+## ⚠️ EL PROBLEMA
+[qué podría fallar y por qué]
+
+## 🚀 VERSIÓN MEJORADA
+[la misma idea pero potenciada]
+
+## 🎣 3 HOOKS PARA ESTA IDEA
+Hook 1: [primeros 3 segundos opción A]
+Hook 2: [primeros 3 segundos opción B]
+Hook 3: [primeros 3 segundos opción C]
+
+## 📅 MEJOR MOMENTO PARA PUBLICAR
+[día y hora específica para {pais}]"""
+                        try:
+                            _eval_res = generar_texto(prompt, max_out=6000)
+                            if _eval_res and not _eval_res.startswith("❌"):
+                                st.markdown(_eval_res)
+                            else:
+                                st.error(f"Error evaluando idea: {_eval_res or 'Respuesta vacía del modelo'}")
+                        except Exception as _ee:
+                            st.error(f"Error al evaluar idea: {_ee}")
+                        consumir(1)
+            elif modo_ideas == "✨ Mejorar una idea que me gustó":
+                idea_usuario = st.text_area(
+                    "¿Qué idea quieres potenciar?",
+                    placeholder="Pega o describe la idea que generó Chero o que se te ocurrió...",
+                    height=150,
+                    key="idea_mejorar_input"
+                )
+                if idea_usuario and st.button("Potenciar mi idea (1 Crédito)", key="btn_mejorar_idea"):
+                    if verificar_creditos(1):
+                        prompt = f"""Eres experto en contenido viral para TikTok e Instagram en {pais}, nicho: {nicho}.
+Marca: {nombre_marca} | Producto: {producto_servicio}
+
+El usuario tiene esta idea que le gustó:
+{idea_usuario}
+
+Genera 5 variaciones mejoradas con hooks distintos:
+
+## 🚀 VARIACIÓN 1
+🎣 Hook: [primeros 3 segundos]
+📹 Desarrollo: [cómo grabar el video]
+🎯 Por qué funciona: [razón específica]
+
+## 🚀 VARIACIÓN 2
+🎣 Hook: [primeros 3 segundos]
+📹 Desarrollo: [cómo grabar el video]
+🎯 Por qué funciona: [razón específica]
+
+## 🚀 VARIACIÓN 3
+🎣 Hook: [primeros 3 segundos]
+📹 Desarrollo: [cómo grabar el video]
+🎯 Por qué funciona: [razón específica]
+
+## 🚀 VARIACIÓN 4
+🎣 Hook: [primeros 3 segundos]
+📹 Desarrollo: [cómo grabar el video]
+🎯 Por qué funciona: [razón específica]
+
+## 🚀 VARIACIÓN 5
+🎣 Hook: [primeros 3 segundos]
+📹 Desarrollo: [cómo grabar el video]
+🎯 Por qué funciona: [razón específica]
+
+## 💡 CUÁL PUBLICAR PRIMERO
+[recomendación con justificación para {pais}]"""
+                        try:
+                            _mejora_res = generar_texto(prompt, max_out=6000)
+                            if _mejora_res and not _mejora_res.startswith("❌"):
+                                st.markdown(_mejora_res)
+                            else:
+                                st.error(f"Error mejorando idea: {_mejora_res or 'Respuesta vacía del modelo'}")
+                        except Exception as _me:
+                            st.error(f"Error al mejorar idea: {_me}")
+                        consumir(1)
         elif modo == "Mejorar Guion":
-            txt = st.text_area("Pega tu guion borrador:")
-            if txt and st.button("Viralizar Guion (1 Crédito)"):
-                if verificar_creditos(1):
-                    prompt = f"Mejora este guion para máxima retención en {pais}.\nNicho: {nicho}. Producto/Servicio: {producto_servicio}.\nHazlo más dinámico, corta el relleno y pon un HOOK explosivo al inicio.\nGuion Original: \"{txt}\""
-                    try:
-                        _guion_res = generar_texto(prompt, max_out=6000)
-                        if _guion_res and not _guion_res.startswith("❌"):
-                            st.markdown(_guion_res)
-                        else:
-                            st.error(f"Error mejorando guion: {_guion_res or 'Respuesta vacía del modelo'}")
-                    except Exception as _ge:
-                        st.error(f"Error al mejorar guion: {_ge}")
-                    consumir(1)
+            modo_guion = st.radio(
+                "¿Qué quieres hacer con tu guión?",
+                ["🎬 Generar guión nuevo", "✏️ Mejorar mi guión existente", "✅ Revisar si mi guión funcionará"],
+                key="modo_guion_tiktok"
+            )
+            if modo_guion == "🎬 Generar guión nuevo":
+                txt = st.text_area("Pega tu guion borrador:")
+                if txt and st.button("Viralizar Guion (1 Crédito)"):
+                    if verificar_creditos(1):
+                        prompt = f"Mejora este guion para máxima retención en {pais}.\nNicho: {nicho}. Producto/Servicio: {producto_servicio}.\nHazlo más dinámico, corta el relleno y pon un HOOK explosivo al inicio.\nGuion Original: \"{txt}\""
+                        try:
+                            _guion_res = generar_texto(prompt, max_out=6000)
+                            if _guion_res and not _guion_res.startswith("❌"):
+                                st.markdown(_guion_res)
+                            else:
+                                st.error(f"Error mejorando guion: {_guion_res or 'Respuesta vacía del modelo'}")
+                        except Exception as _ge:
+                            st.error(f"Error al mejorar guion: {_ge}")
+                        consumir(1)
+            elif modo_guion == "✏️ Mejorar mi guión existente":
+                guion_usuario = st.text_area(
+                    "Pega tu guión aquí",
+                    placeholder="Escribe o pega el guión que ya tienes y Chero lo mejorará...",
+                    height=200,
+                    key="guion_mejorar_input"
+                )
+                if guion_usuario and st.button("Mejorar mi guión (1 Crédito)", key="btn_mejorar_guion"):
+                    if verificar_creditos(1):
+                        prompt = f"""Eres experto en TikTok y Reels para {pais}, especialista en el nicho {nicho}.
+
+El usuario tiene este guión:
+{guion_usuario}
+
+Analiza y mejora el guión considerando:
+1. ¿El hook (primeros 3 segundos) engancha?
+2. ¿El ritmo es adecuado para TikTok?
+3. ¿Hay llamada a la acción clara?
+4. ¿Conecta con el público de {pais}?
+
+Entrega:
+
+## ✅ LO QUE ESTÁ BIEN
+[qué partes funcionan y por qué]
+
+## ⚠️ LO QUE HAY QUE MEJORAR
+[problemas específicos con solución]
+
+## 🎬 VERSIÓN MEJORADA COMPLETA
+[el guión reescrito y mejorado]
+
+## 📊 PROBABILIDAD DE VIRAL
+[del 1 al 10 con justificación]
+
+## 💡 3 VARIACIONES ADICIONALES
+[3 versiones diferentes del mismo guión]"""
+                        try:
+                            _mejora_guion_res = generar_texto(prompt, max_out=6000)
+                            if _mejora_guion_res and not _mejora_guion_res.startswith("❌"):
+                                st.markdown(_mejora_guion_res)
+                            else:
+                                st.error(f"Error mejorando guión: {_mejora_guion_res or 'Respuesta vacía del modelo'}")
+                        except Exception as _mge:
+                            st.error(f"Error al mejorar guión: {_mge}")
+                        consumir(1)
+            elif modo_guion == "✅ Revisar si mi guión funcionará":
+                guion_usuario = st.text_area(
+                    "Pega tu guión aquí",
+                    placeholder="Escribe o pega el guión que ya tienes y Chero lo mejorará...",
+                    height=200,
+                    key="guion_revisar_input"
+                )
+                if guion_usuario and st.button("Revisar mi guión (1 Crédito)", key="btn_revisar_guion"):
+                    if verificar_creditos(1):
+                        prompt = f"""Eres experto en TikTok y Reels para {pais}, especialista en el nicho {nicho}.
+
+El usuario tiene este guión y quiere saber si va a funcionar:
+{guion_usuario}
+
+Haz un análisis de rendimiento predictivo:
+
+## 🎯 DIAGNÓSTICO GENERAL
+[evaluación honesta del guión]
+
+## 📊 MÉTRICAS PREDICHAS
+- Tasa de retención estimada: [%]
+- Probabilidad de completar el video: [%]
+- Potencial de shares: [bajo/medio/alto]
+- Probabilidad viral: [X/10]
+
+## 🎣 ANÁLISIS DEL HOOK
+[los primeros 3 segundos: ¿van a funcionar? ¿por qué?]
+
+## ⏱️ ANÁLISIS DEL RITMO
+[¿el ritmo mantiene la atención en TikTok?]
+
+## 📢 ANÁLISIS DEL CTA
+[¿la llamada a la acción es efectiva?]
+
+## 🌎 ADAPTACIÓN A {pais}
+[¿conecta culturalmente con el público de {pais}?]
+
+## ✅ VEREDICTO FINAL
+[¿publicar tal cual, mejorar antes, o rehacer?]
+
+## 🔧 LOS 3 CAMBIOS URGENTES
+[si hay que mejorar, ¿qué cambiar primero?]"""
+                        try:
+                            _revisar_guion_res = generar_texto(prompt, max_out=6000)
+                            if _revisar_guion_res and not _revisar_guion_res.startswith("❌"):
+                                st.markdown(_revisar_guion_res)
+                            else:
+                                st.error(f"Error revisando guión: {_revisar_guion_res or 'Respuesta vacía del modelo'}")
+                        except Exception as _rge:
+                            st.error(f"Error al revisar guión: {_rge}")
+                        consumir(1)
         elif modo == "Anti-Ban":
             txt = st.text_area("Texto que te preocupa:")
             if txt and st.button("Revisar Políticas (1 Crédito)"):
