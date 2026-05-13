@@ -446,6 +446,72 @@ def generar_multimodal(prompt, mime_type, file_bytes, temperatura=None, max_out=
     except Exception as e:
         return f"❌ Error en Auditoría Visual: {e}"
 
+# ── POST-GENERATION EDIT PANEL ──────────────────────────────────────────────
+def _panel_edicion(resultado, key_suffix, max_tokens=6000):
+    if not resultado or str(resultado).startswith("❌"):
+        return
+    st.divider()
+    st.subheader("¿Qué quieres hacer con este resultado?")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("✏️ Mejorar este resultado", key=f"btn_ed_mejorar_{key_suffix}"):
+            st.session_state[f"ed_modo_{key_suffix}"] = "mejorar"
+            st.session_state[f"ed_orig_{key_suffix}"] = resultado
+    with col2:
+        if st.button("➕ Agregar información", key=f"btn_ed_agregar_{key_suffix}"):
+            st.session_state[f"ed_modo_{key_suffix}"] = "agregar"
+            st.session_state[f"ed_orig_{key_suffix}"] = resultado
+    with col3:
+        if st.button("🔄 Generar versión diferente", key=f"btn_ed_regen_{key_suffix}"):
+            st.session_state[f"ed_modo_{key_suffix}"] = "regenerar"
+            st.session_state[f"ed_orig_{key_suffix}"] = resultado
+    _modo = st.session_state.get(f"ed_modo_{key_suffix}")
+    _orig = st.session_state.get(f"ed_orig_{key_suffix}", resultado)
+    if _modo == "mejorar":
+        instrucciones = st.text_area(
+            "¿Qué cambios quieres?",
+            placeholder="Ej: Hazlo más corto, cambia el tono a más formal, enfócalo más en precios...",
+            height=100, key=f"ed_instruc_{key_suffix}"
+        )
+        if st.button("Aplicar cambios", key=f"btn_ed_aplicar_{key_suffix}"):
+            if instrucciones.strip():
+                _prompt_ed = (f"Tienes este contenido:\n{_orig}\n\n"
+                              f"El usuario quiere estos cambios:\n{instrucciones}\n\n"
+                              f"Aplica los cambios manteniendo la estructura y calidad del original.\n"
+                              f"Entrega el contenido completo corregido.")
+                with st.spinner("Aplicando cambios..."):
+                    _nuevo = generar_texto(_prompt_ed, max_out=max_tokens)
+                if _nuevo and not _nuevo.startswith("❌"):
+                    st.markdown(_nuevo)
+                    st.session_state[f"ed_modo_{key_suffix}"] = None
+    elif _modo == "agregar":
+        info_adicional = st.text_area(
+            "¿Qué información quieres agregar?",
+            placeholder="Ej: Agrega que tenemos envío gratis, menciona el precio S/49, incluye el teléfono de contacto...",
+            height=100, key=f"ed_info_{key_suffix}"
+        )
+        if st.button("Incorporar información", key=f"btn_ed_incorp_{key_suffix}"):
+            if info_adicional.strip():
+                _prompt_ag = (f"Tienes este contenido:\n{_orig}\n\n"
+                              f"Incorpora esta información adicional de forma natural:\n{info_adicional}\n\n"
+                              f"Entrega el contenido completo actualizado.")
+                with st.spinner("Incorporando información..."):
+                    _nuevo = generar_texto(_prompt_ag, max_out=max_tokens)
+                if _nuevo and not _nuevo.startswith("❌"):
+                    st.markdown(_nuevo)
+                    st.session_state[f"ed_modo_{key_suffix}"] = None
+    elif _modo == "regenerar":
+        _prompt_orig = st.session_state.get(f"_ed_prompt_{key_suffix}")
+        if _prompt_orig:
+            with st.spinner("Generando versión diferente..."):
+                _nuevo = generar_texto(_prompt_orig, max_out=max_tokens)
+            if _nuevo and not _nuevo.startswith("❌"):
+                st.markdown(_nuevo)
+                st.session_state[f"_ed_{key_suffix}"] = _nuevo
+        else:
+            st.info("Para generar una versión diferente, usa el botón de generación original.")
+        st.session_state[f"ed_modo_{key_suffix}"] = None
+
 # =========================
 # SUPABASE: USUARIOS
 # =========================
@@ -1844,6 +1910,7 @@ Responde en este formato EXACTO sin introducciones:
         if plan_guardado:
             st.success("✅ Ya tienes un plan guardado para esta semana")
             st.markdown(plan_guardado["contenido"])
+            _panel_edicion(plan_guardado["contenido"], "plan_guardado", max_tokens=6000)
             if st.button(t("btn_regenerar_plan")):
                 if verificar_creditos(1):
                     consumir(1)
@@ -1851,7 +1918,7 @@ Responde en este formato EXACTO sin introducciones:
                         nicho_plan = st.session_state.get("nicho_guardado", "")
                         cliente_plan = st.session_state.get("cliente_ideal_guardado", "")
                         marca_plan = st.session_state.get("marca_guardada", "")
-                        prompt = f"""Eres estratega de contenidos para {pais}.
+                        _prompt_plan_regen = f"""Eres estratega de contenidos para {pais}.
 Marca: {marca_plan} | Nicho: {nicho_plan} | País: {pais}
 Producto: {st.session_state.get('producto_servicio', '')} | Cliente: {cliente_plan}
 
@@ -1873,11 +1940,15 @@ Crea el plan semanal en este formato EXACTO:
 
 ## 🔥 EL POST MÁS IMPORTANTE DE LA SEMANA
 [Copy completo del post con mayor potencial viral]"""
-                        nuevo_resultado = generar_texto(prompt, max_out=6000)
+                        nuevo_resultado = generar_texto(_prompt_plan_regen, max_out=6000)
                         guardar_plan_semanal(email_tab, semana, nuevo_resultado)
                         guardar_reporte(email_tab, "plan_semanal", f"Plan semanal regenerado {semana}", nuevo_resultado)
                         st.success("🔁 Nuevo plan generado")
-                        st.markdown(nuevo_resultado)
+                        st.session_state["_ed_plan_regen"] = nuevo_resultado
+                        st.session_state["_ed_prompt_plan_regen"] = _prompt_plan_regen
+            if st.session_state.get("_ed_plan_regen"):
+                st.markdown(st.session_state["_ed_plan_regen"])
+                _panel_edicion(st.session_state["_ed_plan_regen"], "plan_regen", max_tokens=6000)
         else:
             st.warning("Aún no tienes plan para esta semana")
             if st.button(t("btn_generar_plan")):
@@ -1885,7 +1956,7 @@ Crea el plan semanal en este formato EXACTO:
                     nicho_plan = st.session_state.get("nicho_guardado", "")
                     cliente_plan = st.session_state.get("cliente_ideal_guardado", "")
                     marca_plan = st.session_state.get("marca_guardada", "")
-                    prompt = f"""Eres estratega de contenidos para {pais}.
+                    _prompt_plan_nuevo = f"""Eres estratega de contenidos para {pais}.
 Marca: {marca_plan} | Nicho: {nicho_plan} | País: {pais}
 Producto: {st.session_state.get('producto_servicio', '')} | Cliente: {cliente_plan}
 
@@ -1907,11 +1978,15 @@ Crea el plan semanal en este formato EXACTO:
 
 ## 🔥 EL POST MÁS IMPORTANTE DE LA SEMANA
 [Copy completo del post con mayor potencial viral]"""
-                    resultado = generar_texto(prompt, max_out=6000)
+                    resultado = generar_texto(_prompt_plan_nuevo, max_out=6000)
                     guardar_plan_semanal(email_tab, semana, resultado)
                     guardar_reporte(email_tab, "plan_semanal", f"Plan semanal {semana}", resultado)
                     st.success("🔥 Plan generado y guardado")
-                    st.markdown(resultado)
+                    st.session_state["_ed_plan_nuevo"] = resultado
+                    st.session_state["_ed_prompt_plan_nuevo"] = _prompt_plan_nuevo
+            if st.session_state.get("_ed_plan_nuevo"):
+                st.markdown(st.session_state["_ed_plan_nuevo"])
+                _panel_edicion(st.session_state["_ed_plan_nuevo"], "plan_nuevo", max_tokens=6000)
 
     st.markdown("## \U0001f9ea Diagnóstico del Negocio")
     st.caption("\U0001f9ea Análisis profundo · 1 crédito" if st.session_state.get("lang") != "en" else "\U0001f9ea Deep analysis · 1 credit")
@@ -2099,12 +2174,16 @@ Genera 5 ideas de TikToks/Reels para esta semana:
                         try:
                             _tiktok_res = generar_texto(prompt, max_out=6000)
                             if _tiktok_res and not _tiktok_res.startswith("❌"):
-                                st.markdown(_tiktok_res)
+                                st.session_state["_ed_tkt_ideas"] = _tiktok_res
+                                st.session_state["_ed_prompt_tkt_ideas"] = prompt
                             else:
                                 st.error(f"Error generando ideas TikTok: {_tiktok_res or 'Respuesta vacía del modelo'}")
                         except Exception as _te:
                             st.error(f"Error al generar ideas TikTok: {_te}")
                         consumir(1)
+                if st.session_state.get("_ed_tkt_ideas"):
+                    st.markdown(st.session_state["_ed_tkt_ideas"])
+                    _panel_edicion(st.session_state["_ed_tkt_ideas"], "tkt_ideas", max_tokens=6000)
             elif modo_ideas == "🔍 Evaluar mi idea":
                 idea_usuario = st.text_area(
                     "Describe tu idea de video",
@@ -2144,12 +2223,16 @@ Hook 3: [primeros 3 segundos opción C]
                         try:
                             _eval_res = generar_texto(prompt, max_out=6000)
                             if _eval_res and not _eval_res.startswith("❌"):
-                                st.markdown(_eval_res)
+                                st.session_state["_ed_tkt_eval"] = _eval_res
+                                st.session_state["_ed_prompt_tkt_eval"] = prompt
                             else:
                                 st.error(f"Error evaluando idea: {_eval_res or 'Respuesta vacía del modelo'}")
                         except Exception as _ee:
                             st.error(f"Error al evaluar idea: {_ee}")
                         consumir(1)
+                if st.session_state.get("_ed_tkt_eval"):
+                    st.markdown(st.session_state["_ed_tkt_eval"])
+                    _panel_edicion(st.session_state["_ed_tkt_eval"], "tkt_eval", max_tokens=6000)
             elif modo_ideas == "✨ Mejorar una idea que me gustó":
                 idea_usuario = st.text_area(
                     "¿Qué idea quieres potenciar?",
@@ -2197,12 +2280,16 @@ Genera 5 variaciones mejoradas con hooks distintos:
                         try:
                             _mejora_res = generar_texto(prompt, max_out=6000)
                             if _mejora_res and not _mejora_res.startswith("❌"):
-                                st.markdown(_mejora_res)
+                                st.session_state["_ed_tkt_mejora"] = _mejora_res
+                                st.session_state["_ed_prompt_tkt_mejora"] = prompt
                             else:
                                 st.error(f"Error mejorando idea: {_mejora_res or 'Respuesta vacía del modelo'}")
                         except Exception as _me:
                             st.error(f"Error al mejorar idea: {_me}")
                         consumir(1)
+                if st.session_state.get("_ed_tkt_mejora"):
+                    st.markdown(st.session_state["_ed_tkt_mejora"])
+                    _panel_edicion(st.session_state["_ed_tkt_mejora"], "tkt_mejora", max_tokens=6000)
         elif modo == "Mejorar Guion":
             modo_guion = st.radio(
                 "¿Qué quieres hacer con tu guión?",
@@ -2217,12 +2304,16 @@ Genera 5 variaciones mejoradas con hooks distintos:
                         try:
                             _guion_res = generar_texto(prompt, max_out=6000)
                             if _guion_res and not _guion_res.startswith("❌"):
-                                st.markdown(_guion_res)
+                                st.session_state["_ed_tkt_gnuevo"] = _guion_res
+                                st.session_state["_ed_prompt_tkt_gnuevo"] = prompt
                             else:
                                 st.error(f"Error mejorando guion: {_guion_res or 'Respuesta vacía del modelo'}")
                         except Exception as _ge:
                             st.error(f"Error al mejorar guion: {_ge}")
                         consumir(1)
+                if st.session_state.get("_ed_tkt_gnuevo"):
+                    st.markdown(st.session_state["_ed_tkt_gnuevo"])
+                    _panel_edicion(st.session_state["_ed_tkt_gnuevo"], "tkt_gnuevo", max_tokens=6000)
             elif modo_guion == "✏️ Mejorar mi guión existente":
                 guion_usuario = st.text_area(
                     "Pega tu guión aquí",
@@ -2262,12 +2353,16 @@ Entrega:
                         try:
                             _mejora_guion_res = generar_texto(prompt, max_out=6000)
                             if _mejora_guion_res and not _mejora_guion_res.startswith("❌"):
-                                st.markdown(_mejora_guion_res)
+                                st.session_state["_ed_tkt_gmejorar"] = _mejora_guion_res
+                                st.session_state["_ed_prompt_tkt_gmejorar"] = prompt
                             else:
                                 st.error(f"Error mejorando guión: {_mejora_guion_res or 'Respuesta vacía del modelo'}")
                         except Exception as _mge:
                             st.error(f"Error al mejorar guión: {_mge}")
                         consumir(1)
+                if st.session_state.get("_ed_tkt_gmejorar"):
+                    st.markdown(st.session_state["_ed_tkt_gmejorar"])
+                    _panel_edicion(st.session_state["_ed_tkt_gmejorar"], "tkt_gmejorar", max_tokens=6000)
             elif modo_guion == "✅ Revisar si mi guión funcionará":
                 guion_usuario = st.text_area(
                     "Pega tu guión aquí",
@@ -2313,12 +2408,16 @@ Haz un análisis de rendimiento predictivo:
                         try:
                             _revisar_guion_res = generar_texto(prompt, max_out=6000)
                             if _revisar_guion_res and not _revisar_guion_res.startswith("❌"):
-                                st.markdown(_revisar_guion_res)
+                                st.session_state["_ed_tkt_grevisar"] = _revisar_guion_res
+                                st.session_state["_ed_prompt_tkt_grevisar"] = prompt
                             else:
                                 st.error(f"Error revisando guión: {_revisar_guion_res or 'Respuesta vacía del modelo'}")
                         except Exception as _rge:
                             st.error(f"Error al revisar guión: {_rge}")
                         consumir(1)
+                if st.session_state.get("_ed_tkt_grevisar"):
+                    st.markdown(st.session_state["_ed_tkt_grevisar"])
+                    _panel_edicion(st.session_state["_ed_tkt_grevisar"], "tkt_grevisar", max_tokens=6000)
         elif modo == "Anti-Ban":
             txt = st.text_area("Texto que te preocupa:")
             if txt and st.button("Revisar Políticas (1 Crédito)"):
@@ -2423,13 +2522,17 @@ Completa todas las secciones. No cortes el texto a la mitad."""
         historia_base = st.text_area("Cuéntame brevemente tu historia o la de tu negocio:", placeholder="Ej: Empecé buscando mejorar mi energía con productos naturales...")
         if historia_base and st.button("Crear Storytelling (1 Crédito)"):
             if verificar_creditos(1):
-                prompt = f"Eres experto en branding y storytelling.\nConstruye una historia de marca para:\nMarca: {_st_marca}\nNicho: {_st_nicho}\nProducto/Servicio: {_st_prod}\nPaís: {_st_pais}\nCliente ideal: {_st_cliente}\nHistoria base: {historia_base}\nDame: historia corta emocional, historia larga, versión para Instagram bio y frase de posicionamiento."
-                texto = generar_texto(prompt, max_out=8000)
-                st.markdown(texto)
+                _prompt_story = f"Eres experto en branding y storytelling.\nConstruye una historia de marca para:\nMarca: {_st_marca}\nNicho: {_st_nicho}\nProducto/Servicio: {_st_prod}\nPaís: {_st_pais}\nCliente ideal: {_st_cliente}\nHistoria base: {historia_base}\nDame: historia corta emocional, historia larga, versión para Instagram bio y frase de posicionamiento."
+                texto = generar_texto(_prompt_story, max_out=8000)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
                     guardar_reporte(email_tab, "storytelling", f"Storytelling de marca - {_st_marca}", texto)
                 consumir(1)
+                st.session_state["_ed_storytelling"] = texto
+                st.session_state["_ed_prompt_storytelling"] = _prompt_story
+        if st.session_state.get("_ed_storytelling"):
+            st.markdown(st.session_state["_ed_storytelling"])
+            _panel_edicion(st.session_state["_ed_storytelling"], "storytelling", max_tokens=8000)
 
     elif opcion_mkt == "Plan de Crisis":
         st.write("Prepara una respuesta inteligente ante comentarios negativos o situaciones delicadas.")
@@ -2558,12 +2661,16 @@ Completa todas las oraciones. No cortes el texto a la mitad."""
                 )
                 with st.spinner("Generando anuncio seguro..."):
                     _res_seguro = generar_texto(_prompt_seguro, max_out=6000, modelo=MODELO_FUERTE)
-                st.markdown(_res_seguro)
                 _email_cc = (st.session_state.get("user_email") or "").strip().lower()
                 if _email_cc:
                     guardar_reporte(_email_cc, "compliance",
                                     f"Anuncio seguro - {compliance_producto[:40]}", _res_seguro)
                 consumir(1)
+                st.session_state["_ed_comp_seg"] = _res_seguro
+                st.session_state["_ed_prompt_comp_seg"] = _prompt_seguro
+        if st.session_state.get("_ed_comp_seg"):
+            st.markdown(st.session_state["_ed_comp_seg"])
+            _panel_edicion(st.session_state["_ed_comp_seg"], "comp_seg", max_tokens=6000)
 
         st.divider()
         copy_anuncio = st.text_area("Pega tu copy de anuncio aqu\u00ed:", placeholder="Ej: \u00a1Pierde 10 kilos en 2 semanas garantizado! Oferta exclusiva...")
@@ -2599,19 +2706,23 @@ Completa todas las oraciones. No cortes el texto a la mitad."""
 
                 with st.spinner("Analizando compliance..."):
                     texto_check = generar_texto(prompt_check, max_out=6000)
-                st.markdown(texto_check)
-
-                st.markdown("---")
-                st.markdown("### 💡 Ideas de Publicidad Seguras")
                 with st.spinner("Generando ideas seguras..."):
                     texto_ideas = generar_texto(prompt_ideas, max_out=6000)
-                st.markdown(texto_ideas)
-
                 texto_completo = texto_check + "\n\n---\n### 💡 Ideas de Publicidad Seguras\n" + texto_ideas
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
                     guardar_reporte(email_tab, "compliance", f"Compliance check - {dt.now().strftime('%d/%m/%Y')}", texto_completo)
                 consumir(1)
+                st.session_state["_ed_comp_check"] = texto_completo
+        if st.session_state.get("_ed_comp_check"):
+            _cc_txt = st.session_state["_ed_comp_check"]
+            _cc_parts = _cc_txt.split("\n\n---\n### 💡 Ideas de Publicidad Seguras\n", 1)
+            st.markdown(_cc_parts[0])
+            if len(_cc_parts) > 1:
+                st.markdown("---")
+                st.markdown("### 💡 Ideas de Publicidad Seguras")
+                st.markdown(_cc_parts[1])
+            _panel_edicion(_cc_txt, "comp_check", max_tokens=6000)
 
     elif opcion_mkt == "Gaps del Competidor":
         st.write("Analiza un perfil rival para descubrir quejas de sus clientes, sus debilidades y los gaps del mercado que tú puedes aprovechar.")
@@ -2633,11 +2744,15 @@ Basándote en lo que típicamente se ve en perfiles de este nicho en {pais}, gen
 Sé concreto y accionable para el mercado de {pais}."""
                 with st.spinner("Analizando sentimiento..."):
                     texto = generar_texto(prompt, max_out=6000, temperatura=0.2)
-                st.markdown(texto)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
                     guardar_reporte(email_tab, "sentimiento", f"Análisis competidor: {link_competidor}", texto)
                 consumir(2)
+                st.session_state["_ed_gaps_comp"] = texto
+                st.session_state["_ed_prompt_gaps_comp"] = prompt
+        if st.session_state.get("_ed_gaps_comp"):
+            st.markdown(st.session_state["_ed_gaps_comp"])
+            _panel_edicion(st.session_state["_ed_gaps_comp"], "gaps_comp", max_tokens=6000)
 
     elif opcion_mkt == "Campaña de Catálogo":
         moneda_cat = PAISES_MONEDA.get(pais, "$")
@@ -2923,10 +3038,14 @@ Al final agrega:
 Completa todas las secciones. No cortes el texto a la mitad."""
                     with st.spinner("Generando campaña de catálogo..."):
                         texto_cat = generar_texto(prompt_catalogo, max_out=4000)
-                    st.markdown(texto_cat)
                     if user_email_cat:
                         guardar_reporte(user_email_cat, "catalogo", f"Campaña catálogo - {dt.now().strftime('%d/%m/%Y')}", texto_cat)
                     consumir(3)
+                    st.session_state["_ed_cat_camp"] = texto_cat
+                    st.session_state["_ed_prompt_cat_camp"] = prompt_catalogo
+            if st.session_state.get("_ed_cat_camp"):
+                st.markdown(st.session_state["_ed_cat_camp"])
+                _panel_edicion(st.session_state["_ed_cat_camp"], "cat_camp", max_tokens=4000)
 
         # ══════════════════════════════════════════════════════════════════════
         # SIN CATÁLOGO — AGREGAR PRIMERA VEZ
@@ -3900,12 +4019,16 @@ with tabs[6]:
                     f"================\n")
                 with st.spinner("Generando secuencia..." if not _is_en_pw else "Generating sequence..."):
                     _em_res = generar_texto(_em_prompt, max_out=6000, modelo=MODELO_FUERTE)
-                st.markdown(_em_res)
                 _em_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _em_email:
                     guardar_reporte(_em_email, "email_marketing",
                                     f"Secuencia {_em_tipo_sel} - {_em_marca}", _em_res)
                 consumir(2)
+                st.session_state["_ed_email_mkt"] = _em_res
+                st.session_state["_ed_prompt_email_mkt"] = _em_prompt
+        if st.session_state.get("_ed_email_mkt"):
+            st.markdown(st.session_state["_ed_email_mkt"])
+            _panel_edicion(st.session_state["_ed_email_mkt"], "email_mkt", max_tokens=6000)
 
     # ── 2. GESTIÓN DE COMUNIDAD ───────────────────────────────────────────────
     elif opcion_power == "Gesti\u00f3n de Comunidad":
@@ -4167,12 +4290,16 @@ with tabs[6]:
                     f"   Mejor d\u00eda y hora para distribuir en {_pr_pais}\n")
                 with st.spinner("Generando kit de PR..." if not _is_en_pw else "Generating PR kit..."):
                     _pr_res = generar_texto(_pr_prompt, max_out=6000, modelo=MODELO_FUERTE)
-                st.markdown(_pr_res)
                 _pr_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _pr_email:
                     guardar_reporte(_pr_email, "pr_digital",
                                     f"PR {_pr_tipo} - {_pr_marca}", _pr_res)
                 consumir(2)
+                st.session_state["_ed_pr_dig"] = _pr_res
+                st.session_state["_ed_prompt_pr_dig"] = _pr_prompt
+        if st.session_state.get("_ed_pr_dig"):
+            st.markdown(st.session_state["_ed_pr_dig"])
+            _panel_edicion(st.session_state["_ed_pr_dig"], "pr_dig", max_tokens=6000)
 
     # ── 7. TRACKER DE KPIs ────────────────────────────────────────────────────
     elif opcion_power == "Tracker de KPIs":
@@ -4745,9 +4872,13 @@ with tabs[7]:
                 ("\U0001f3af Your action plan TODAY",  "ap_o5", True),
             ]
 
+            _ap_ks_map = {"ap_o1": "ap_ag1", "ap_o2": "ap_ag2", "ap_o3": "ap_ag3", "ap_o4": "ap_ag4", "ap_o5": "ap_ag5"}
             for _exp_label, _key, _expanded in _labels:
                 with st.expander(_exp_label, expanded=_expanded):
-                    st.markdown(st.session_state.get(_key, ""))
+                    _ap_content = st.session_state.get(_key, "")
+                    st.markdown(_ap_content)
+                    if _ap_content:
+                        _panel_edicion(_ap_content, _ap_ks_map[_key], max_tokens=8000)
 
 
 
