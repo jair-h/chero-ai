@@ -145,9 +145,9 @@ _TRANS = {
         "creditos_restantes": "Créditos restantes",
         "consumo": "Consumo",
         "termometro": "📊 Termómetro de Marca",
-        "rec_inteligente": "## 🎯 Recomendación Inteligente de Hoy",
-        "btn_rec": "🧠 Ver recomendación del día",
-        "btn_escanear": "🔄 Escanear Potencial de Hoy (Gratis)",
+        "rec_inteligente": "## ⚡ Acciones Inteligentes de Hoy",
+        "btn_rec": "⚡ Ver acciones inteligentes de hoy",
+        "btn_escanear": "🩺 Auditoría Maestra del Negocio (1 Crédito)",
         "btn_acciones": "🚀 Generar 3 Acciones para Hoy (1 Crédito)",
         "plan_semanal_titulo": "## 🧠 Plan de Contenido Semanal",
         "btn_regenerar_plan": "🔄 Regenerar Plan Semanal (1 crédito)",
@@ -161,7 +161,7 @@ _TRANS = {
             "Generador de Personas", "Embudo de Ventas",
             "Storytelling de Marca", "Plan de Crisis",
             "SEO y Palabras Clave", "Artículo de Blog SEO",
-            "Compliance Checker", "Gaps del Competidor", "Campaña de Catálogo",
+            "Compliance Checker", "🕵️ Inteligencia Competitiva", "Campaña de Catálogo",
             "🧪 Simulador de Campaña",
         ],
         "cerrador": "💰 Cerrador de Tratos",
@@ -207,9 +207,9 @@ _TRANS = {
         "creditos_restantes": "Remaining credits",
         "consumo": "Usage",
         "termometro": "📊 Brand Thermometer",
-        "rec_inteligente": "## 🎯 Today's Smart Recommendation",
-        "btn_rec": "🧠 See today's recommendation",
-        "btn_escanear": "🔄 Scan Today's Potential (Free)",
+        "rec_inteligente": "## ⚡ Today's Intelligent Actions",
+        "btn_rec": "⚡ See today's intelligent actions",
+        "btn_escanear": "🩺 Master Business Audit (1 Credit)",
         "btn_acciones": "🚀 Generate 3 Actions for Today (1 Credit)",
         "plan_semanal_titulo": "## 🧠 Weekly Content Plan",
         "btn_regenerar_plan": "🔄 Regenerate Weekly Plan (1 credit)",
@@ -223,7 +223,7 @@ _TRANS = {
             "Persona Generator", "Sales Funnel",
             "Brand Storytelling", "Crisis Plan",
             "SEO & Keywords", "SEO Blog Article",
-            "Compliance Checker", "Competitor Gaps", "Catalog Campaign",
+            "Compliance Checker", "🕵️ Competitive Intelligence", "Catalog Campaign",
             "🧪 Campaign Simulator",
         ],
         "cerrador": "💰 Deal Closer",
@@ -410,8 +410,42 @@ def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
     st.button("\U0001f504 Reintentar", key=f"retry_btn_{id(prompt)}")
     return f"\u274c Error en IA: {_ultimo_error}"
 
+SYSTEM_ANALITICO = """Eres CHERO, el Analista de Datos Senior del negocio del usuario.
+REGLAS ABSOLUTAS:
+1. Solo afirmas lo que puedes deducir directamente de los datos o inputs proporcionados.
+2. Nunca inventas métricas, porcentajes, nombres de clientes, ni ejemplos específicos que no estén en el input.
+3. Si no tienes datos suficientes para una sección, di explícitamente: "Datos insuficientes para esta sección."
+4. Toda recomendación debe estar justificada por un dato concreto del input.
+5. Usa formato estructurado con headers claros, bullet points y números exactos cuando los haya.
+6. Prioriza precisión sobre creatividad. Este análisis puede afectar decisiones de negocio reales."""
+
+def generar_analitico(prompt, max_tokens=6000):
+    try:
+        _marca_ctx  = st.session_state.get("marca_guardada", "")
+        _pais_ctx   = st.session_state.get("pais_guardado", "")
+        _nicho_ctx  = st.session_state.get("nicho_guardado", "")
+        _oferta_ctx = st.session_state.get("producto_servicio", "")
+        if any([_marca_ctx, _nicho_ctx, _oferta_ctx]):
+            _ctx = (
+                f"CONTEXTO DEL NEGOCIO:\nMarca: {_marca_ctx}\nPaís: {_pais_ctx}\n"
+                f"Nicho: {_nicho_ctx}\nOferta: {_oferta_ctx}\n\n"
+            )
+            prompt = _ctx + prompt
+        resp = client.models.generate_content(
+            model=MODELO_FUERTE,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_ANALITICO,
+                temperature=0.0,
+                top_p=0.1,
+                max_output_tokens=max_tokens
+            )
+        )
+        return resp.text
+    except Exception as e:
+        return f"❌ Error en análisis: {e}"
+
 def _sanitizar(texto, max_chars=3000):
-    """Sanitiza texto de usuario antes de enviar a Gemini."""
     texto = (texto or "").strip()[:max_chars]
     texto = texto.replace('<', '').replace('>', '')
     return texto
@@ -1497,7 +1531,7 @@ with tabs[0]:
                 marca_tab = st.session_state.get("marca_guardada", nombre_marca)
                 pais_tab = st.session_state.get("pais_guardado", pais)
                 fecha_hoy = dt.now().strftime('%d/%m/%Y')
-                prompt = f"""Actúa como consultor de negocios senior.
+                _prompt_rec = f"""Actúa como consultor de negocios senior.
 Analiza este negocio HOY ({fecha_hoy}):
 Marca: {marca_tab} | Nicho: {nicho_tab} | País: {pais_tab}
 Producto: {st.session_state.get('producto_servicio', '')}
@@ -1506,114 +1540,147 @@ Cliente ideal: {cliente_tab}
 Responde en este formato EXACTO sin introducciones:
 
 ## ⚡ ACCIÓN #1 — MÁXIMO IMPACTO HOY
-**Qué hacer:** [acción específica]
-**Cómo:** [pasos concretos en menos de 30 min]
-**Por qué ahora:** [razón urgente]
+**Qué hacer:** [acción específica y concreta]
+**Cómo:** [pasos detallados en menos de 30 minutos]
+**Por qué ahora:** [razón urgente basada en el negocio]
 
 ## 🔴 ERROR QUE ESTÁS COMETIENDO HOY
-[El error más costoso con solución inmediata]
+[El error más costoso con solución inmediata y paso a paso]
 
 ## 💡 OPORTUNIDAD QUE NADIE ESTÁ VIENDO
-[Oportunidad concreta para este negocio hoy]
+[Oportunidad concreta y específica para este negocio hoy]
 
 ## 📱 POST PARA PUBLICAR HOY
-[Copy completo listo para publicar con emojis y CTA]"""
-                resultado = generar_texto(prompt, max_out=6000)
-                st.markdown(resultado)
+[Copy completo listo para publicar con emojis y CTA fuerte]
+
+## 📊 MÉTRICA QUE DEBES REVISAR HOY
+[Qué número mirar, dónde encontrarlo y qué hacer según el resultado]
+
+## 📋 3 TAREAS DE HOY
+1. [Tarea 1 — tiempo estimado: X min]
+2. [Tarea 2 — tiempo estimado: X min]
+3. [Tarea 3 — tiempo estimado: X min]"""
+                _resultado_rec = generar_texto(_prompt_rec, max_out=6000)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
-                    guardar_reporte(email_tab, "recomendacion", f"Recomendación del día {dt.now().strftime('%d/%m/%Y')}", resultado)
+                    guardar_reporte(email_tab, "recomendacion", f"Acciones inteligentes {dt.now().strftime('%d/%m/%Y')}", _resultado_rec)
                 consumir(1)
+                st.session_state["_ed_rec_hoy"] = _resultado_rec
+                st.session_state["_ed_prompt_rec_hoy"] = _prompt_rec
+    if st.session_state.get("_ed_rec_hoy"):
+        st.markdown(st.session_state["_ed_rec_hoy"])
+        _panel_edicion(st.session_state["_ed_rec_hoy"], "rec_hoy", max_tokens=6000)
     st.caption("⚡ La acción más importante hoy · 1 crédito" if st.session_state.get("lang") != "en" else "⚡ The most important action today · 1 credit")
 
-    if st.button(t("btn_escanear")):
-        with st.spinner("Analizando mercado..."):
-            nicho_tab = st.session_state.get("nicho_guardado", nicho)
-            producto_tab = st.session_state.get("producto_servicio", "")
-            pais_tab = st.session_state.get("pais_guardado", pais)
-            link_redes_tab = st.session_state.get("link_redes", "").strip()
-            link_web_tab = st.session_state.get("link_web", "").strip()
+    st.divider()
+    st.markdown("## 🩺 Auditoría Maestra del Negocio")
+    st.caption("🩺 Diagnóstico profundo + potencial de mercado · 1 crédito")
+    if st.button(t("btn_escanear"), key="btn_auditoria_maestra"):
+        if verificar_creditos(1):
+            _nicho_am = st.session_state.get("nicho_guardado", nicho)
+            _producto_am = st.session_state.get("producto_servicio", "")
+            _pais_am = st.session_state.get("pais_guardado", pais)
+            _marca_am = st.session_state.get("marca_guardada", nombre_marca)
+            _cliente_am = st.session_state.get("cliente_ideal_guardado", cliente_ideal)
+            _link_redes_am = st.session_state.get("link_redes", "").strip()
+            _link_web_am = st.session_state.get("link_web", "").strip()
 
-            lineas_extra = []
-            if link_redes_tab:
-                lineas_extra.append(f"Presencia en redes: {link_redes_tab}")
-            if link_web_tab:
-                lineas_extra.append(f"Web o tienda: {link_web_tab}")
-            info_extra = ("\n" + "\n".join(lineas_extra)) if lineas_extra else ""
-
-            prompt_scores = (
+            _prompt_scores_am = (
                 f"Responde solo con 4 números del 0 al 100 separados por coma. Nada más.\n"
-                f"Nicho: {nicho_tab}, País: {pais_tab}\n"
+                f"Nicho: {_nicho_am}, País: {_pais_am}\n"
                 f"Evalúa: viralidad, demanda, competencia, exito\n"
                 f"Respuesta:"
             )
-            numeros = []
-            for intento in range(3):
+            _numeros_am = []
+            for _intento_am in range(3):
                 try:
-                    raw_scores = generar_texto(prompt_scores, max_out=30, modelo=MODELO_RAPIDO)
-                    print(f"[Escanear intento {intento+1}] raw: {repr(raw_scores)}")
-                    if raw_scores:
-                        numeros = re.findall(r'\d+', raw_scores)
-                    if len(numeros) >= 4:
+                    _raw_am = client.models.generate_content(
+                        model=MODELO_RAPIDO,
+                        contents=_prompt_scores_am,
+                        config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=30)
+                    ).text
+                    if _raw_am:
+                        _numeros_am = re.findall(r'\d+', _raw_am)
+                    if len(_numeros_am) >= 4:
                         break
-                except Exception as ex:
-                    print(f"[Escanear intento {intento+1}] excepción: {ex}")
+                except Exception:
+                    pass
 
-            if len(numeros) >= 4:
-                s1, s2, s3, s4 = [min(int(n), 100) for n in numeros[:4]]
-                st.session_state.scores = (s1, s2, s3, s4)
-                st.session_state.scores_context = {
-                    "nicho": nicho_tab, "pais": pais_tab, "producto": producto_tab,
-                    "link_redes": link_redes_tab, "link_web": link_web_tab
-                }
-                st.session_state.scores_fallback = False
+            if len(_numeros_am) >= 4:
+                _s1, _s2, _s3, _s4 = [min(int(n), 100) for n in _numeros_am[:4]]
             else:
-                st.session_state.scores = (50, 50, 50, 50)
-                st.session_state.scores_context = None
-                st.session_state.scores_fallback = True
+                _s1, _s2, _s3, _s4 = 50, 50, 50, 50
 
-    if "scores" in st.session_state:
-        s1, s2, s3, s4 = st.session_state.scores
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("🔥 Viralidad", f"{s1}%")
-        c2.metric("🛍️ Demanda", f"{s2}%")
-        c3.metric("⚔️ Competencia", f"{s3}%")
-        c4.metric("🏆 Éxito Global", f"{s4}/100")
+            st.session_state["_am_scores"] = (_s1, _s2, _s3, _s4)
 
-        if st.session_state.get("scores_fallback", False):
-            st.warning("⚠️ Análisis no disponible, intenta nuevamente")
-        else:
-            ctx = st.session_state.get("scores_context")
-            if ctx:
-                nicho_exp = ctx["nicho"]
-                pais_exp = ctx["pais"]
-                producto_exp = ctx["producto"]
-                link_redes_exp = ctx.get("link_redes", "")
-                link_web_exp = ctx.get("link_web", "")
+            _lineas_am = []
+            if _link_redes_am:
+                _lineas_am.append(f"Presencia en redes: {_link_redes_am}")
+            if _link_web_am:
+                _lineas_am.append(f"Web o tienda: {_link_web_am}")
+            _info_am = ("\n" + "\n".join(_lineas_am)) if _lineas_am else ""
 
-                lineas_ctx = []
-                if link_redes_exp:
-                    lineas_ctx.append(f"Presencia en redes: {link_redes_exp}")
-                if link_web_exp:
-                    lineas_ctx.append(f"Web o tienda: {link_web_exp}")
-                info_ctx = ("\n" + "\n".join(lineas_ctx)) if lineas_ctx else ""
+            _prompt_audit = f"""Eres consultor de negocios senior. Realiza una auditoría completa de este negocio.
 
-                prompt_explicacion = (
-                    f"Escribe exactamente 3 oraciones completas sobre este negocio:\n"
-                    f"Negocio: {nicho_exp} en {pais_exp}\n"
-                    f"Viralidad: {s1}/100, Demanda: {s2}/100, Competencia: {s3}/100, Éxito: {s4}/100\n"
-                    f"Oración 1: qué significan estos números para este negocio.\n"
-                    f"Oración 2: cuál es el punto más débil y por qué.\n"
-                    f"Oración 3: una acción concreta para mejorar hoy.\n"
-                    f"No cortes ninguna oración. Termina cada una con punto."
-                )
-                with st.spinner("Generando análisis..."):
-                    explicacion = generar_texto(prompt_explicacion, max_out=4000, modelo=MODELO_FUERTE, temperatura=0.2)
-                if explicacion and not explicacion.startswith("❌"):
-                    st.markdown(explicacion)
+Marca: {_marca_am}
+Nicho: {_nicho_am}
+Producto/Servicio: {_producto_am}
+Cliente ideal: {_cliente_am}
+País: {_pais_am}{_info_am}
 
+Scores del mercado: Viralidad {_s1}/100, Demanda {_s2}/100, Competencia {_s3}/100, Éxito Global {_s4}/100
 
-    st.caption("✨ Empieza aquí · Gratis" if st.session_state.get("lang") != "en" else "✨ Start here · Free")
+Entrega la auditoría completa en este formato:
+
+## 📊 DIAGNÓSTICO ACTUAL
+**Nivel del negocio:** [Inicio / Crecimiento / Escalando]
+**Principal fortaleza:** [basada en los datos]
+**Principal problema:** [el más urgente a resolver]
+
+## 🔥 POTENCIAL DE MERCADO
+- Viralidad del nicho: {_s1}/100 — [qué significa esto]
+- Demanda actual: {_s2}/100 — [implicación práctica]
+- Nivel de competencia: {_s3}/100 — [oportunidad o amenaza]
+- Score de éxito estimado: {_s4}/100 — [veredicto]
+
+## ⚠️ LOS 3 ERRORES MÁS GRAVES
+1. [Error 1 con solución inmediata]
+2. [Error 2 con solución inmediata]
+3. [Error 3 con solución inmediata]
+
+## 🚀 MAYOR OPORTUNIDAD INMEDIATA
+[Oportunidad específica con plan de acción en 3 pasos]
+
+## 📋 PLAN DE ACCIÓN ESTA SEMANA
+- Lunes: [acción concreta]
+- Miércoles: [acción concreta]
+- Viernes: [acción concreta y medible]
+
+## 🏆 VEREDICTO FINAL
+[Evaluación directa y honesta del estado del negocio con recomendación principal]"""
+
+            with st.spinner("Generando auditoría completa..."):
+                _resultado_am = generar_analitico(_prompt_audit, max_tokens=6000)
+            _email_am = (st.session_state.get("user_email") or "").strip().lower()
+            if _email_am:
+                guardar_reporte(_email_am, "diagnostico", f"Auditoría Maestra {dt.now().strftime('%d/%m/%Y')}", _resultado_am)
+            consumir(1)
+            st.session_state["_ed_auditoria_maestra"] = _resultado_am
+            st.session_state["_ed_prompt_auditoria_maestra"] = _prompt_audit
+
+    if st.session_state.get("_am_scores"):
+        _s1, _s2, _s3, _s4 = st.session_state["_am_scores"]
+        _c1, _c2, _c3, _c4 = st.columns(4)
+        _c1.metric("🔥 Viralidad", f"{_s1}%")
+        _c2.metric("🛍️ Demanda", f"{_s2}%")
+        _c3.metric("⚔️ Competencia", f"{_s3}%")
+        _c4.metric("🏆 Éxito Global", f"{_s4}/100")
+
+    if st.session_state.get("_ed_auditoria_maestra"):
+        st.markdown(st.session_state["_ed_auditoria_maestra"])
+        _panel_edicion(st.session_state["_ed_auditoria_maestra"], "auditoria_maestra", max_tokens=6000)
+
+    st.caption("✨ Empieza aquí · 1 crédito" if st.session_state.get("lang") != "en" else "✨ Start here · 1 credit")
 
     # ── RADAR DE TENDENCIAS VIRALES ───────────────────────────────────────────
     st.divider()
@@ -1988,39 +2055,6 @@ Crea el plan semanal en este formato EXACTO:
                 st.markdown(st.session_state["_ed_plan_nuevo"])
                 _panel_edicion(st.session_state["_ed_plan_nuevo"], "plan_nuevo", max_tokens=6000)
 
-    st.markdown("## \U0001f9ea Diagnóstico del Negocio")
-    st.caption("\U0001f9ea Análisis profundo · 1 crédito" if st.session_state.get("lang") != "en" else "\U0001f9ea Deep analysis · 1 credit")
-    if st.button("🩺 Diagnóstico Completo (1 crédito)"):
-        if verificar_creditos(1):
-            with st.spinner("Evaluando tu situación actual..."):
-                marca_tab = st.session_state.get("marca_guardada", "")
-                nicho_tab = st.session_state.get("nicho_guardado", "")
-                cliente_tab = st.session_state.get("cliente_ideal_guardado", "")
-                pais_tab = st.session_state.get("pais_guardado", "")
-                prompt = f"""
-Eres un consultor senior de negocios.
-Evalúa este negocio:
-Marca: {marca_tab}
-Nicho: {nicho_tab}
-Producto/Servicio: {st.session_state.get('producto_servicio', '')}
-Cliente ideal: {cliente_tab}
-País: {pais_tab}
-Dame:
-1. Nivel actual del negocio (Inicio, Crecimiento, Escalando)
-2. Principal problema hoy
-3. Mayor oportunidad inmediata
-4. Qué debería hacer esta semana
-5. Error más grave que está cometiendo
-Sé directo, claro y accionable.
-"""
-                resultado = generar_texto(prompt, max_out=8000)
-                st.markdown(resultado)
-                email_tab = (st.session_state.get("user_email") or "").strip().lower()
-                if email_tab:
-                    guardar_reporte(email_tab, "diagnostico", f"Estado del negocio {dt.now().strftime('%d/%m/%Y')}", resultado)
-                consumir(1)
-    st.caption("\U0001f9ea Análisis profundo · 1 crédito" if st.session_state.get("lang") != "en" else "\U0001f9ea Deep analysis · 1 credit")
-
     # ── AUTOPILOTO SHORTCUT ───────────────────────────────────────────────────
     st.divider()
     _ap_title = "\U0001f916 Autopiloto IA" if st.session_state.get("lang") != "en" else "\U0001f916 AI Autopilot"
@@ -2093,7 +2127,7 @@ with tabs[2]:
         "Generador de Personas", "Embudo de Ventas",
         "Storytelling de Marca", "Plan de Crisis",
         "SEO y Palabras Clave", "Artículo de Blog SEO",
-        "Compliance Checker", "Gaps del Competidor", "Campaña de Catálogo",
+        "Compliance Checker", "🕵️ Inteligencia Competitiva", "Campaña de Catálogo",
         "Simulador de Campaña",
     ]
     _mkt_disp = st.selectbox(t("sel_herramienta"), t("mkt_tools"), key="mkt_sel")
@@ -2587,172 +2621,247 @@ Sé específico para el mercado de {pais}. Completa todas las oraciones. No cort
     elif opcion_mkt == "Artículo de Blog SEO":
         st.write("Genera un artículo completo optimizado para SEO con estructura H1/H2/H3.")
         tema_blog = st.text_input("Tema del artículo:", placeholder="Ej: Cómo elegir los mejores lentes según tu tipo de rostro")
-        if tema_blog and st.button("Generar Artículo (3 Créditos)"):
+        if tema_blog and st.button("Generar Artículo Completo (3 Créditos)"):
             if verificar_creditos(3):
                 reglas = st.session_state.get("reglas_marca", "")
                 reglas_txt = f"\nReglas de marca a respetar:\n{reglas}" if reglas else ""
-                ctx_blog = f"Tema: {tema_blog}\nNicho: {nicho}\nMarca: {nombre_marca}\nPaís: {pais}{reglas_txt}"
+                _prompt_blog = f"""Eres redactor SEO experto para el mercado de {pais}.
+Tema: {tema_blog}
+Nicho: {nicho}
+Marca: {nombre_marca}
+País: {pais}{reglas_txt}
 
-                prompt_p1 = f"""Eres redactor SEO experto para el mercado de {pais}.
-{ctx_blog}
+Escribe el artículo COMPLETO en una sola respuesta con esta estructura:
 
-Escribe la PRIMERA PARTE del artículo:
-# H1: título principal optimizado SEO
-Introducción (2-3 párrafos que enganchen al lector)
-## H2: Sección 1 — desarrollada en 3-4 párrafos completos
-## H2: Sección 2 — desarrollada en 3-4 párrafos completos
+# [H1: Título principal optimizado para SEO]
 
-Completa todas las oraciones. No cortes el texto a la mitad."""
+[Introducción de 2-3 párrafos que enganchen al lector y presenten el tema]
 
-                prompt_p2 = f"""Eres redactor SEO experto para el mercado de {pais}.
-{ctx_blog}
+## [H2: Sección 1 — subtítulo con keyword]
+[3-4 párrafos completos desarrollando esta sección]
 
-Escribe la SEGUNDA PARTE del artículo sobre "{tema_blog}":
-## H2: Sección 3 — desarrollada en 3-4 párrafos completos
-## Conclusión con CTA claro hacia {producto_servicio}
+## [H2: Sección 2 — subtítulo con keyword]
+[3-4 párrafos completos desarrollando esta sección]
+
+## [H2: Sección 3 — subtítulo con keyword]
+[3-4 párrafos completos desarrollando esta sección]
+
+## Conclusión
+[2 párrafos de cierre con CTA claro hacia {producto_servicio}]
+
+**Meta título SEO:** (máx 60 caracteres)
 **Meta descripción:** (máx 160 caracteres)
 
-Completa todas las oraciones. No cortes el texto a la mitad."""
+Completa TODAS las secciones. No cortes el texto a la mitad. Usa lenguaje natural y persuasivo."""
 
-                texto_completo = ""
-                with st.spinner("Redactando parte 1 de 2..."):
-                    parte1 = generar_texto(prompt_p1, max_out=4000)
-                st.markdown(parte1)
-                texto_completo += parte1 + "\n\n"
-
-                with st.spinner("Redactando parte 2 de 2..."):
-                    parte2 = generar_texto(prompt_p2, max_out=4000)
-                st.markdown(parte2)
-                texto_completo += parte2
-
+                with st.spinner("Redactando artículo completo..."):
+                    _texto_blog = generar_texto(_prompt_blog, max_out=8000)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
-                    guardar_reporte(email_tab, "blog_seo", f"Blog: {tema_blog}", texto_completo)
+                    guardar_reporte(email_tab, "blog_seo", f"Blog: {tema_blog}", _texto_blog)
                 consumir(3)
+                st.session_state["_ed_blog_seo"] = _texto_blog
+                st.session_state["_ed_prompt_blog_seo"] = _prompt_blog
+        if st.session_state.get("_ed_blog_seo"):
+            st.markdown(st.session_state["_ed_blog_seo"])
+            _panel_edicion(st.session_state["_ed_blog_seo"], "blog_seo", max_tokens=8000)
 
     elif opcion_mkt == "Compliance Checker":
-        st.write("Detecta frases peligrosas en tu copy antes de publicar anuncios en Meta o TikTok.")
-
-        compliance_producto = st.text_input(
-            "\u00bfQu\u00e9 quieres anunciar?",
-            placeholder="Ej: Suplemento de magnesio para mejorar el sue\u00f1o - S/45",
-            value=st.session_state.get("compliance_producto", ""),
-            key="compliance_producto"
+        st.write("Verifica tu copy, genera anuncios seguros o consigue ideas sin riesgo de rechazo en Meta y TikTok.")
+        _cc_modo = st.radio(
+            "\u00bfQu\u00e9 quieres hacer?",
+            ["\u2705 Verificar mi copy", "\ud83d\udee1\ufe0f Generar anuncio seguro", "\ud83d\udca1 Dame 3 ideas"],
+            key="cc_modo_radio",
+            horizontal=True
         )
 
-        if st.button("\u270d\ufe0f Generar anuncio seguro (1 cr\u00e9dito)", key="btn_generar_anuncio_seguro"):
-            if not compliance_producto.strip():
-                st.warning("Escribe qu\u00e9 quieres anunciar primero.")
-            elif verificar_creditos(1):
-                _marca_cc = st.session_state.get("marca_guardada", "")
-                _pais_cc  = st.session_state.get("pais_guardado", pais)
-                _prompt_seguro = (
-                    f"Genera un anuncio publicitario completo y 100% seguro para Facebook "
-                    f"e Instagram para: {compliance_producto}\n"
-                    f"Negocio: {_marca_cc}\nPa\u00eds: {_pais_cc}\n\n"
-                    f"El anuncio debe:\n"
-                    f"- Tener titular gancho\n"
-                    f"- Texto principal persuasivo\n"
-                    f"- CTA claro\n"
-                    f"- Sin frases que violen pol\u00edticas de Meta\n"
-                    f"- Score de seguridad estimado\n"
-                    f"- Versi\u00f3n para Story y versi\u00f3n para Feed\n\n"
-                    f"Completa todas las secciones sin cortar el texto a la mitad."
-                )
-                with st.spinner("Generando anuncio seguro..."):
-                    _res_seguro = generar_texto(_prompt_seguro, max_out=6000, modelo=MODELO_FUERTE)
-                _email_cc = (st.session_state.get("user_email") or "").strip().lower()
-                if _email_cc:
-                    guardar_reporte(_email_cc, "compliance",
-                                    f"Anuncio seguro - {compliance_producto[:40]}", _res_seguro)
-                consumir(1)
-                st.session_state["_ed_comp_seg"] = _res_seguro
-                st.session_state["_ed_prompt_comp_seg"] = _prompt_seguro
-        if st.session_state.get("_ed_comp_seg"):
-            st.markdown(st.session_state["_ed_comp_seg"])
-            _panel_edicion(st.session_state["_ed_comp_seg"], "comp_seg", max_tokens=6000)
-
-        st.divider()
-        copy_anuncio = st.text_area("Pega tu copy de anuncio aqu\u00ed:", placeholder="Ej: \u00a1Pierde 10 kilos en 2 semanas garantizado! Oferta exclusiva...")
-        if copy_anuncio and st.button("Verificar Compliance (1 Cr\u00e9dito)"):
-            if verificar_creditos(1):
-                prompt_check = f"""Eres experto en políticas publicitarias de Facebook Ads, Instagram Ads y TikTok Ads.
+        if _cc_modo == "\u2705 Verificar mi copy":
+            _copy_check = st.text_area(
+                "Pega tu copy de anuncio aqu\u00ed:",
+                placeholder="Ej: \u00a1Pierde 10 kilos en 2 semanas garantizado! Oferta exclusiva...",
+                key="cc_copy_verificar"
+            )
+            if _copy_check and st.button("\u2705 Verificar Compliance (1 Cr\u00e9dito)", key="btn_cc_verificar"):
+                if verificar_creditos(1):
+                    _prompt_cc_ver = f"""Eres experto en pol\u00edticas publicitarias de Facebook Ads, Instagram Ads y TikTok Ads.
 Analiza este copy de anuncio:
 
-\"{copy_anuncio}\"
+"{_copy_check}"
 
 Nicho: {nicho}
-País: {pais}
+Pa\u00eds: {pais}
 
-Devuelve:
-1. **Frases problemáticas detectadas**: lista cada frase con la razón por la que puede ser rechazada
-2. **Versión corregida completa**: el copy reescrito sin frases peligrosas, manteniendo el mensaje
-3. **Score de seguridad**: número del 0 al 100 (100 = completamente seguro para publicar)
+Entrega el an\u00e1lisis completo en este formato:
 
-Sé específico sobre qué política viola cada frase. Completa todas las oraciones. No cortes el texto a la mitad."""
+## \ud83d\udd0d FRASES PROBLEM\u00c1TICAS DETECTADAS
+[Lista cada frase peligrosa con la pol\u00edtica espec\u00edfica que viola y por qu\u00e9]
 
-                prompt_ideas = f"""Eres experto en publicidad digital para el mercado de {pais}.
-El usuario quiere anunciar: {nicho} — {producto_servicio}
-Este fue su copy original: \"{copy_anuncio}\"
+## \u2705 VERSI\u00d3N CORREGIDA COMPLETA
+[El copy reescrito completo sin frases peligrosas, manteniendo el mensaje original]
 
-Genera exactamente 3 ideas de anuncios creativos que comuniquen el mismo mensaje pero usando frases 100% seguras para Facebook, Instagram y TikTok Ads.
+## \ud83d\udcca SCORE DE SEGURIDAD: [n\u00famero del 0 al 100]
+**Veredicto:** [breve explicaci\u00f3n del score]
 
-Para cada idea escribe:
-- **Titular**: (máx 40 caracteres)
-- **Texto principal**: (2-3 oraciones completas)
-- **CTA**: (llamada a la acción clara)
+S\u00e9 espec\u00edfico. Completa todas las secciones."""
+                    with st.spinner("Analizando compliance..."):
+                        _res_cc_ver = generar_analitico(_prompt_cc_ver, max_tokens=6000)
+                    _email_cc = (st.session_state.get("user_email") or "").strip().lower()
+                    if _email_cc:
+                        guardar_reporte(_email_cc, "compliance", f"Compliance check - {dt.now().strftime('%d/%m/%Y')}", _res_cc_ver)
+                    consumir(1)
+                    st.session_state["_ed_cc_ver"] = _res_cc_ver
+                    st.session_state["_ed_prompt_cc_ver"] = _prompt_cc_ver
+            if st.session_state.get("_ed_cc_ver"):
+                st.markdown(st.session_state["_ed_cc_ver"])
+                _panel_edicion(st.session_state["_ed_cc_ver"], "cc_ver", max_tokens=6000)
 
-Completa todas las oraciones. No cortes el texto a la mitad."""
+        elif _cc_modo == "\ud83d\udee1\ufe0f Generar anuncio seguro":
+            _cc_producto = st.text_input(
+                "\u00bfQu\u00e9 quieres anunciar?",
+                placeholder="Ej: Suplemento de magnesio para mejorar el sue\u00f1o - S/45",
+                value=st.session_state.get("compliance_producto", ""),
+                key="compliance_producto"
+            )
+            if _cc_producto and st.button("\ud83d\udee1\ufe0f Generar anuncio seguro (1 cr\u00e9dito)", key="btn_cc_seguro"):
+                if verificar_creditos(1):
+                    _marca_cc = st.session_state.get("marca_guardada", "")
+                    _pais_cc = st.session_state.get("pais_guardado", pais)
+                    _prompt_cc_seg = f"""Eres experto en publicidad digital y pol\u00edticas de Meta y TikTok Ads.
+Genera un anuncio publicitario completo y 100% seguro para:
+Producto/Servicio: {_cc_producto}
+Negocio: {_marca_cc}
+Pa\u00eds: {_pais_cc}
+Nicho: {nicho}
 
-                with st.spinner("Analizando compliance..."):
-                    texto_check = generar_texto(prompt_check, max_out=6000)
-                with st.spinner("Generando ideas seguras..."):
-                    texto_ideas = generar_texto(prompt_ideas, max_out=6000)
-                texto_completo = texto_check + "\n\n---\n### 💡 Ideas de Publicidad Seguras\n" + texto_ideas
-                email_tab = (st.session_state.get("user_email") or "").strip().lower()
-                if email_tab:
-                    guardar_reporte(email_tab, "compliance", f"Compliance check - {dt.now().strftime('%d/%m/%Y')}", texto_completo)
-                consumir(1)
-                st.session_state["_ed_comp_check"] = texto_completo
-        if st.session_state.get("_ed_comp_check"):
-            _cc_txt = st.session_state["_ed_comp_check"]
-            _cc_parts = _cc_txt.split("\n\n---\n### 💡 Ideas de Publicidad Seguras\n", 1)
-            st.markdown(_cc_parts[0])
-            if len(_cc_parts) > 1:
-                st.markdown("---")
-                st.markdown("### 💡 Ideas de Publicidad Seguras")
-                st.markdown(_cc_parts[1])
-            _panel_edicion(_cc_txt, "comp_check", max_tokens=6000)
+## \ud83d\udcf1 VERSI\u00d3N FEED (Facebook/Instagram)
+**Titular:** [gancho sin frases prohibidas]
+**Texto principal:** [2-3 p\u00e1rrafos persuasivos y seguros]
+**CTA:** [llamada a la acci\u00f3n clara]
 
-    elif opcion_mkt == "Gaps del Competidor":
-        st.write("Analiza un perfil rival para descubrir quejas de sus clientes, sus debilidades y los gaps del mercado que tú puedes aprovechar.")
-        link_competidor = st.text_input("Link de Instagram o YouTube del competidor:", placeholder="Ej: instagram.com/competidor o youtube.com/@competidor")
-        if link_competidor and st.button("Analizar Competidor (2 Créditos)"):
+## \ud83d\udcf2 VERSI\u00d3N STORY
+**Texto corto:** [1 oraci\u00f3n impactante]
+**CTA:** [acci\u00f3n directa]
+
+## \u2705 SCORE DE SEGURIDAD ESTIMADO: [n\u00famero del 0 al 100]
+**Frases que evitamos y por qu\u00e9:** [lista breve]
+
+Completa todas las secciones."""
+                    with st.spinner("Generando anuncio seguro..."):
+                        _res_cc_seg = generar_analitico(_prompt_cc_seg, max_tokens=6000)
+                    _email_cc = (st.session_state.get("user_email") or "").strip().lower()
+                    if _email_cc:
+                        guardar_reporte(_email_cc, "compliance", f"Anuncio seguro - {_cc_producto[:40]}", _res_cc_seg)
+                    consumir(1)
+                    st.session_state["_ed_cc_seg"] = _res_cc_seg
+                    st.session_state["_ed_prompt_cc_seg"] = _prompt_cc_seg
+            if st.session_state.get("_ed_cc_seg"):
+                st.markdown(st.session_state["_ed_cc_seg"])
+                _panel_edicion(st.session_state["_ed_cc_seg"], "cc_seg", max_tokens=6000)
+
+        elif _cc_modo == "\ud83d\udca1 Dame 3 ideas":
+            _cc_producto_ideas = st.text_input(
+                "\u00bfQu\u00e9 quieres promocionar?",
+                placeholder="Ej: Curso de fotograf\u00eda online - $97",
+                key="cc_producto_ideas"
+            )
+            if _cc_producto_ideas and st.button("\ud83d\udca1 Dame 3 ideas seguras (1 cr\u00e9dito)", key="btn_cc_ideas"):
+                if verificar_creditos(1):
+                    _pais_cc_i = st.session_state.get("pais_guardado", pais)
+                    _prompt_cc_ideas = f"""Eres experto en publicidad digital para el mercado de {_pais_cc_i}.
+El usuario quiere anunciar: {_cc_producto_ideas}
+Nicho: {nicho}
+
+Genera exactamente 3 ideas de anuncios creativos 100% seguros para Facebook, Instagram y TikTok Ads.
+
+## \ud83d\udca1 IDEA 1 \u2014 [\u00c1ngulo: beneficio principal]
+**Titular:** (m\u00e1x 40 caracteres)
+**Texto principal:** (2-3 oraciones completas y persuasivas)
+**CTA:** (llamada a la acci\u00f3n clara)
+**Por qu\u00e9 es segura:** (breve explicaci\u00f3n)
+
+## \ud83d\udca1 IDEA 2 \u2014 [\u00c1ngulo: problema que resuelve]
+**Titular:** (m\u00e1x 40 caracteres)
+**Texto principal:** (2-3 oraciones completas y persuasivas)
+**CTA:** (llamada a la acci\u00f3n clara)
+**Por qu\u00e9 es segura:** (breve explicaci\u00f3n)
+
+## \ud83d\udca1 IDEA 3 \u2014 [\u00c1ngulo: prueba social]
+**Titular:** (m\u00e1x 40 caracteres)
+**Texto principal:** (2-3 oraciones completas y persuasivas)
+**CTA:** (llamada a la acci\u00f3n clara)
+**Por qu\u00e9 es segura:** (breve explicaci\u00f3n)
+
+Completa todas las secciones."""
+                    with st.spinner("Generando ideas seguras..."):
+                        _res_cc_ideas = generar_analitico(_prompt_cc_ideas, max_tokens=6000)
+                    _email_cc = (st.session_state.get("user_email") or "").strip().lower()
+                    if _email_cc:
+                        guardar_reporte(_email_cc, "compliance", f"Ideas seguras - {_cc_producto_ideas[:40]}", _res_cc_ideas)
+                    consumir(1)
+                    st.session_state["_ed_cc_ideas"] = _res_cc_ideas
+                    st.session_state["_ed_prompt_cc_ideas"] = _prompt_cc_ideas
+            if st.session_state.get("_ed_cc_ideas"):
+                st.markdown(st.session_state["_ed_cc_ideas"])
+                _panel_edicion(st.session_state["_ed_cc_ideas"], "cc_ideas", max_tokens=6000)
+
+    elif opcion_mkt == "🕵️ Inteligencia Competitiva":
+        st.write("Analiza a tu competencia por nombre o link para descubrir sus debilidades y los gaps que tú puedes aprovechar.")
+        _ic_input = st.text_input(
+            "Nombre o link del competidor:",
+            placeholder="Ej: 'Clinica Dental Sonrisa' o instagram.com/competidor",
+            key="ic_input"
+        )
+        if _ic_input and st.button("🕵️ Analizar Competidor (2 Créditos)", key="btn_ic_analizar"):
             if verificar_creditos(2):
-                prompt = f"""Eres analista de marketing digital experto en {pais}.
-Link del competidor analizado: {link_competidor}
-Nicho: {nicho}
+                _pais_ic = st.session_state.get("pais_guardado", pais)
+                _prompt_ic = f"""Eres analista de inteligencia competitiva de marketing digital experto en el mercado de {_pais_ic}.
+
+Competidor a analizar: {_ic_input}
+Nicho del usuario: {nicho}
 Producto/Servicio propio: {producto_servicio}
-País: {pais}
+País: {_pais_ic}
 
-Basándote en lo que típicamente se ve en perfiles de este nicho en {pais}, genera:
-1. **Principales quejas de clientes**: qué suelen reclamar los clientes de negocios similares
-2. **Qué hace bien el competidor**: fortalezas típicas de competidores en este nicho
-3. **3 oportunidades para diferenciarte**: gaps del mercado que puedes aprovechar
-4. **Ángulos de venta para tus anuncios**: 3 mensajes específicos basados en las debilidades del competidor
+Realiza un análisis de inteligencia competitiva completo y estructurado:
 
-Sé concreto y accionable para el mercado de {pais}."""
-                with st.spinner("Analizando sentimiento..."):
-                    texto = generar_texto(prompt, max_out=6000, temperatura=0.2)
-                email_tab = (st.session_state.get("user_email") or "").strip().lower()
-                if email_tab:
-                    guardar_reporte(email_tab, "sentimiento", f"Análisis competidor: {link_competidor}", texto)
+## 🎯 PERFIL DEL COMPETIDOR
+- Posicionamiento probable en el mercado
+- Segmento de clientes que ataca
+- Propuesta de valor aparente
+
+## ⚠️ DEBILIDADES DETECTADAS
+[Las 3-5 principales debilidades o gaps típicos de competidores en este nicho en {_pais_ic}]
+
+## 💬 QUEJAS FRECUENTES DE SUS CLIENTES
+[Lo que los clientes suelen reclamar de negocios similares en este nicho — basado en patrones del mercado]
+
+## ✅ QUÉ HACE BIEN (para aprender)
+[2-3 fortalezas típicas de competidores posicionados en este nicho]
+
+## 🚀 3 OPORTUNIDADES DE DIFERENCIACIÓN
+1. [Oportunidad 1 — cómo explotarla con tu negocio]
+2. [Oportunidad 2 — cómo explotarla con tu negocio]
+3. [Oportunidad 3 — cómo explotarla con tu negocio]
+
+## 📢 ÁNGULOS DE ATAQUE PARA TUS ANUNCIOS
+1. **Ángulo 1:** [mensaje específico que golpea la debilidad del competidor]
+2. **Ángulo 2:** [mensaje específico que golpea la debilidad del competidor]
+3. **Ángulo 3:** [mensaje específico que golpea la debilidad del competidor]
+
+## 🏆 ESTRATEGIA RECOMENDADA
+[Plan concreto de 3 acciones para ganarle mercado a este competidor en los próximos 30 días]
+
+Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de {_pais_ic} para el nicho {nicho}."""
+                with st.spinner("Analizando inteligencia competitiva..."):
+                    _res_ic = generar_analitico(_prompt_ic, max_tokens=6000)
+                _email_ic = (st.session_state.get("user_email") or "").strip().lower()
+                if _email_ic:
+                    guardar_reporte(_email_ic, "sentimiento", f"Inteligencia Competitiva: {_ic_input}", _res_ic)
                 consumir(2)
-                st.session_state["_ed_gaps_comp"] = texto
-                st.session_state["_ed_prompt_gaps_comp"] = prompt
-        if st.session_state.get("_ed_gaps_comp"):
-            st.markdown(st.session_state["_ed_gaps_comp"])
-            _panel_edicion(st.session_state["_ed_gaps_comp"], "gaps_comp", max_tokens=6000)
+                st.session_state["_ed_intel_comp"] = _res_ic
+                st.session_state["_ed_prompt_intel_comp"] = _prompt_ic
+        if st.session_state.get("_ed_intel_comp"):
+            st.markdown(st.session_state["_ed_intel_comp"])
+            _panel_edicion(st.session_state["_ed_intel_comp"], "intel_comp", max_tokens=6000)
 
     elif opcion_mkt == "Campaña de Catálogo":
         moneda_cat = PAISES_MONEDA.get(pais, "$")
@@ -3348,7 +3457,8 @@ with tabs[4]:
                         f"## 💡 3 ACCIONES CONCRETAS\n1.\n2.\n3.\n\n"
                         f"## 📈 PROYECCIÓN\n[Si duplicas el presupuesto de la mejor campaña, qué esperar]"
                     )
-                    st.markdown(generar_texto(prompt, max_out=8000, temperatura=0.2))
+                    _roi_res = generar_analitico(prompt, max_tokens=8000)
+                    st.markdown(_roi_res)
                     consumir(2)
                 except Exception as _roi_err:
                     st.error(f"No se pudo leer el archivo: {_roi_err}")
@@ -3709,7 +3819,7 @@ Sé muy específico con los números que ves en la imagen."""
                             f"## 📉 MÉTRICA A MEJORAR PRIMERO\n"
                             f"[Una sola métrica con objetivo numérico]"
                         )
-                        _res_ga = generar_texto(_prompt_ga, max_out=4000)
+                        _res_ga = generar_analitico(_prompt_ga, max_tokens=4000)
                         st.session_state["ga_ia_result"] = _res_ga
 
                     if st.session_state.get("ga_ia_result"):
@@ -4185,7 +4295,7 @@ with tabs[6]:
                     f"7. \U0001f511 KEYWORDS SUGERIDAS (10 palabras clave principales):\n\n"
                     f"8. \U0001f4c8 SCORE ESTIMADO DESPU\u00c9S DE CORRECCIONES: X/100\n")
                 with st.spinner("Ejecutando auditor\u00eda SEO..." if not _is_en_pw else "Running SEO audit..."):
-                    _seo_res = generar_texto(_seo_prompt, max_out=6000, modelo=MODELO_FUERTE, temperatura=0.2)
+                    _seo_res = generar_analitico(_seo_prompt, max_tokens=6000)
                 st.markdown(_seo_res)
                 _seo_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _seo_email:
@@ -4381,7 +4491,7 @@ with tabs[6]:
                         f"3. 3 ACCIONES CONCRETAS para la pr\u00f3xima semana\n"
                         f"4. PROYECCI\u00d3N DEL MES si sigue a este ritmo\n")
                     with st.spinner("Analizando KPIs..." if not _is_en_pw else "Analyzing KPIs..."):
-                        _kpi_res = generar_texto(_kpi_prompt, max_out=6000, modelo=MODELO_FUERTE)
+                        _kpi_res = generar_analitico(_kpi_prompt, max_tokens=6000)
                     st.markdown(_kpi_res)
                     guardar_reporte(_kpi_email, "kpi_tracker",
                                     f"KPIs {_kpi_semana_display}", _kpi_res)
@@ -4449,7 +4559,7 @@ with tabs[6]:
                     f"   \"Con estos cambios podr\u00edas pasar del X% al Y% de conversi\u00f3n\"\n"
                     f"   (usa benchmarks reales del nicho {_cro_nicho})\n")
                 with st.spinner("Optimizando landing page..." if not _is_en_pw else "Optimizing landing page..."):
-                    _cro_res = generar_texto(_cro_prompt, max_out=6000, modelo=MODELO_FUERTE, temperatura=0.2)
+                    _cro_res = generar_analitico(_cro_prompt, max_tokens=6000)
                 st.markdown(_cro_res)
                 _cro_email = (st.session_state.get("user_email") or "").strip().lower()
                 if _cro_email:
