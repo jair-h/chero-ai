@@ -162,6 +162,7 @@ _TRANS = {
             "Storytelling de Marca", "Plan de Crisis",
             "SEO y Palabras Clave", "Artículo de Blog SEO",
             "Compliance Checker", "🕵 Inteligencia Competitiva", "Campaña de Catálogo",
+            "Generador de Imagenes",
             "🧪 Simulador de Campaña",
         ],
         "cerrador": "💰 Cerrador de Tratos",
@@ -224,6 +225,7 @@ _TRANS = {
             "Brand Storytelling", "Crisis Plan",
             "SEO & Keywords", "SEO Blog Article",
             "Compliance Checker", "🕵 Competitive Intelligence", "Catalog Campaign",
+            "Image Generator",
             "🧪 Campaign Simulator",
         ],
         "cerrador": "💰 Deal Closer",
@@ -861,6 +863,28 @@ def guardar_reporte(user_email, tipo, titulo, contenido):
     except Exception as e:
         st.warning("No se pudo guardar el reporte.")
         st.exception(e)
+
+def obtener_ultimo_reporte_tipo(user_email, tipos, dias=30):
+    """Retorna el ultimo reporte de uno de los tipos dados, dentro de N dias."""
+    if not supabase or not user_email:
+        return None
+    try:
+        from datetime import timezone as _tz
+        _desde = (dt.now(_tz.utc) - timedelta(days=dias)).isoformat()
+        for _tipo in (tipos if isinstance(tipos, list) else [tipos]):
+            _res = (supabase.table("reportes")
+                    .select("titulo,contenido,created_at,tipo_reporte")
+                    .eq("user_email", user_email)
+                    .eq("tipo_reporte", _tipo)
+                    .gte("created_at", _desde)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute())
+            if _res.data:
+                return _res.data[0]
+    except Exception:
+        pass
+    return None
 
 def obtener_reportes(user_email):
     if not supabase or not user_email:
@@ -1974,6 +1998,26 @@ Entrega la auditoría completa en este formato:
         semana = obtener_semana_actual()
         st.info(f"📅 Semana actual: {semana}")
         plan_guardado = obtener_plan_semanal(email_tab, semana)
+
+        # ── Memoria: contexto de ultimo Autopiloto ─────────────────────────
+        _mem_ap = obtener_ultimo_reporte_tipo(email_tab, ["autopiloto", "estrategia_mes"], dias=7)
+        if _mem_ap:
+            import re as _re_mem
+            _mem_fecha = str(_mem_ap.get("created_at", ""))[:10]
+            _mem_ctx = st.session_state.get("plan_usar_autopiloto", False)
+            st.info(f"Tu ultimo Autopiloto fue el {_mem_fecha}. Puedes incluir esa estrategia en el plan de esta semana.")
+            _mem_col1, _mem_col2 = st.columns(2)
+            with _mem_col1:
+                if st.button("Si, incluir estrategia del Autopiloto", key="btn_mem_ap_si"):
+                    st.session_state["plan_usar_autopiloto"] = True
+                    st.session_state["plan_ctx_autopiloto"] = _mem_ap.get("contenido", "")[:600]
+                    st.rerun()
+            with _mem_col2:
+                if st.button("No, generar plan independiente", key="btn_mem_ap_no"):
+                    st.session_state["plan_usar_autopiloto"] = False
+                    st.session_state.pop("plan_ctx_autopiloto", None)
+        # ──────────────────────────────────────────────────────────────────────
+
         if plan_guardado:
             st.success("✅ Ya tienes un plan guardado para esta semana")
             st.markdown(plan_guardado["contenido"])
@@ -1987,7 +2031,7 @@ Entrega la auditoría completa en este formato:
                         marca_plan = st.session_state.get("marca_guardada", "")
                         _prompt_plan_regen = f"""Eres estratega de contenidos para {pais}.
 Marca: {marca_plan} | Nicho: {nicho_plan} | País: {pais}
-Producto: {st.session_state.get('producto_servicio', '')} | Cliente: {cliente_plan}
+Producto: {st.session_state.get('producto_servicio', '')} | Cliente: {cliente_plan}{_mem_extra_plan}
 
 Crea el plan semanal en este formato EXACTO:
 
@@ -2023,6 +2067,9 @@ Crea el plan semanal en este formato EXACTO:
                     nicho_plan = st.session_state.get("nicho_guardado", "")
                     cliente_plan = st.session_state.get("cliente_ideal_guardado", "")
                     marca_plan = st.session_state.get("marca_guardada", "")
+                    _mem_extra_plan = ""
+                    if st.session_state.get("plan_usar_autopiloto") and st.session_state.get("plan_ctx_autopiloto"):
+                        _mem_extra_plan = f"\nCONTEXTO ESTRATEGIA AUTOPILOTO ANTERIOR:\n{st.session_state['plan_ctx_autopiloto']}\nSe coherente con esa estrategia.\n"
                     _prompt_plan_nuevo = f"""Eres estratega de contenidos para {pais}.
 Marca: {marca_plan} | Nicho: {nicho_plan} | País: {pais}
 Producto: {st.session_state.get('producto_servicio', '')} | Cliente: {cliente_plan}
@@ -2128,7 +2175,7 @@ with tabs[2]:
         "Storytelling de Marca", "Plan de Crisis",
         "SEO y Palabras Clave", "Artículo de Blog SEO",
         "Compliance Checker", "🕵 Inteligencia Competitiva", "Campaña de Catálogo",
-        "Simulador de Campaña",
+        "Generador de Imagenes", "Simulador de Campaña",
     ]
     _mkt_disp = st.selectbox(t("sel_herramienta"), t("mkt_tools"), key="mkt_sel")
     opcion_mkt = _mkt_keys[t("mkt_tools").index(_mkt_disp)]
@@ -2811,7 +2858,22 @@ Completa todas las secciones."""
             placeholder="Ej: 'Clinica Dental Sonrisa' o instagram.com/competidor",
             key="ic_input"
         )
-        if _ic_input and st.button("🕵 Analizar Competidor (2 Créditos)", key="btn_ic_analizar"):
+        # ── Memoria: analisis previo del mismo competidor ──────────────────
+        if _ic_input:
+            _ic_email_mem = (st.session_state.get("user_email") or "").strip().lower()
+            if _ic_email_mem:
+                _ic_prev = obtener_ultimo_reporte_tipo(_ic_email_mem, ["sentimiento"], dias=60)
+                if _ic_prev and _ic_input.lower()[:15] in _ic_prev.get("titulo", "").lower():
+                    _ic_prev_fecha = str(_ic_prev.get("created_at", ""))[:10]
+                    st.info(f"Ya analizaste este competidor el {_ic_prev_fecha}.")
+                    _ic_col1, _ic_col2 = st.columns(2)
+                    with _ic_col1:
+                        if st.button("Ver analisis anterior", key="btn_ic_prev_ver"):
+                            st.session_state["_ed_intel_comp"] = _ic_prev.get("contenido", "")
+                    with _ic_col2:
+                        st.button("Hacer analisis nuevo", key="btn_ic_nuevo_ok")
+        # ─────────────────────────────────────────────────────────────────────
+        if _ic_input and st.button("🕵 Analizar Competidor (2 Creditos)", key="btn_ic_analizar"):
             if verificar_creditos(2):
                 _pais_ic = st.session_state.get("pais_guardado", pais)
                 _prompt_ic = f"""Eres analista de inteligencia competitiva de marketing digital experto en el mercado de {_pais_ic}.
@@ -3277,6 +3339,90 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                         st.session_state.pop("cat_prods_temp", None)
                         st.rerun()
 
+    elif opcion_mkt == "Generador de Imagenes":
+        _is_en_ig = st.session_state.get("lang") == "en"
+        st.write("Genera imagenes profesionales para tus redes sociales usando IA." if not _is_en_ig else "Generate professional images for your social media using AI.")
+        _ig_desc = st.text_area(
+            "Describe la imagen que quieres generar:" if not _is_en_ig else "Describe the image you want to generate:",
+            placeholder=("Ej: Banner para Instagram de miel natural con fondo verde, "
+                         "texto: Energia Natural, estilo moderno y profesional") if not _is_en_ig else
+                        "Ex: Instagram banner for natural honey with green background, text: Natural Energy, modern professional style",
+            height=120,
+            key="ig_descripcion"
+        )
+        _ig_formato = st.selectbox(
+            "Formato:" if not _is_en_ig else "Format:",
+            ["Post cuadrado (Instagram)", "Story vertical (Instagram/TikTok)",
+             "Banner horizontal (Facebook)", "Thumbnail YouTube"] if not _is_en_ig else
+            ["Square post (Instagram)", "Vertical story (Instagram/TikTok)",
+             "Horizontal banner (Facebook)", "YouTube Thumbnail"],
+            key="ig_formato"
+        )
+        _formato_ratio = {
+            "Post cuadrado (Instagram)": "1:1",
+            "Story vertical (Instagram/TikTok)": "9:16",
+            "Banner horizontal (Facebook)": "16:9",
+            "Thumbnail YouTube": "16:9",
+            "Square post (Instagram)": "1:1",
+            "Vertical story (Instagram/TikTok)": "9:16",
+            "Horizontal banner (Facebook)": "16:9",
+        }
+        if _ig_desc and st.button("Generar imagen (3 creditos)" if not _is_en_ig else "Generate image (3 credits)", key="btn_ig_gen"):
+            if verificar_creditos(3):
+                _ig_marca = st.session_state.get("marca_guardada", nombre_marca)
+                _ig_nicho = st.session_state.get("nicho_guardado", nicho)
+                _ig_pais  = st.session_state.get("pais_guardado", pais)
+                _ig_ratio = _formato_ratio.get(_ig_formato, "1:1")
+                _ig_prompt = (
+                    f"Professional marketing image for social media. "
+                    f"Brand: {_ig_marca}. Niche: {_ig_nicho}. Market: {_ig_pais}. "
+                    f"Description: {_ig_desc}. "
+                    f"Style: Modern, professional, vibrant colors, clear composition, high quality, suitable for {_ig_formato}."
+                )
+                _ig_ok = False
+                try:
+                    from google.genai import types as _ig_types
+                    with st.spinner("Generando imagen..." if not _is_en_ig else "Generating image..."):
+                        _ig_resp = client.models.generate_images(
+                            model="imagen-3.0-generate-002",
+                            prompt=_ig_prompt,
+                            config=_ig_types.GenerateImagesConfig(
+                                number_of_images=3,
+                                aspect_ratio=_ig_ratio,
+                                safety_filter_level="block_some",
+                                person_generation="allow_adult",
+                            )
+                        )
+                    if _ig_resp and _ig_resp.generated_images:
+                        _ig_ok = True
+                        consumir(3)
+                        _ig_email = (st.session_state.get("user_email") or "").strip().lower()
+                        if _ig_email:
+                            guardar_reporte(_ig_email, "imagen_generada",
+                                            f"Imagen: {_ig_desc[:60]}", _ig_prompt)
+                        _ig_cols = st.columns(min(3, len(_ig_resp.generated_images)))
+                        for _igi, _img in enumerate(_ig_resp.generated_images):
+                            with _ig_cols[_igi % 3]:
+                                st.image(_img.image.image_bytes, caption=f"Opcion {_igi+1}", use_container_width=True)
+                                st.download_button(
+                                    label=f"Descargar imagen {_igi+1}" if not _is_en_ig else f"Download image {_igi+1}",
+                                    data=_img.image.image_bytes,
+                                    file_name=f"chero_imagen_{_igi+1}.png",
+                                    mime="image/png",
+                                    key=f"dl_ig_{_igi}"
+                                )
+                except Exception as _ig_err:
+                    pass
+                if not _ig_ok:
+                    st.info(
+                        "El generador de imagenes estara disponible proximamente. "
+                        "Por ahora te recomendamos Canva (canva.com) o Ideogram.ai (gratis)."
+                        if not _is_en_ig else
+                        "The image generator will be available soon. "
+                        "We recommend Canva (canva.com) or Ideogram.ai (free) for now."
+                    )
+
+
     # ── SIMULADOR DE CAMPAÑA ──────────────────────────────────────────────────
     elif opcion_mkt == "Simulador de Campaña":
         _is_en_sim = st.session_state.get("lang") == "en"
@@ -3300,6 +3446,15 @@ Completa todas las secciones. No cortes el texto a la mitad."""
             _sim_warn_camp = "Pega el texto de tu campaña primero."
             _sim_spin      = "Simulando campaña..."
 
+        # ── Memoria: compliance anterior ───────────────────────────────────
+        _sim_email_mem = (st.session_state.get("user_email") or "").strip().lower()
+        if _sim_email_mem:
+            _sim_mem = obtener_ultimo_reporte_tipo(_sim_email_mem, ["compliance"], dias=30)
+            if _sim_mem:
+                _sim_mem_fecha = str(_sim_mem.get("created_at", ""))[:10]
+                _sim_mem_resumen = _sim_mem.get("contenido", "")[:300]
+                st.warning(f"Compliance anterior ({_sim_mem_fecha}): {_sim_mem_resumen[:200]}... Asegurate de no repetir frases rechazadas.")
+        # ─────────────────────────────────────────────────────────────────────
         _sim_camp_txt = st.text_area(
             _sim_camp_lbl,
             placeholder=_sim_camp_ph,
@@ -3992,26 +4147,41 @@ with tabs[5]:
     else:
         reportes = obtener_reportes(email_rep)
         if not reportes:
-            st.info("Aún no tienes reportes guardados.")
+            st.info("Aun no tienes reportes guardados.")
         else:
+            # ── Filtro por tipo ────────────────────────────────────────────
+            _tipos_disponibles = sorted(set(r.get("tipo_reporte", "general") for r in reportes))
+            _filtro_opts = ["Todos"] + _tipos_disponibles
+            _filtro_sel = st.selectbox("Filtrar por tipo:", _filtro_opts, key="rep_filtro_tipo")
+            if _filtro_sel != "Todos":
+                reportes = [r for r in reportes if r.get("tipo_reporte") == _filtro_sel]
+            st.caption(f"Mostrando {len(reportes)} reporte(s)")
+            # ──────────────────────────────────────────────────────────────
             for _ri, rep in enumerate(reportes):
-                titulo_rep = rep.get("titulo", "Reporte sin título")
+                titulo_rep = rep.get("titulo", "Reporte sin titulo")
                 tipo_rep = rep.get("tipo_reporte", "general")
                 contenido_rep = rep.get("contenido", "")
                 with st.expander(f"{titulo_rep} ({tipo_rep})"):
                     st.markdown(contenido_rep)
-                    try:
-                        _pdf_bytes = generar_pdf_reportlab(titulo_rep, contenido_rep, email_rep)
-                        _fname = titulo_rep[:40].replace(" ", "_").replace("/", "-") + ".pdf"
-                        st.download_button(
-                            label="📥 Descargar PDF",
-                            data=_pdf_bytes,
-                            file_name=_fname,
-                            mime="application/pdf",
-                            key=f"dl_pdf_{_ri}",
-                        )
-                    except Exception as _pdf_err:
-                        st.caption(f"⚠ PDF no disponible: {_pdf_err}")
+                    _rep_btn_col1, _rep_btn_col2 = st.columns(2)
+                    with _rep_btn_col1:
+                        try:
+                            _pdf_bytes = generar_pdf_reportlab(titulo_rep, contenido_rep, email_rep)
+                            _fname = titulo_rep[:40].replace(" ", "_").replace("/", "-") + ".pdf"
+                            st.download_button(
+                                label="Descargar PDF",
+                                data=_pdf_bytes,
+                                file_name=_fname,
+                                mime="application/pdf",
+                                key=f"dl_pdf_{_ri}",
+                            )
+                        except Exception as _pdf_err:
+                            st.caption(f"PDF no disponible: {_pdf_err}")
+                    with _rep_btn_col2:
+                        if st.button("Usar como contexto", key=f"btn_ctx_{_ri}"):
+                            st.session_state["contexto_reporte_activo"] = contenido_rep[:600]
+                            st.session_state["contexto_reporte_titulo"] = titulo_rep
+                            st.success(f"Contexto cargado: {titulo_rep[:50]}. Las proximas funciones lo usaran automaticamente.")
 
 # ── KPI HELPERS ────────────────────────────────────────────────────────────────
 def db_guardar_kpis(user_email, semana_key, ventas, seguidores, alcance_kpi, clics, leads, conversion):
@@ -4094,6 +4264,19 @@ with tabs[6]:
             _em_desc_ph  = "Ej: Vendo joyer\u00eda artesanal. Objetivo: reactivar clientes inactivos m\u00e1s de 30 d\u00edas."
             _em_btn      = "\u26a1 Generar secuencia de 5 emails (2 cr\u00e9ditos)"
 
+        # ── Memoria: contexto de ultimo catalogo/autopiloto ───────────────
+        _em_email_mem = (st.session_state.get("user_email") or "").strip().lower()
+        if _em_email_mem:
+            _em_mem = obtener_ultimo_reporte_tipo(_em_email_mem, ["campaña_catalogo", "autopiloto"], dias=30)
+            if _em_mem:
+                _em_mem_fecha = str(_em_mem.get("created_at", ""))[:10]
+                _em_mem_tipo  = _em_mem.get("tipo_reporte", "reporte")
+                with st.expander(f"Contexto disponible: ultimo {_em_mem_tipo} ({_em_mem_fecha}) — click para usar"):
+                    st.caption(_em_mem.get("contenido", "")[:400])
+                    if st.button("Usar este contexto en el email", key="btn_em_mem_usar"):
+                        st.session_state["em_ctx_previo"] = _em_mem.get("contenido", "")[:600]
+                        st.success("Contexto cargado. Se incluira en el proximo email generado.")
+        # ─────────────────────────────────────────────────────────────────────
         _em_tipo_sel = st.selectbox(_em_tipo_lbl, _em_tipos_disp, key="em_tipo")
         if st.button(_em_btn, key="btn_email_gen"):
             _em_nicho  = st.session_state.get("nicho_guardado", nicho)
@@ -4105,6 +4288,9 @@ with tabs[6]:
             if not _em_nicho and not _em_marca and not _em_prod:
                 st.warning("Para usar esta función completa tu perfil en el sidebar primero ⚠" if not _is_en_pw else "Complete your business profile in the sidebar first ⚠")
             elif verificar_creditos(2):
+                _em_ctx_extra = ""
+                if st.session_state.get("em_ctx_previo"):
+                    _em_ctx_extra = f"\nCONTEXTO PREVIO DEL NEGOCIO:\n{st.session_state['em_ctx_previo'][:500]}"
                 _em_desc = (
                     f"Marca: {_em_marca}. Nicho: {_em_nicho}. "
                     f"Ubicación: {_em_ciudad}, {_em_pais}. "
