@@ -2669,13 +2669,13 @@ Completa TODAS las secciones. No cortes el texto a la mitad. Usa lenguaje natura
     elif opcion_mkt == "Compliance Checker":
         st.write("Verifica tu copy, genera anuncios seguros o consigue ideas sin riesgo de rechazo en Meta y TikTok.")
         _cc_modo = st.radio(
-            "\u00bfQu\u00e9 quieres hacer?",
-            ["\u2705 Verificar mi copy", "\ud83d\udee1\ufe0f Generar anuncio seguro", "\ud83d\udca1 Dame 3 ideas"],
+            "Que necesitas?",
+            ["Verificar mi copy existente", "Generar anuncio seguro desde cero", "Dame 3 ideas seguras para este producto"],
             key="cc_modo_radio",
             horizontal=True
         )
 
-        if _cc_modo == "\u2705 Verificar mi copy":
+        if _cc_modo == "Verificar mi copy existente":
             _copy_check = st.text_area(
                 "Pega tu copy de anuncio aqu\u00ed:",
                 placeholder="Ej: \u00a1Pierde 10 kilos en 2 semanas garantizado! Oferta exclusiva...",
@@ -2715,7 +2715,7 @@ S\u00e9 espec\u00edfico. Completa todas las secciones."""
                 st.markdown(st.session_state["_ed_cc_ver"])
                 _panel_edicion(st.session_state["_ed_cc_ver"], "cc_ver", max_tokens=6000)
 
-        elif _cc_modo == "\ud83d\udee1\ufe0f Generar anuncio seguro":
+        elif _cc_modo == "Generar anuncio seguro desde cero":
             _cc_producto = st.text_input(
                 "\u00bfQu\u00e9 quieres anunciar?",
                 placeholder="Ej: Suplemento de magnesio para mejorar el sue\u00f1o - S/45",
@@ -2758,7 +2758,7 @@ Completa todas las secciones."""
                 st.markdown(st.session_state["_ed_cc_seg"])
                 _panel_edicion(st.session_state["_ed_cc_seg"], "cc_seg", max_tokens=6000)
 
-        elif _cc_modo == "\ud83d\udca1 Dame 3 ideas":
+        elif _cc_modo == "Dame 3 ideas seguras para este producto":
             _cc_producto_ideas = st.text_input(
                 "\u00bfQu\u00e9 quieres promocionar?",
                 placeholder="Ej: Curso de fotograf\u00eda online - $97",
