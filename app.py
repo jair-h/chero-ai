@@ -34,9 +34,9 @@ if SUPABASE_URL and SUPABASE_KEY:
         st.error(f"🚨 Error conectando Supabase: {e}")
         supabase = None
 elif not SUPABASE_URL:
-    st.warning("⚠️ SUPABASE_URL no configurada en secrets.toml — los datos no se guardarán.")
+    st.warning("⚠ SUPABASE_URL no configurada en secrets.toml — los datos no se guardarán.")
 elif not SUPABASE_KEY:
-    st.warning("⚠️ SUPABASE_KEY no configurada en secrets.toml — los datos no se guardarán.")
+    st.warning("⚠ SUPABASE_KEY no configurada en secrets.toml — los datos no se guardarán.")
 
 # --- API KEYS ---
 API_KEY = ""
@@ -161,7 +161,7 @@ _TRANS = {
             "Generador de Personas", "Embudo de Ventas",
             "Storytelling de Marca", "Plan de Crisis",
             "SEO y Palabras Clave", "Artículo de Blog SEO",
-            "Compliance Checker", "🕵️ Inteligencia Competitiva", "Campaña de Catálogo",
+            "Compliance Checker", "🕵 Inteligencia Competitiva", "Campaña de Catálogo",
             "🧪 Simulador de Campaña",
         ],
         "cerrador": "💰 Cerrador de Tratos",
@@ -223,7 +223,7 @@ _TRANS = {
             "Persona Generator", "Sales Funnel",
             "Brand Storytelling", "Crisis Plan",
             "SEO & Keywords", "SEO Blog Article",
-            "Compliance Checker", "🕵️ Competitive Intelligence", "Catalog Campaign",
+            "Compliance Checker", "🕵 Competitive Intelligence", "Catalog Campaign",
             "🧪 Campaign Simulator",
         ],
         "cerrador": "💰 Deal Closer",
@@ -488,7 +488,7 @@ def _panel_edicion(resultado, key_suffix, max_tokens=6000):
     st.subheader("¿Qué quieres hacer con este resultado?")
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("✏️ Mejorar este resultado", key=f"btn_ed_mejorar_{key_suffix}"):
+        if st.button("✏ Mejorar este resultado", key=f"btn_ed_mejorar_{key_suffix}"):
             st.session_state[f"ed_modo_{key_suffix}"] = "mejorar"
             st.session_state[f"ed_orig_{key_suffix}"] = resultado
     with col2:
@@ -739,7 +739,7 @@ def _mostrar_gestion_catalogo(user_email_cat, catalogo_guardado, moneda_cat):
                 st.session_state["catalogo_db"] = db_get_catalogo(user_email_cat)
                 st.rerun()
         with c5:
-            if st.button("🗑️", key=f"gc_del_{pid}", help="Eliminar"):
+            if st.button("🗑", key=f"gc_del_{pid}", help="Eliminar"):
                 db_eliminar_producto(pid)
                 st.session_state["catalogo_db"] = db_get_catalogo(user_email_cat)
                 st.rerun()
@@ -1043,14 +1043,14 @@ def obtener_trends(pais_label: str, nicho: str) -> dict:
 @st.cache_data(ttl=1800)
 def obtener_trending_youtube(pais_label="Perú 🇵🇪"):
     if not YOUTUBE_API_KEY:
-        return "⚠️ No hay API Key de YouTube configurada."
+        return "⚠ No hay API Key de YouTube configurada."
     region_code = ISO_CODES.get(pais_label, "PE")
     url = "https://www.googleapis.com/youtube/v3/videos"
     params = {"part": "snippet", "chart": "mostPopular", "regionCode": region_code, "maxResults": 10, "key": YOUTUBE_API_KEY}
     try:
         response = requests.get(url, params=params, timeout=10)
         if response.status_code != 200:
-            return f"⚠️ YouTube no dio datos para {region_code}."
+            return f"⚠ YouTube no dio datos para {region_code}."
         data = response.json()
         items = data.get("items", [])
         if not items:
@@ -1058,7 +1058,7 @@ def obtener_trending_youtube(pais_label="Perú 🇵🇪"):
         lista_videos = [f"- {item['snippet']['title']} ({item['snippet']['channelTitle']})" for item in items]
         return "\n".join(lista_videos)
     except Exception:
-        return "⚠️ Error de conexión con YouTube."
+        return "⚠ Error de conexión con YouTube."
 
 
 # =========================
@@ -1105,7 +1105,7 @@ def verificar_creditos(costo=1, video=False):
         )
         return False
     if video and not plan.get("video", False):
-        st.warning("⚠️ Tu plan no incluye análisis visual/video.")
+        st.warning("⚠ Tu plan no incluye análisis visual/video.")
         return False
     return True
 
@@ -1157,7 +1157,7 @@ with st.sidebar:
         try:
             asegurar_usuario_desde_db()
         except Exception:
-            st.warning("⚠️ No se pudo sincronizar usuario con Supabase.")
+            st.warning("⚠ No se pudo sincronizar usuario con Supabase.")
 
         try:
             _lang_antes = st.session_state.get("lang", "es")
@@ -1165,7 +1165,7 @@ with st.sidebar:
             if st.session_state.get("lang", "es") != _lang_antes:
                 st.rerun()
         except Exception:
-            st.warning("⚠️ No se pudo cargar el perfil del negocio.")
+            st.warning("⚠ No se pudo cargar el perfil del negocio.")
 
     # ── Idioma preferido ────────────────────────────────────────────────────────
     _idioma_opts = ["Español", "English", "Português"]
@@ -1210,17 +1210,17 @@ with st.sidebar:
 
     opciones_nicho = [
         "🏡 Inmobiliaria", "👗 Moda / Retail", "🍔 Gastronomía", "💪 Fitness / Salud",
-        "⚖️ Servicios Legales", "💻 Tecnología / SaaS", "🎓 Educación / Cursos",
-        "🚗 Automotriz", "🎬 Marca Personal / Influencer", "✍️ OTRO"
+        "⚖ Servicios Legales", "💻 Tecnología / SaaS", "🎓 Educación / Cursos",
+        "🚗 Automotriz", "🎬 Marca Personal / Influencer", "✍ OTRO"
     ]
     nicho_guardado = st.session_state.get("nicho_guardado", "")
     if nicho_guardado and nicho_guardado not in opciones_nicho:
-        sel_nicho_default = "✍️ OTRO"
+        sel_nicho_default = "✍ OTRO"
     else:
         sel_nicho_default = nicho_guardado if nicho_guardado else opciones_nicho[0]
 
     sel_nicho = st.selectbox(t("nicho_label"), opciones_nicho, index=opciones_nicho.index(sel_nicho_default) if sel_nicho_default in opciones_nicho else 0)
-    if sel_nicho == "✍️ OTRO":
+    if sel_nicho == "✍ OTRO":
         nicho = st.text_input("Describe tu nicho:", value=nicho_guardado if nicho_guardado and nicho_guardado not in opciones_nicho else "")
     else:
         nicho = sel_nicho
@@ -1339,11 +1339,11 @@ Sé muy específico, como si describieras a una persona real."""
             nuevo_pais_cliente = st.selectbox("País del cliente:", lista_paises_clientes, key="nuevo_pais_cliente")
             opciones_nicho_freelancer = [
                 "🏡 Inmobiliaria", "👗 Moda / Retail", "🍔 Gastronomía", "💪 Fitness / Salud",
-                "⚖️ Servicios Legales", "💻 Tecnología / SaaS", "🎓 Educación / Cursos",
-                "🚗 Automotriz", "🎬 Marca Personal / Influencer", "✍️ OTRO"
+                "⚖ Servicios Legales", "💻 Tecnología / SaaS", "🎓 Educación / Cursos",
+                "🚗 Automotriz", "🎬 Marca Personal / Influencer", "✍ OTRO"
             ]
             nuevo_sel_nicho = st.selectbox("Nicho del cliente:", opciones_nicho_freelancer, key="nuevo_sel_nicho")
-            if nuevo_sel_nicho == "✍️ OTRO":
+            if nuevo_sel_nicho == "✍ OTRO":
                 nuevo_nicho_cliente = st.text_input("Describe el nicho:", key="nuevo_nicho_cliente")
             else:
                 nuevo_nicho_cliente = nuevo_sel_nicho
@@ -1643,7 +1643,7 @@ Entrega la auditoría completa en este formato:
 - Nivel de competencia: {_s3}/100 — [oportunidad o amenaza]
 - Score de éxito estimado: {_s4}/100 — [veredicto]
 
-## ⚠️ LOS 3 ERRORES MÁS GRAVES
+## ⚠ LOS 3 ERRORES MÁS GRAVES
 1. [Error 1 con solución inmediata]
 2. [Error 2 con solución inmediata]
 3. [Error 3 con solución inmediata]
@@ -1672,8 +1672,8 @@ Entrega la auditoría completa en este formato:
         _s1, _s2, _s3, _s4 = st.session_state["_am_scores"]
         _c1, _c2, _c3, _c4 = st.columns(4)
         _c1.metric("🔥 Viralidad", f"{_s1}%")
-        _c2.metric("🛍️ Demanda", f"{_s2}%")
-        _c3.metric("⚔️ Competencia", f"{_s3}%")
+        _c2.metric("🛍 Demanda", f"{_s2}%")
+        _c3.metric("⚔ Competencia", f"{_s3}%")
         _c4.metric("🏆 Éxito Global", f"{_s4}/100")
 
     if st.session_state.get("_ed_auditoria_maestra"):
@@ -2072,7 +2072,7 @@ Crea el plan semanal en este formato EXACTO:
 # --- TAB 1: CALENDARIO ---
 with tabs[1]:
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠️ Ingresa tu email en el sidebar para acceder a esta sección.")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
         st.info("👈 Panel izquierdo → Tu Cuenta → Email")
     st.subheader("📅 Planificador Semanal Inteligente")
     st.write("CHERO usará tendencias reales (Google Trends + YouTube) para armar tu semana.")
@@ -2118,7 +2118,7 @@ TONO: Experto, accionable y adaptado a la moneda {PAISES_MONEDA.get(pais, '$')}.
 # --- TAB 2: MARKETING ---
 with tabs[2]:
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠️ Ingresa tu email en el sidebar para acceder a esta sección.")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
         st.info("👈 Panel izquierdo → Tu Cuenta → Email")
     st.subheader(t("motor_atraccion"))
     st.write(t("motor_desc"))
@@ -2127,7 +2127,7 @@ with tabs[2]:
         "Generador de Personas", "Embudo de Ventas",
         "Storytelling de Marca", "Plan de Crisis",
         "SEO y Palabras Clave", "Artículo de Blog SEO",
-        "Compliance Checker", "🕵️ Inteligencia Competitiva", "Campaña de Catálogo",
+        "Compliance Checker", "🕵 Inteligencia Competitiva", "Campaña de Catálogo",
         "Simulador de Campaña",
     ]
     _mkt_disp = st.selectbox(t("sel_herramienta"), t("mkt_tools"), key="mkt_sel")
@@ -2149,7 +2149,7 @@ Analiza este contenido visual y entrégame:
 1) 🎨 CALIDAD VISUAL (1-10): iluminación, encuadre, color, nitidez.
 2) 🎣 GANCHO/RETENCIÓN: evalúa los primeros 3 segundos.
 3) 🧠 MENSAJE: ¿queda claro qué se ofrece?
-4) 🛠️ ERRORES TÉCNICOS: audio, texto, ritmo.
+4) 🛠 ERRORES TÉCNICOS: audio, texto, ritmo.
 5) ✅ PROPUESTA MEJORADA:
    - Hook alternativo (1 frase viral)
    - 3 bullets de estructura
@@ -2241,7 +2241,7 @@ Por qué: [razón específica para {pais}]
 ## ✅ LO QUE FUNCIONA
 [qué tiene de bueno esta idea]
 
-## ⚠️ EL PROBLEMA
+## ⚠ EL PROBLEMA
 [qué podría fallar y por qué]
 
 ## 🚀 VERSIÓN MEJORADA
@@ -2327,7 +2327,7 @@ Genera 5 variaciones mejoradas con hooks distintos:
         elif modo == "Mejorar Guion":
             modo_guion = st.radio(
                 "¿Qué quieres hacer con tu guión?",
-                ["🎬 Generar guión nuevo", "✏️ Mejorar mi guión existente", "✅ Revisar si mi guión funcionará"],
+                ["🎬 Generar guión nuevo", "✏ Mejorar mi guión existente", "✅ Revisar si mi guión funcionará"],
                 key="modo_guion_tiktok"
             )
             if modo_guion == "🎬 Generar guión nuevo":
@@ -2348,7 +2348,7 @@ Genera 5 variaciones mejoradas con hooks distintos:
                 if st.session_state.get("_ed_tkt_gnuevo"):
                     st.markdown(st.session_state["_ed_tkt_gnuevo"])
                     _panel_edicion(st.session_state["_ed_tkt_gnuevo"], "tkt_gnuevo", max_tokens=6000)
-            elif modo_guion == "✏️ Mejorar mi guión existente":
+            elif modo_guion == "✏ Mejorar mi guión existente":
                 guion_usuario = st.text_area(
                     "Pega tu guión aquí",
                     placeholder="Escribe o pega el guión que ya tienes y Chero lo mejorará...",
@@ -2373,7 +2373,7 @@ Entrega:
 ## ✅ LO QUE ESTÁ BIEN
 [qué partes funcionan y por qué]
 
-## ⚠️ LO QUE HAY QUE MEJORAR
+## ⚠ LO QUE HAY QUE MEJORAR
 [problemas específicos con solución]
 
 ## 🎬 VERSIÓN MEJORADA COMPLETA
@@ -2425,7 +2425,7 @@ Haz un análisis de rendimiento predictivo:
 ## 🎣 ANÁLISIS DEL HOOK
 [los primeros 3 segundos: ¿van a funcionar? ¿por qué?]
 
-## ⏱️ ANÁLISIS DEL RITMO
+## ⏱ ANÁLISIS DEL RITMO
 [¿el ritmo mantiene la atención en TikTok?]
 
 ## 📢 ANÁLISIS DEL CTA
@@ -2681,7 +2681,7 @@ Completa TODAS las secciones. No cortes el texto a la mitad. Usa lenguaje natura
                 placeholder="Ej: \u00a1Pierde 10 kilos en 2 semanas garantizado! Oferta exclusiva...",
                 key="cc_copy_verificar"
             )
-            if _copy_check and st.button("\u2705 Verificar Compliance (1 Cr\u00e9dito)", key="btn_cc_verificar"):
+            if _copy_check and st.button("Verificar Compliance (1 Credito)", key="btn_cc_verificar"):
                 if verificar_creditos(1):
                     _prompt_cc_ver = f"""Eres experto en pol\u00edticas publicitarias de Facebook Ads, Instagram Ads y TikTok Ads.
 Analiza este copy de anuncio:
@@ -2722,7 +2722,7 @@ S\u00e9 espec\u00edfico. Completa todas las secciones."""
                 value=st.session_state.get("compliance_producto", ""),
                 key="compliance_producto"
             )
-            if _cc_producto and st.button("\ud83d\udee1\ufe0f Generar anuncio seguro (1 cr\u00e9dito)", key="btn_cc_seguro"):
+            if _cc_producto and st.button("Generar anuncio seguro (1 credito)", key="btn_cc_seguro"):
                 if verificar_creditos(1):
                     _marca_cc = st.session_state.get("marca_guardada", "")
                     _pais_cc = st.session_state.get("pais_guardado", pais)
@@ -2764,7 +2764,7 @@ Completa todas las secciones."""
                 placeholder="Ej: Curso de fotograf\u00eda online - $97",
                 key="cc_producto_ideas"
             )
-            if _cc_producto_ideas and st.button("\ud83d\udca1 Dame 3 ideas seguras (1 cr\u00e9dito)", key="btn_cc_ideas"):
+            if _cc_producto_ideas and st.button("Dame 3 ideas seguras (1 credito)", key="btn_cc_ideas"):
                 if verificar_creditos(1):
                     _pais_cc_i = st.session_state.get("pais_guardado", pais)
                     _prompt_cc_ideas = f"""Eres experto en publicidad digital para el mercado de {_pais_cc_i}.
@@ -2804,14 +2804,14 @@ Completa todas las secciones."""
                 st.markdown(st.session_state["_ed_cc_ideas"])
                 _panel_edicion(st.session_state["_ed_cc_ideas"], "cc_ideas", max_tokens=6000)
 
-    elif opcion_mkt == "🕵️ Inteligencia Competitiva":
+    elif opcion_mkt == "🕵 Inteligencia Competitiva":
         st.write("Analiza a tu competencia por nombre o link para descubrir sus debilidades y los gaps que tú puedes aprovechar.")
         _ic_input = st.text_input(
             "Nombre o link del competidor:",
             placeholder="Ej: 'Clinica Dental Sonrisa' o instagram.com/competidor",
             key="ic_input"
         )
-        if _ic_input and st.button("🕵️ Analizar Competidor (2 Créditos)", key="btn_ic_analizar"):
+        if _ic_input and st.button("🕵 Analizar Competidor (2 Créditos)", key="btn_ic_analizar"):
             if verificar_creditos(2):
                 _pais_ic = st.session_state.get("pais_guardado", pais)
                 _prompt_ic = f"""Eres analista de inteligencia competitiva de marketing digital experto en el mercado de {_pais_ic}.
@@ -2828,7 +2828,7 @@ Realiza un análisis de inteligencia competitiva completo y estructurado:
 - Segmento de clientes que ataca
 - Propuesta de valor aparente
 
-## ⚠️ DEBILIDADES DETECTADAS
+## ⚠ DEBILIDADES DETECTADAS
 [Las 3-5 principales debilidades o gaps típicos de competidores en este nicho en {_pais_ic}]
 
 ## 💬 QUEJAS FRECUENTES DE SUS CLIENTES
@@ -2936,7 +2936,7 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
             with col_b2:
                 btn_agregar = st.button("➕ Agregar más productos", key="cat_btn_agregar", use_container_width=True)
             with col_b3:
-                btn_gestionar = st.button("🗑️ Gestionar catálogo", key="cat_btn_gestionar", use_container_width=True)
+                btn_gestionar = st.button("🗑 Gestionar catálogo", key="cat_btn_gestionar", use_container_width=True)
 
             if btn_agregar:
                 st.session_state["cat_modo"] = "agregar"
@@ -3054,7 +3054,7 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
             # ── Modo: Gestionar ───────────────────────────────────────────────
             elif st.session_state.get("cat_modo") == "gestionar":
                 st.markdown("---")
-                st.markdown("#### 🗑️ Gestionar mi catálogo")
+                st.markdown("#### 🗑 Gestionar mi catálogo")
 
                 # Agregar producto manual
                 with st.expander("➕ Agregar producto manualmente"):
@@ -3093,7 +3093,7 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
                                 st.session_state["catalogo_guardado"] = db_get_catalogo(user_email_cat)
                                 st.rerun()
                         with c5:
-                            if st.button("🗑️", key=f"gc_dl_{pid}", help="Eliminar"):
+                            if st.button("🗑", key=f"gc_dl_{pid}", help="Eliminar"):
                                 db_eliminar_producto(pid)
                                 st.session_state["catalogo_guardado"] = db_get_catalogo(user_email_cat)
                                 st.rerun()
@@ -3312,7 +3312,7 @@ Completa todas las secciones. No cortes el texto a la mitad."""
             if not _sim_camp_txt.strip():
                 st.warning(_sim_warn_camp)
             elif len(_sim_camp_txt) > 4000:
-                st.warning("⚠️ Texto demasiado largo, máximo 4000 caracteres.")
+                st.warning("⚠ Texto demasiado largo, máximo 4000 caracteres.")
             elif verificar_creditos(5):
                 _sim_marca  = st.session_state.get("marca_guardada", nombre_marca)
                 _sim_nicho  = st.session_state.get("nicho_guardado", nicho)
@@ -3364,7 +3364,7 @@ Completa todas las secciones. No cortes el texto a la mitad."""
 # --- TAB 3: VENTAS ---
 with tabs[3]:
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠️ Ingresa tu email en el sidebar para acceder a esta sección.")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
         st.info("👈 Panel izquierdo → Tu Cuenta → Email")
     st.subheader(t("cerrador"))
     _sales_keys = ["Psicólogo de Precios", "Mata-Objeciones", "Calculadora Descuentos"]
@@ -3382,7 +3382,7 @@ with tabs[3]:
                     f"## 💰 PRECIO PSICOLÓGICO RECOMENDADO\n[Precio exacto + por qué]\n\n"
                     f"## 🧠 GATILLOS MENTALES A USAR\n[Lista con ejemplos concretos]\n\n"
                     f"## 📝 CÓMO PRESENTARLO EN TU WEB/POST\n[Texto listo para copiar]\n\n"
-                    f"## ⚖️ COMPARACIÓN DE VALOR\n[Cómo anclar el precio frente a alternativas]\n\n"
+                    f"## ⚖ COMPARACIÓN DE VALOR\n[Cómo anclar el precio frente a alternativas]\n\n"
                     f"## 🎯 COPY DEL PRECIO (listo para usar)\n[Frase para Instagram/WhatsApp]"
                 )
                 st.markdown(generar_texto(prompt, max_out=6000))
@@ -3419,7 +3419,7 @@ with tabs[3]:
                     f"Precio original: {orig} → con {desc}% descuento → precio final: {_precio_final:.2f}\n\n"
                     f"Dame:\n"
                     f"## ✅ ANÁLISIS DEL DESCUENTO\n[¿Es viable? ¿Cuándo usarlo?]\n\n"
-                    f"## 🛡️ 3 TIPS PARA NO PERDER PERCEPCIÓN DE VALOR\n\n"
+                    f"## 🛡 3 TIPS PARA NO PERDER PERCEPCIÓN DE VALOR\n\n"
                     f"## 📢 COPY PARA PUBLICAR EL DESCUENTO\n[Texto listo para redes]"
                 )
                 st.markdown(generar_texto(prompt, max_out=6000))
@@ -3428,7 +3428,7 @@ with tabs[3]:
 # --- TAB 4: ADMIN ---
 with tabs[4]:
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠️ Ingresa tu email en el sidebar para acceder a esta sección.")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
         st.info("👈 Panel izquierdo → Tu Cuenta → Email")
     st.subheader(t("oficina"))
     _admin_keys = ["Analista ROI (CSV)", "Cotizaciones", "Contratos", "Reglas de Marca", "Analizador de Métricas", "Integraciones"]
@@ -3453,7 +3453,7 @@ with tabs[4]:
                         f"## 📊 RESUMEN DE MÉTRICAS\n"
                         f"(si hay columnas de gasto e ingresos, calcula ROI, ROAS y CPA por campaña)\n\n"
                         f"## 🏆 CAMPAÑA GANADORA\n[Cuál tiene mejor rendimiento y por qué]\n\n"
-                        f"## ⚠️ CAMPAÑA A OPTIMIZAR O PAUSAR\n[Cuál rinde menos y qué hacer]\n\n"
+                        f"## ⚠ CAMPAÑA A OPTIMIZAR O PAUSAR\n[Cuál rinde menos y qué hacer]\n\n"
                         f"## 💡 3 ACCIONES CONCRETAS\n1.\n2.\n3.\n\n"
                         f"## 📈 PROYECCIÓN\n[Si duplicas el presupuesto de la mejor campaña, qué esperar]"
                     )
@@ -3743,7 +3743,7 @@ Sé muy específico con los números que ves en la imagen."""
                             _usando_demo = True
 
                         if _usando_demo or _ga_data is None:
-                            st.warning("⚠️ Mostrando datos de ejemplo. Configura tu API key para ver datos reales." if not _is_en_int else "⚠️ Showing sample data. Configure your API key to see real data.")
+                            st.warning("⚠ Mostrando datos de ejemplo. Configura tu API key para ver datos reales." if not _is_en_int else "⚠ Showing sample data. Configure your API key to see real data.")
                             _ga_data = {
                                 "sessions": 1250, "activeUsers": 890, "newUsers": 340,
                                 "bounceRate": 68.5, "avgDuration": 125, "pagesPerSession": 2.3,
@@ -3979,7 +3979,7 @@ Sé muy específico con los números que ves en la imagen."""
 # ✅ FIX: TODO el contenido dentro del with tabs[5]
 with tabs[5]:
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠️ Ingresa tu email en el sidebar para acceder a esta sección.")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
         st.info("👈 Panel izquierdo → Tu Cuenta → Email")
     st.subheader("📂 Mis Reportes")
     cliente_activo_nombre_rep = st.session_state.get("cliente_activo_nombre", "").strip()
@@ -4011,7 +4011,7 @@ with tabs[5]:
                             key=f"dl_pdf_{_ri}",
                         )
                     except Exception as _pdf_err:
-                        st.caption(f"⚠️ PDF no disponible: {_pdf_err}")
+                        st.caption(f"⚠ PDF no disponible: {_pdf_err}")
 
 # ── KPI HELPERS ────────────────────────────────────────────────────────────────
 def db_guardar_kpis(user_email, semana_key, ventas, seguidores, alcance_kpi, clics, leads, conversion):
@@ -4050,7 +4050,7 @@ def db_obtener_kpis(user_email):
 # --- TAB 6: POWER TOOLS ---
 with tabs[6]:
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠️ Ingresa tu email en el sidebar para acceder a esta sección.")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
         st.info("👈 Panel izquierdo → Tu Cuenta → Email")
     _is_en_pw = st.session_state.get("lang") == "en"
 
@@ -4103,7 +4103,7 @@ with tabs[6]:
             _em_prod   = st.session_state.get("producto_servicio", "")
             _em_client = st.session_state.get("cliente_ideal_guardado", "")
             if not _em_nicho and not _em_marca and not _em_prod:
-                st.warning("Para usar esta función completa tu perfil en el sidebar primero ⚠️" if not _is_en_pw else "Complete your business profile in the sidebar first ⚠️")
+                st.warning("Para usar esta función completa tu perfil en el sidebar primero ⚠" if not _is_en_pw else "Complete your business profile in the sidebar first ⚠")
             elif verificar_creditos(2):
                 _em_desc = (
                     f"Marca: {_em_marca}. Nicho: {_em_nicho}. "
@@ -4158,7 +4158,7 @@ with tabs[6]:
             if not _cm_texto.strip():
                 st.warning("Pega al menos un comentario." if not _is_en_pw else "Paste at least one comment.")
             elif len(_cm_texto) > 3000:
-                st.warning("⚠️ Texto demasiado largo, máximo 3000 caracteres")
+                st.warning("⚠ Texto demasiado largo, máximo 3000 caracteres")
             elif verificar_creditos(1):
                 _cm_texto = _sanitizar(_cm_texto)
                 _cm_marca  = st.session_state.get("marca_guardada", "")
@@ -4373,7 +4373,7 @@ with tabs[6]:
             if not _pr_noticia.strip():
                 st.warning("Describe la noticia primero." if not _is_en_pw else "Describe your news first.")
             elif len(_pr_noticia) > 3000:
-                st.warning("⚠️ Texto demasiado largo, máximo 3000 caracteres")
+                st.warning("⚠ Texto demasiado largo, máximo 3000 caracteres")
             elif verificar_creditos(2):
                 _pr_noticia = _sanitizar(_pr_noticia)
                 _pr_nicho  = st.session_state.get("nicho_guardado", nicho)
@@ -4529,7 +4529,7 @@ with tabs[6]:
             if not _cro_texto.strip():
                 st.warning("Pega el texto de tu landing page primero." if not _is_en_pw else "Paste your landing page text first.")
             elif len(_cro_texto) > 3000:
-                st.warning("⚠️ Texto demasiado largo, máximo 3000 caracteres")
+                st.warning("⚠ Texto demasiado largo, máximo 3000 caracteres")
             elif verificar_creditos(2):
                 _cro_texto = _sanitizar(_cro_texto)
                 _cro_nicho  = st.session_state.get("nicho_guardado", nicho)
@@ -4607,7 +4607,7 @@ def db_incrementar_autopiloto(user_email, mes):
 # --- TAB 7: AUTOPILOTO ---
 with tabs[7]:
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠️ Ingresa tu email en el sidebar para acceder a esta sección.")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
         st.info("👈 Panel izquierdo → Tu Cuenta → Email")
     _is_en_ap = st.session_state.get("lang") == "en"
     _ap_icon  = "\U0001f916"
@@ -4666,7 +4666,7 @@ with tabs[7]:
         _ap_marca_p  = st.session_state.get("marca_guardada", "")
         _ap_prod_p   = st.session_state.get("producto_servicio", "")
         if not _ap_nicho_p and not _ap_marca_p and not _ap_prod_p:
-            st.warning("Para resultados óptimos completa tu perfil en el sidebar primero ⚠️" if not _is_en_ap else "For best results complete your business profile in the sidebar first ⚠️")
+            st.warning("Para resultados óptimos completa tu perfil en el sidebar primero ⚠" if not _is_en_ap else "For best results complete your business profile in the sidebar first ⚠")
 
         _ap_btn_lbl = f"{_ap_icon} Activate Autopilot (8 credits)" if _is_en_ap else f"{_ap_icon} Activar Autopiloto (8 cr\u00e9ditos)"
 
@@ -4694,13 +4694,13 @@ with tabs[7]:
             st.session_state["autopiloto_ultimo_agente"] = num
             if not _is_en_ap:
                 st.warning(
-                    f"⚠️ El Agente {num} tuvo un problema. "
+                    f"⚠ El Agente {num} tuvo un problema. "
                     f"Los demás resultados están guardados. "
                     f"Haz clic en Reintentar para continuar."
                 )
             else:
                 st.warning(
-                    f"⚠️ Agent {num} had a problem. "
+                    f"⚠ Agent {num} had a problem. "
                     f"Other results are saved. "
                     f"Click Retry to continue."
                 )
@@ -4743,7 +4743,7 @@ with tabs[7]:
                     f"| Red Social | Días | Hora | Por qué |\n"
                     f"|---|---|---|---|\n"
                     f"(llena la tabla con datos reales para {_pais_ap})\n\n"
-                    f"## 🏷️ HASHTAGS EN CRECIMIENTO\n"
+                    f"## 🏷 HASHTAGS EN CRECIMIENTO\n"
                     f"- **Instagram:** [10 hashtags]\n"
                     f"- **TikTok:** [10 hashtags]\n"
                     f"- **Facebook:** [5 hashtags]")
@@ -4787,14 +4787,14 @@ with tabs[7]:
 
             # ── AGENTE 3 — Copywriter ────────────────────────────────────
             if desde <= 3:
-                _lbl3 = "✍️ Agente 3/5 — Generando contenido..." if not _is_en_ap else "✍️ Agent 3/5 — Generating content..."
+                _lbl3 = "✍ Agente 3/5 — Generando contenido..." if not _is_en_ap else "✍ Agent 3/5 — Generating content..."
                 st.info(_lbl3)
                 _pb.progress(50, text=_lbl3)
                 _p3 = (_lang_pfx +
                     f"INSTRUCCIÓN: Escribe los 5 posts COMPLETOS. Sin introducciones. Empieza directo con POST 1.\n\n"
                     f"Marca: {_marca_ap} | Producto: {_prod_ap} | País: {_pais_ap}\n"
                     f"Plan base: {_o2[:400]}\n\n"
-                    f"## ✍️ 5 POSTS LISTOS PARA PUBLICAR\n\n"
+                    f"## ✍ 5 POSTS LISTOS PARA PUBLICAR\n\n"
                     f"---\n"
                     f"### POST 1 — INSTAGRAM EDUCATIVO\n"
                     f"**Red:** Instagram | **Formato:** Carrusel o imagen\n"
@@ -4863,7 +4863,7 @@ with tabs[7]:
                     f"| Entrada | {_moneda_ap}X | {_moneda_ap}X | X-X personas |\n"
                     f"| Medio | {_moneda_ap}X | {_moneda_ap}X | X-X personas |\n"
                     f"| Escalado | {_moneda_ap}X | {_moneda_ap}X | X-X personas |\n\n"
-                    f"### 🛡️ SCORE COMPLIANCE: [0-100]/100\n"
+                    f"### 🛡 SCORE COMPLIANCE: [0-100]/100\n"
                     f"- Elementos que podrían rechazarse: [lista]\n"
                     f"- Ajustes recomendados: [lista]")
                 _o4 = _ap_llamar(_p4, 8000)
@@ -4920,7 +4920,7 @@ with tabs[7]:
                 f"# 🤖 Autopiloto — {_fecha_hoy}\n\n"
                 f"## 🔍 Tendencias\n{_o1}\n\n"
                 f"## 📋 Estrategia del Mes\n{_o2}\n\n"
-                f"## ✍️ Contenido — 5 Posts\n{_o3}\n\n"
+                f"## ✍ Contenido — 5 Posts\n{_o3}\n\n"
                 f"## 📢 Campaña de Publicidad\n{_o4}\n\n"
                 f"## 🎯 Plan de Acción HOY\n{_o5}"
             )
@@ -5115,7 +5115,7 @@ def crm_completar_tarea(tarea_id):
 # ══════════════════════════════════════════════════════════════════════════════
 with tabs[8]:
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠️ Ingresa tu email en el sidebar para acceder a esta sección.")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
         st.info("👈 Panel izquierdo → Tu Cuenta → Email")
     from datetime import datetime as _dt_crm, date as _date_crm
 
