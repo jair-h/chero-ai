@@ -405,12 +405,12 @@ def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
             _msg = str(e).upper()
             if any(x in _msg for x in ["503", "UNAVAILABLE", "OVERLOADED", "RESOURCE_EXHAUSTED"]):
                 if _intento < 2:
-                    _time.sleep(3)
+                    _time.sleep(5)
                     continue
             break
-    st.warning("\u23f3 Servicio ocupado. Espera un momento e intenta de nuevo.")
-    st.button("\U0001f504 Reintentar", key=f"retry_btn_{id(prompt)}")
-    return f"\u274c Error en IA: {_ultimo_error}"
+    st.warning("Gemini está ocupado. Espera 1-2 minutos e intenta de nuevo.")
+    st.button("Reintentar", key=f"retry_btn_{id(prompt)}")
+    return f"Error en IA: {_ultimo_error}"
 
 SYSTEM_ANALITICO = """Eres CHERO, el Analista de Datos Senior del negocio del usuario.
 REGLAS ABSOLUTAS:
@@ -422,30 +422,41 @@ REGLAS ABSOLUTAS:
 6. Prioriza precisión sobre creatividad. Este análisis puede afectar decisiones de negocio reales."""
 
 def generar_analitico(prompt, max_tokens=6000):
-    try:
-        _marca_ctx  = st.session_state.get("marca_guardada", "")
-        _pais_ctx   = st.session_state.get("pais_guardado", "")
-        _nicho_ctx  = st.session_state.get("nicho_guardado", "")
-        _oferta_ctx = st.session_state.get("producto_servicio", "")
-        if any([_marca_ctx, _nicho_ctx, _oferta_ctx]):
-            _ctx = (
-                f"CONTEXTO DEL NEGOCIO:\nMarca: {_marca_ctx}\nPaís: {_pais_ctx}\n"
-                f"Nicho: {_nicho_ctx}\nOferta: {_oferta_ctx}\n\n"
-            )
-            prompt = _ctx + prompt
-        resp = client.models.generate_content(
-            model=MODELO_FUERTE,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_ANALITICO,
-                temperature=0.0,
-                top_p=0.1,
-                max_output_tokens=max_tokens
-            )
+    import time as _time_an
+    _marca_ctx  = st.session_state.get("marca_guardada", "")
+    _pais_ctx   = st.session_state.get("pais_guardado", "")
+    _nicho_ctx  = st.session_state.get("nicho_guardado", "")
+    _oferta_ctx = st.session_state.get("producto_servicio", "")
+    if any([_marca_ctx, _nicho_ctx, _oferta_ctx]):
+        _ctx = (
+            f"CONTEXTO DEL NEGOCIO:\nMarca: {_marca_ctx}\nPaís: {_pais_ctx}\n"
+            f"Nicho: {_nicho_ctx}\nOferta: {_oferta_ctx}\n\n"
         )
-        return resp.text
-    except Exception as e:
-        return f"❌ Error en análisis: {e}"
+        prompt = _ctx + prompt
+    _ultimo_error_an = None
+    for _intento_an in range(3):
+        try:
+            resp = client.models.generate_content(
+                model=MODELO_FUERTE,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_ANALITICO,
+                    temperature=0.0,
+                    top_p=0.1,
+                    max_output_tokens=max_tokens
+                )
+            )
+            return resp.text
+        except Exception as e:
+            _ultimo_error_an = e
+            _msg_an = str(e).upper()
+            if any(x in _msg_an for x in ["503", "UNAVAILABLE", "OVERLOADED", "RESOURCE_EXHAUSTED"]):
+                if _intento_an < 2:
+                    _time_an.sleep(5)
+                    continue
+            break
+    st.warning("Gemini está ocupado. Espera 1-2 minutos e intenta de nuevo.")
+    return f"Error en analisis: {_ultimo_error_an}"
 
 def _sanitizar(texto, max_chars=3000):
     texto = (texto or "").strip()[:max_chars]
