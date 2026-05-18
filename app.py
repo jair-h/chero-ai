@@ -18,6 +18,7 @@ from reportlab.lib.units import inch
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore")
     from supabase import create_client, Client
+from openai import OpenAI as OpenAIClient
 
 # ✅ SIEMPRE PRIMERO: configuración de página
 st.set_page_config(page_title="CHERO | Agencia AI", page_icon="🍒", layout="wide")
@@ -457,6 +458,34 @@ def generar_analitico(prompt, max_tokens=6000):
             break
     st.warning("Gemini está ocupado. Espera 1-2 minutos e intenta de nuevo.")
     return f"Error en analisis: {_ultimo_error_an}"
+
+def generar_imagen_openai(prompt_descripcion, marca, nicho, pais,
+                          formato="1024x1024", calidad="medium"):
+    try:
+        _oai_key = st.secrets.get("OPENAI_API_KEY", "")
+        if not _oai_key:
+            return None, "sin_api_key"
+        _oai_client = OpenAIClient(api_key=_oai_key)
+        prompt_completo = (
+            f"Professional marketing image for social media. NO text in the image. "
+            f"Brand aesthetic: {marca} in {nicho} sector. "
+            f"Country style: {pais}. "
+            f"Visual description: {prompt_descripcion}. "
+            f"Style: modern, clean, vibrant, professional. "
+            f"Perfect for Instagram/Facebook marketing."
+        )
+        response = _oai_client.images.generate(
+            model="gpt-image-2",
+            prompt=prompt_completo,
+            size=formato,
+            quality=calidad,
+            n=1,
+            output_format="b64_json"
+        )
+        return response.data[0].b64_json, None
+    except Exception as e:
+        return None, str(e)
+
 
 def _sanitizar(texto, max_chars=3000):
     texto = (texto or "").strip()[:max_chars]
@@ -3351,87 +3380,152 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                         st.rerun()
 
     elif opcion_mkt == "Generador de Imagenes":
-        _is_en_ig = st.session_state.get("lang") == "en"
-        st.write("Genera imagenes profesionales para tus redes sociales usando IA." if not _is_en_ig else "Generate professional images for your social media using AI.")
-        _ig_desc = st.text_area(
-            "Describe la imagen que quieres generar:" if not _is_en_ig else "Describe the image you want to generate:",
-            placeholder=("Ej: Banner para Instagram de miel natural con fondo verde, "
-                         "texto: Energia Natural, estilo moderno y profesional") if not _is_en_ig else
-                        "Ex: Instagram banner for natural honey with green background, text: Natural Energy, modern professional style",
-            height=120,
-            key="ig_descripcion"
-        )
-        _ig_formato = st.selectbox(
-            "Formato:" if not _is_en_ig else "Format:",
-            ["Post cuadrado (Instagram)", "Story vertical (Instagram/TikTok)",
-             "Banner horizontal (Facebook)", "Thumbnail YouTube"] if not _is_en_ig else
-            ["Square post (Instagram)", "Vertical story (Instagram/TikTok)",
-             "Horizontal banner (Facebook)", "YouTube Thumbnail"],
-            key="ig_formato"
-        )
-        _formato_ratio = {
-            "Post cuadrado (Instagram)": "1:1",
-            "Story vertical (Instagram/TikTok)": "9:16",
-            "Banner horizontal (Facebook)": "16:9",
-            "Thumbnail YouTube": "16:9",
-            "Square post (Instagram)": "1:1",
-            "Vertical story (Instagram/TikTok)": "9:16",
-            "Horizontal banner (Facebook)": "16:9",
+        st.subheader("🎨 Generador de Imágenes y Banners")
+        st.caption("Crea imágenes para tus posts, stories y banners con IA")
+
+        _ig2_email = (st.session_state.get("user_email") or "").strip().lower()
+        _ig2_plan  = st.session_state.get("plan", "Free")
+        _ig2_marca = st.session_state.get("marca_guardada", nombre_marca)
+        _ig2_nicho = st.session_state.get("nicho_guardado", nicho)
+        _ig2_pais  = st.session_state.get("pais_guardado", pais)
+
+        _imagenes_limite = {
+            "Free": 0, "Demo": 5, "Starter": 5,
+            "Pro": 20, "Agency": 100, "Admin": 999
         }
-        if _ig_desc and st.button("Generar imagen (3 creditos)" if not _is_en_ig else "Generate image (3 credits)", key="btn_ig_gen"):
-            if verificar_creditos(3):
-                _ig_marca = st.session_state.get("marca_guardada", nombre_marca)
-                _ig_nicho = st.session_state.get("nicho_guardado", nicho)
-                _ig_pais  = st.session_state.get("pais_guardado", pais)
-                _ig_ratio = _formato_ratio.get(_ig_formato, "1:1")
-                _ig_prompt = (
-                    f"Professional marketing image for social media. "
-                    f"Brand: {_ig_marca}. Niche: {_ig_nicho}. Market: {_ig_pais}. "
-                    f"Description: {_ig_desc}. "
-                    f"Style: Modern, professional, vibrant colors, clear composition, high quality, suitable for {_ig_formato}."
-                )
-                _ig_ok = False
-                try:
-                    from google.genai import types as _ig_types
-                    with st.spinner("Generando imagen..." if not _is_en_ig else "Generating image..."):
-                        _ig_resp = client.models.generate_images(
-                            model="imagen-3.0-generate-002",
-                            prompt=_ig_prompt,
-                            config=_ig_types.GenerateImagesConfig(
-                                number_of_images=3,
-                                aspect_ratio=_ig_ratio,
-                                safety_filter_level="block_some",
-                                person_generation="allow_adult",
-                            )
+        _ig2_limite = _imagenes_limite.get(_ig2_plan, 0)
+        _ig2_usadas = st.session_state.get("imagenes_usadas", 0)
+
+        if _ig2_limite == 0:
+            st.info("Disponible desde plan Starter ($29/mes)")
+        elif _ig2_usadas >= _ig2_limite:
+            st.warning(f"Usaste tus {_ig2_limite} imágenes de este mes. Se renuevan el 1 del próximo mes.")
+        else:
+            st.caption(f"Imágenes disponibles: {_ig2_limite - _ig2_usadas}/{_ig2_limite} este mes")
+
+            # Memoria: contexto de campañas anteriores
+            if _ig2_email:
+                _ig2_ultimo = obtener_ultimo_reporte_tipo(_ig2_email, ["autopiloto", "catalogo"], dias=30)
+                if _ig2_ultimo:
+                    st.info("💡 Contexto detectado: Tienes una campaña activa. ¿Quieres que la imagen sea coherente con esa estrategia?")
+                    st.checkbox("Sí, usar contexto de mi campaña", value=True, key="ig2_usar_ctx")
+
+            _ig2_tipo = st.selectbox(
+                "¿Para qué es la imagen?",
+                ["Post cuadrado Instagram (1:1)",
+                 "Story vertical Instagram/TikTok (9:16)",
+                 "Banner horizontal Facebook (16:9)",
+                 "Thumbnail YouTube (16:9)"],
+                key="ig2_tipo"
+            )
+
+            _ig2_formatos_map = {
+                "Post cuadrado Instagram (1:1)":          "1024x1024",
+                "Story vertical Instagram/TikTok (9:16)": "1024x1536",
+                "Banner horizontal Facebook (16:9)":      "1536x1024",
+                "Thumbnail YouTube (16:9)":               "1536x1024",
+            }
+
+            _ig2_desc = st.text_area(
+                "Describe la imagen que quieres",
+                placeholder=f"Ej: Fondo con productos naturales de {_ig2_nicho}, colores verdes y dorados, estilo premium, sin texto",
+                height=100,
+                key="ig2_desc"
+            )
+
+            st.divider()
+            st.caption("✏️ Elementos que se agregarán encima de la imagen (editables):")
+
+            _ig2_col1, _ig2_col2 = st.columns(2)
+            with _ig2_col1:
+                _ig2_titulo    = st.text_input("Título", value=_ig2_marca, placeholder="Ej: Wasai Natural", key="ig2_titulo")
+                _ig2_precio    = st.text_input("Precio (opcional)", placeholder="Ej: S/35", key="ig2_precio")
+            with _ig2_col2:
+                _ig2_descuento = st.text_input("Descuento (opcional)", placeholder="Ej: 20% OFF", key="ig2_descuento")
+                _ig2_cta       = st.text_input("Botón CTA", value="Comprar ahora", key="ig2_cta")
+
+            _ig2_color_btn = st.color_picker("Color del botón", "#AF101A", key="ig2_color_btn")
+
+            _ig2_calidad_map = {
+                "Free": "low", "Demo": "low", "Starter": "low",
+                "Pro": "medium", "Agency": "high", "Admin": "high"
+            }
+            _ig2_calidad  = _ig2_calidad_map.get(_ig2_plan, "low")
+            _ig2_creditos = 5
+
+            if st.button(f"🎨 Generar imagen ({_ig2_creditos} créditos)", key="btn_ig2_gen"):
+                if not _ig2_desc:
+                    st.warning("Describe qué imagen quieres")
+                elif verificar_creditos(_ig2_creditos):
+                    with st.spinner("Generando imagen..."):
+                        _ig2_b64, _ig2_err = generar_imagen_openai(
+                            _ig2_desc, _ig2_marca, _ig2_nicho, _ig2_pais,
+                            formato=_ig2_formatos_map[_ig2_tipo],
+                            calidad=_ig2_calidad
                         )
-                    if _ig_resp and _ig_resp.generated_images:
-                        _ig_ok = True
-                        consumir(3)
-                        _ig_email = (st.session_state.get("user_email") or "").strip().lower()
-                        if _ig_email:
-                            guardar_reporte(_ig_email, "imagen_generada",
-                                            f"Imagen: {_ig_desc[:60]}", _ig_prompt)
-                        _ig_cols = st.columns(min(3, len(_ig_resp.generated_images)))
-                        for _igi, _img in enumerate(_ig_resp.generated_images):
-                            with _ig_cols[_igi % 3]:
-                                st.image(_img.image.image_bytes, caption=f"Opcion {_igi+1}", use_container_width=True)
-                                st.download_button(
-                                    label=f"Descargar imagen {_igi+1}" if not _is_en_ig else f"Download image {_igi+1}",
-                                    data=_img.image.image_bytes,
-                                    file_name=f"chero_imagen_{_igi+1}.png",
-                                    mime="image/png",
-                                    key=f"dl_ig_{_igi}"
-                                )
-                except Exception as _ig_err:
-                    pass
-                if not _ig_ok:
-                    st.info(
-                        "El generador de imagenes estara disponible proximamente. "
-                        "Por ahora te recomendamos Canva (canva.com) o Ideogram.ai (gratis)."
-                        if not _is_en_ig else
-                        "The image generator will be available soon. "
-                        "We recommend Canva (canva.com) or Ideogram.ai (free) for now."
-                    )
+
+                    if _ig2_err == "sin_api_key":
+                        st.error("Configura OPENAI_API_KEY en Streamlit Secrets")
+                    elif _ig2_err:
+                        st.error(f"Error: {_ig2_err}")
+                    else:
+                        import base64 as _b64mod
+                        from PIL import Image as _PILImg, ImageDraw as _PILDraw, ImageFont as _PILFont
+                        from io import BytesIO as _BytesIO2
+
+                        _img_bytes = _b64mod.b64decode(_ig2_b64)
+                        _img = _PILImg.open(_BytesIO2(_img_bytes))
+                        _draw = _PILDraw.Draw(_img)
+                        _w, _h = _img.size
+
+                        try:
+                            _font_lg = _PILFont.load_default(size=48)
+                            _font_md = _PILFont.load_default(size=32)
+                            _font_sm = _PILFont.load_default(size=24)
+                        except Exception:
+                            _font_lg = _PILFont.load_default()
+                            _font_md = _font_lg
+                            _font_sm = _font_lg
+
+                        def _draw_text_safe(draw, pos, text, fill, font, anchor=None):
+                            try:
+                                draw.text(pos, text, fill=fill, font=font, anchor=anchor)
+                            except Exception:
+                                draw.text(pos, text, fill=fill, font=font)
+
+                        if _ig2_titulo:
+                            _draw_text_safe(_draw, (_w//2, _h-200), _ig2_titulo, "white", _font_lg, "mm")
+                        if _ig2_precio:
+                            _draw_text_safe(_draw, (_w//2, _h-140), _ig2_precio, "white", _font_md, "mm")
+                        if _ig2_descuento:
+                            _draw.text((50, 50), _ig2_descuento, fill="yellow", font=_font_md)
+                        if _ig2_cta:
+                            _btn_x, _btn_y = _w//2 - 100, _h - 100
+                            _draw.rectangle([_btn_x, _btn_y, _btn_x + 200, _btn_y + 50], fill=_ig2_color_btn)
+                            _draw_text_safe(_draw, (_w//2, _btn_y + 25), _ig2_cta, "white", _font_sm, "mm")
+
+                        st.image(_img, caption=f"Banner para {_ig2_tipo}", use_container_width=True)
+
+                        _buf = _BytesIO2()
+                        _img.save(_buf, format="PNG")
+                        st.download_button(
+                            "⬇️ Descargar imagen",
+                            data=_buf.getvalue(),
+                            file_name=f"chero_banner_{_ig2_marca}.png",
+                            mime="image/png",
+                            key="ig2_download"
+                        )
+
+                        consumir(_ig2_creditos)
+                        st.session_state["imagenes_usadas"] = _ig2_usadas + 1
+
+                        if _ig2_email:
+                            guardar_reporte(
+                                _ig2_email,
+                                "imagen_banner",
+                                f"Imagen generada: {_ig2_desc[:60]} | Tipo: {_ig2_tipo}",
+                                _ig2_desc
+                            )
 
 
     # ── SIMULADOR DE CAMPAÑA ──────────────────────────────────────────────────
