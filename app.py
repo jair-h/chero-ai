@@ -480,9 +480,13 @@ def generar_imagen_openai(prompt_descripcion, marca, nicho, pais,
             size=formato,
             quality=calidad,
             n=1,
-            output_format="b64_json"
+            output_format="png"
         )
-        return response.data[0].b64_json, None
+        import base64
+        img_b64 = response.data[0].b64_json
+        if not img_b64:
+            img_b64 = response.data[0].url
+        return img_b64, None
     except Exception as e:
         return None, str(e)
 
