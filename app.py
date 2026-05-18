@@ -467,12 +467,19 @@ def generar_imagen_openai(prompt_descripcion, marca, nicho, pais,
             return None, "sin_api_key"
         _oai_client = OpenAIClient(api_key=_oai_key)
         prompt_completo = (
-            f"Professional marketing image for social media. NO text in the image. "
-            f"Brand aesthetic: {marca} in {nicho} sector. "
-            f"Country style: {pais}. "
-            f"Visual description: {prompt_descripcion}. "
-            f"Style: modern, clean, vibrant, professional. "
-            f"Perfect for Instagram/Facebook marketing."
+            f"High-quality professional marketing photograph for {nicho} business in {pais}.\n"
+            f"{prompt_descripcion}\n"
+            f"Requirements:\n"
+            f"- Commercial photography quality\n"
+            f"- Clean composition with clear focal point\n"
+            f"- Professional lighting, no harsh shadows\n"
+            f"- Brand colors that feel premium and trustworthy\n"
+            f"- NO text, NO words, NO letters anywhere\n"
+            f"- NO distortion, NO artifacts\n"
+            f"- Suitable for Instagram/Facebook marketing\n"
+            f"- Style: modern, clean, aspirational\n"
+            f"- Resolution: crisp and sharp throughout\n"
+            f"Make it look like a professional brand photoshoot."
         )
         response = _oai_client.images.generate(
             model="gpt-image-2",
@@ -3437,19 +3444,6 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 key="ig2_desc"
             )
 
-            st.divider()
-            st.caption("✏️ Elementos que se agregarán encima de la imagen (editables):")
-
-            _ig2_col1, _ig2_col2 = st.columns(2)
-            with _ig2_col1:
-                _ig2_titulo    = st.text_input("Título", value=_ig2_marca, placeholder="Ej: Wasai Natural", key="ig2_titulo")
-                _ig2_precio    = st.text_input("Precio (opcional)", placeholder="Ej: S/35", key="ig2_precio")
-            with _ig2_col2:
-                _ig2_descuento = st.text_input("Descuento (opcional)", placeholder="Ej: 20% OFF", key="ig2_descuento")
-                _ig2_cta       = st.text_input("Botón CTA", value="Comprar ahora", key="ig2_cta")
-
-            _ig2_color_btn = st.color_picker("Color del botón", "#AF101A", key="ig2_color_btn")
-
             _ig2_calidad_map = {
                 "Free": "low", "Demo": "low", "Starter": "low",
                 "Pro": "medium", "Agency": "high", "Admin": "high"
@@ -3474,51 +3468,22 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                         st.error(f"Error: {_ig2_err}")
                     else:
                         import base64 as _b64mod
-                        from PIL import Image as _PILImg, ImageDraw as _PILDraw, ImageFont as _PILFont
                         from io import BytesIO as _BytesIO2
 
-                        _img_bytes = _b64mod.b64decode(_ig2_b64)
-                        _img = _PILImg.open(_BytesIO2(_img_bytes))
-                        _draw = _PILDraw.Draw(_img)
-                        _w, _h = _img.size
-
-                        try:
-                            _font_lg = _PILFont.load_default(size=48)
-                            _font_md = _PILFont.load_default(size=32)
-                            _font_sm = _PILFont.load_default(size=24)
-                        except Exception:
-                            _font_lg = _PILFont.load_default()
-                            _font_md = _font_lg
-                            _font_sm = _font_lg
-
-                        def _draw_text_safe(draw, pos, text, fill, font, anchor=None):
-                            try:
-                                draw.text(pos, text, fill=fill, font=font, anchor=anchor)
-                            except Exception:
-                                draw.text(pos, text, fill=fill, font=font)
-
-                        if _ig2_titulo:
-                            _draw_text_safe(_draw, (_w//2, _h-200), _ig2_titulo, "white", _font_lg, "mm")
-                        if _ig2_precio:
-                            _draw_text_safe(_draw, (_w//2, _h-140), _ig2_precio, "white", _font_md, "mm")
-                        if _ig2_descuento:
-                            _draw.text((50, 50), _ig2_descuento, fill="yellow", font=_font_md)
-                        if _ig2_cta:
-                            _btn_x, _btn_y = _w//2 - 100, _h - 100
-                            _draw.rectangle([_btn_x, _btn_y, _btn_x + 200, _btn_y + 50], fill=_ig2_color_btn)
-                            _draw_text_safe(_draw, (_w//2, _btn_y + 25), _ig2_cta, "white", _font_sm, "mm")
-
-                        st.image(_img, caption=f"Banner para {_ig2_tipo}", use_container_width=True)
-
-                        _buf = _BytesIO2()
-                        _img.save(_buf, format="PNG")
-                        st.download_button(
-                            "⬇️ Descargar imagen",
-                            data=_buf.getvalue(),
-                            file_name=f"chero_banner_{_ig2_marca}.png",
-                            mime="image/png",
-                            key="ig2_download"
-                        )
+                        if _ig2_b64 and not _ig2_b64.startswith("http"):
+                            _img_bytes = _b64mod.b64decode(_ig2_b64)
+                            st.image(_img_bytes, caption=f"Banner para {_ig2_tipo}", use_container_width=True)
+                            st.info("💡 Tip: Descarga la imagen y ábrela en Canva para agregar texto, precios y tu logo con tipografía profesional.")
+                            st.download_button(
+                                "⬇️ Descargar imagen",
+                                data=_img_bytes,
+                                file_name=f"chero_banner_{_ig2_marca}.png",
+                                mime="image/png",
+                                key="ig2_download"
+                            )
+                        else:
+                            st.image(_ig2_b64, caption=f"Banner para {_ig2_tipo}", use_container_width=True)
+                            st.info("💡 Tip: Descarga la imagen y ábrela en Canva para agregar texto, precios y tu logo con tipografía profesional.")
 
                         consumir(_ig2_creditos)
                         st.session_state["imagenes_usadas"] = _ig2_usadas + 1
@@ -4186,6 +4151,143 @@ Sé muy específico con los números que ves en la imagen."""
                             st.rerun()
                         except Exception as _te:
                             st.error(str(_te))
+
+                # ── Gestión de productos ───────────────────────────────────────
+                st.markdown("---")
+                st.markdown("#### 📦 Gestión de productos")
+
+                _tok_raw = _tienda_record.get("access_token", "")
+                _base_url_t = ("https://" + _turl.rstrip("/")) if not _turl.startswith("http") else _turl.rstrip("/")
+                if _tplat == "WooCommerce":
+                    _woo_creds_r = _tok_raw[len("woo:"):]
+                    _woo_ck_t, _, _woo_cs_t = _woo_creds_r.partition(":")
+                else:
+                    _sh_tok_t = _tok_raw[len("shopify"):]
+                    _sh_tok_t = _sh_tok_t.lstrip(":")
+                    _sh_host  = _turl.rstrip("/").replace("https://", "").replace("http://", "")
+
+                if st.button("🔄 Cargar productos", key="tienda_cargar_prods"):
+                    with st.spinner("Cargando productos..."):
+                        try:
+                            if _tplat == "WooCommerce":
+                                _rp = requests.get(
+                                    f"{_base_url_t}/wp-json/wc/v3/products",
+                                    params={"per_page": 50},
+                                    auth=(_woo_ck_t, _woo_cs_t), timeout=15
+                                )
+                                if _rp.status_code == 200:
+                                    st.session_state["tienda_productos"] = _rp.json()
+                                    st.success(f"✅ {len(st.session_state['tienda_productos'])} productos cargados")
+                                else:
+                                    st.error(f"Error {_rp.status_code}: {_rp.text[:200]}")
+                            else:
+                                _rp = requests.get(
+                                    f"https://{_sh_host}/admin/api/2024-01/products.json",
+                                    headers={"X-Shopify-Access-Token": _sh_tok_t},
+                                    params={"limit": 50}, timeout=15
+                                )
+                                if _rp.status_code == 200:
+                                    st.session_state["tienda_productos"] = _rp.json().get("products", [])
+                                    st.success(f"✅ {len(st.session_state['tienda_productos'])} productos cargados")
+                                else:
+                                    st.error(f"Error {_rp.status_code}: {_rp.text[:200]}")
+                        except Exception as _ep:
+                            st.error(f"Error al cargar: {_ep}")
+
+                _tienda_prods = st.session_state.get("tienda_productos", [])
+                if _tienda_prods:
+                    _prod_nombres = [
+                        f"{p.get('name', p.get('title', 'Sin nombre'))} (ID: {p.get('id','')})"
+                        for p in _tienda_prods
+                    ]
+                    _prod_idx = st.selectbox(
+                        "Selecciona un producto:",
+                        range(len(_prod_nombres)),
+                        format_func=lambda i: _prod_nombres[i],
+                        key="tienda_prod_sel"
+                    )
+                    _prod_sel = _tienda_prods[_prod_idx]
+                    _prod_id  = _prod_sel.get("id")
+
+                    _tc1, _tc2 = st.columns(2)
+                    with _tc1:
+                        st.markdown("**💲 Actualizar precio:**")
+                        if _tplat == "WooCommerce":
+                            _precio_act = _prod_sel.get("regular_price", "")
+                        else:
+                            _vars = _prod_sel.get("variants", [])
+                            _precio_act = _vars[0].get("price", "") if _vars else ""
+                        _nuevo_precio = st.text_input("Nuevo precio:", value=_precio_act, key="tienda_nuevo_precio")
+                        if st.button("💲 Actualizar precio", key="tienda_btn_precio"):
+                            with st.spinner("Actualizando precio..."):
+                                try:
+                                    if _tplat == "WooCommerce":
+                                        _ru = requests.put(
+                                            f"{_base_url_t}/wp-json/wc/v3/products/{_prod_id}",
+                                            json={"regular_price": _nuevo_precio},
+                                            auth=(_woo_ck_t, _woo_cs_t), timeout=15
+                                        )
+                                        if _ru.status_code in (200, 201):
+                                            st.success("✅ Precio actualizado")
+                                            st.session_state.pop("tienda_productos", None)
+                                        else:
+                                            st.error(f"Error {_ru.status_code}: {_ru.text[:200]}")
+                                    else:
+                                        _vars = _prod_sel.get("variants", [])
+                                        if _vars:
+                                            _vid = _vars[0].get("id")
+                                            _ru = requests.put(
+                                                f"https://{_sh_host}/admin/api/2024-01/variants/{_vid}.json",
+                                                headers={"X-Shopify-Access-Token": _sh_tok_t},
+                                                json={"variant": {"id": _vid, "price": _nuevo_precio}},
+                                                timeout=15
+                                            )
+                                            if _ru.status_code in (200, 201):
+                                                st.success("✅ Precio actualizado")
+                                                st.session_state.pop("tienda_productos", None)
+                                            else:
+                                                st.error(f"Error {_ru.status_code}: {_ru.text[:200]}")
+                                        else:
+                                            st.error("No se encontraron variantes.")
+                                except Exception as _epu:
+                                    st.error(f"Error: {_epu}")
+
+                    with _tc2:
+                        st.markdown("**📝 Actualizar descripción:**")
+                        if _tplat == "WooCommerce":
+                            _desc_act = _prod_sel.get("description", "")
+                        else:
+                            _desc_act = _prod_sel.get("body_html", "")
+                        _nueva_desc = st.text_area("Nueva descripción:", value=_desc_act[:500], height=120, key="tienda_nueva_desc")
+                        if st.button("📝 Actualizar descripción", key="tienda_btn_desc"):
+                            with st.spinner("Actualizando descripción..."):
+                                try:
+                                    if _tplat == "WooCommerce":
+                                        _rd = requests.put(
+                                            f"{_base_url_t}/wp-json/wc/v3/products/{_prod_id}",
+                                            json={"description": _nueva_desc},
+                                            auth=(_woo_ck_t, _woo_cs_t), timeout=15
+                                        )
+                                        if _rd.status_code in (200, 201):
+                                            st.success("✅ Descripción actualizada")
+                                            st.session_state.pop("tienda_productos", None)
+                                        else:
+                                            st.error(f"Error {_rd.status_code}: {_rd.text[:200]}")
+                                    else:
+                                        _rd = requests.put(
+                                            f"https://{_sh_host}/admin/api/2024-01/products/{_prod_id}.json",
+                                            headers={"X-Shopify-Access-Token": _sh_tok_t},
+                                            json={"product": {"id": _prod_id, "body_html": _nueva_desc}},
+                                            timeout=15
+                                        )
+                                        if _rd.status_code in (200, 201):
+                                            st.success("✅ Descripción actualizada")
+                                            st.session_state.pop("tienda_productos", None)
+                                        else:
+                                            st.error(f"Error {_rd.status_code}: {_rd.text[:200]}")
+                                except Exception as _edu:
+                                    st.error(f"Error: {_edu}")
+
             else:
                 _ti_plat = st.selectbox(
                     "Plataforma" if not _is_en_int else "Platform",
