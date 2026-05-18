@@ -483,6 +483,87 @@ def generar_imagen_openai(prompt_descripcion, marca, nicho, pais,
         return None, str(e)
 
 
+# ── CREATIVE DIRECTION ENGINE ────────────────────────────────────────────────
+_CD_OBJETIVOS = {
+    "venta":      "high-conversion ecommerce advertisement, urgent purchase intent, CTA-driven composition",
+    "ventas":     "high-conversion ecommerce advertisement, urgent purchase intent, CTA-driven composition",
+    "descuento":  "high-urgency promotional sale ad, price-dominant hierarchy, aggressive conversion focus",
+    "oferta":     "high-urgency promotional sale ad, price-dominant hierarchy, aggressive conversion focus",
+    "branding":   "premium brand awareness campaign, aspirational storytelling, emotional brand connection",
+    "lanzamiento":"exciting product launch campaign, anticipation and desire, reveal moment composition",
+    "viral":      "viral social media campaign, bold visual impact, thumb-stopping shareability",
+    "lujo":       "luxury premium advertising campaign, exclusivity and desire, whisper-marketing aesthetic",
+    "autoridad":  "professional authority branding, trust and expertise positioning, confident credibility",
+    "fiesta":     "festive celebratory campaign, joyful cultural energy, patriotic pride and celebration",
+    "fiestas":    "festive celebratory campaign, joyful cultural energy, patriotic pride and celebration",
+    "patria":     "patriotic festive campaign, national pride, bold cultural color identity",
+    "patrias":    "patriotic festive campaign, national pride, bold cultural color identity",
+}
+
+_CD_ESTILOS = {
+    "wellness":    "premium wellness editorial, clean scandinavian minimalism, warm healing light, organic texture",
+    "maca":        "premium peruvian superfood aesthetic, earthy rich tones, powerful masculine energy direction",
+    "suplemento":  "premium supplement commercial, powerful clinical-clean style, masculine performance energy",
+    "suplementos": "premium supplement commercial, powerful clinical-clean style, masculine performance energy",
+    "fitness":     "Nike commercial campaign aesthetic, explosive dynamic energy, bold athletic hero shot",
+    "deporte":     "Nike commercial campaign aesthetic, explosive dynamic energy, bold athletic hero shot",
+    "deportes":    "Nike commercial campaign aesthetic, explosive dynamic energy, bold athletic hero shot",
+    "food":        "Michelin-star food editorial photography, warm appetizing light, perfect plating presentation",
+    "comida":      "high-end food commercial photography, warm appetizing light, perfect food styling",
+    "restaurante": "upscale restaurant editorial, intimate warm amber atmosphere, food styling perfection",
+    "moda":        "Vogue editorial fashion campaign, high-contrast dramatic lighting, elegant asymmetric composition",
+    "ropa":        "editorial fashion campaign, clean lifestyle aesthetic, aspirational wardrobe narrative",
+    "prendas":     "editorial fashion campaign, clean lifestyle aesthetic, aspirational wardrobe narrative",
+    "polo":        "clean lifestyle fashion campaign, relatable everyday aspirational aesthetic",
+    "tech":        "Stripe and Linear startup aesthetic, clean minimal modern product-forward visual",
+    "tecnologia":  "Stripe and Linear startup aesthetic, clean minimal modern product-forward visual",
+    "inmueble":    "luxury real estate advertising, architectural beauty, aspirational lifestyle photography",
+    "inmuebles":   "luxury real estate advertising, architectural beauty, aspirational lifestyle photography",
+    "joyas":       "luxury jewelry advertising, intimate close-up, dramatic side lighting on precious materials",
+    "joya":        "luxury jewelry advertising, intimate close-up, dramatic side lighting on precious materials",
+    "perfume":     "luxury perfume advertising, artistic abstract composition, sensual premium atmosphere",
+    "cafe":        "specialty coffee artisan photography, rich dark tones, steam and warmth atmosphere",
+    "natural":     "organic wellness brand, clean earthy authentic tones, honest premium feel",
+    "organico":    "organic wellness brand, clean earthy authentic tones, honest premium feel",
+    "skin":        "luxury skincare editorial, clean dewy textures, soft clinical-premium aesthetic",
+    "crema":       "luxury skincare editorial, clean dewy textures, soft clinical-premium aesthetic",
+}
+
+_CD_EMOCIONES = {
+    "energia":      "explosive kinetic energy, dramatic diagonal rim lighting, bold saturated power palette",
+    "lujo":         "sophisticated quiet luxury, golden hour soft directional light, muted premium earth palette",
+    "paz":          "serene healing atmosphere, soft diffused window light, cool clean desaturated tonal range",
+    "confianza":    "clean authoritative atmosphere, neutral confident tones, balanced structured frame",
+    "poder":        "cinematic high-contrast chiaroscuro, strong shadow and bold highlight, dark dramatic tonality",
+    "exclusividad": "intimate exclusive atmosphere, selective sharp focus, premium material close-up texture",
+    "alegria":      "warm vibrant joyful atmosphere, bright golden natural sunlight, open expressive composition",
+    "fiestas":      "festive celebratory energy, warm rich cultural colors, dynamic movement and joy",
+    "patriotismo":  "patriotic national pride, bold cultural color identity, proud inspiring aspirational composition",
+    "urgencia":     "high-contrast urgent composition, bold typography hierarchy, action-driving visual tension",
+}
+
+_CD_PAISES = {
+    "Perú":      "peruvian cultural richness, andean warmth and color, vibrant heritage identity",
+    "Colombia":  "colombian vibrant energy, tropical luxury atmosphere, warm caribbean premium mood",
+    "México":    "rich mexican visual culture, warm deep earth tones, bold cultural pride and craft",
+    "Argentina": "european-latin sophisticated elegance, premium urban cosmopolitan feel",
+    "Chile":     "clean modern latin minimalism, premium patagonian aesthetic, cool fresh precision",
+    "España":    "mediterranean european warmth, sophisticated iberian premium, golden warm light",
+    "Brasil":    "vibrant tropical luxury, bold brazilian premium energy, warm golden atmosphere",
+    "USA":       "american aspirational lifestyle, clean premium commercial aesthetic, confident ambition",
+    "default":   "international premium commercial aesthetic, global luxury standard, universal appeal",
+}
+
+_CD_CALIDAD = (
+    "ultra realistic, commercial photography grade, cinematic three-point lighting setup, "
+    "editorial advertising style, professional advertising aesthetics, "
+    "high-end spatial composition, selective depth of field with creamy bokeh background, "
+    "shot on Sony A7R IV with 85mm f/1.4 lens, studio-grade lighting rig, "
+    "photorealistic rendering, ultra-sharp foreground focus, 8K resolution, "
+    "color graded, no AI artifacts, no distortion, no stock photo feel"
+)
+
+
 def _sanitizar(texto, max_chars=3000):
     texto = (texto or "").strip()[:max_chars]
     texto = texto.replace('<', '').replace('>', '')
@@ -3439,124 +3520,126 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 "WhatsApp Estado (9:16)":          "1024x1792",
             }
 
-            # PASO 5 — Calidad siempre HIGH (excepto Free)
+            # Calidad HIGH para todos excepto Free
             _ig2_calidad_map = {
                 "Free": "low", "Demo": "high", "Starter": "high",
                 "Pro": "high", "Agency": "high", "Admin": "high"
             }
             _ig2_calidad  = _ig2_calidad_map.get(_ig2_plan, "low")
-            _ig2_creditos = 15  # 3 variaciones × 5 créditos
+            _ig2_creditos = 5
 
-            if st.button(f"🎨 Generar 3 variaciones ({_ig2_creditos} créditos)", key="btn_ig2_gen"):
+            if st.button(f"🎨 Generar imagen premium ({_ig2_creditos} créditos)", key="btn_ig2_gen"):
                 if not _ig2_desc:
                     st.warning("Describe qué imagen quieres")
                 elif verificar_creditos(_ig2_creditos):
-                    # PASO 2 — Gemini construye el prompt profesional con 11 elementos
-                    _texto_instruccion = ""
-                    if _ig2_texto_img:
-                        _texto_instruccion = (
-                            f'\nIMPORTANT TEXT TO INCLUDE IN IMAGE:\n'
-                            f'Render this text clearly and perfectly in the image: "{_ig2_texto_img}"\n'
-                            f'Use bold, modern, highly readable typography.\n'
-                            f'Position it prominently in the composition.'
-                        )
+                    # Auto-detectar dirección creativa desde el texto del usuario
+                    _texto_all   = (_ig2_desc + " " + _ig2_nicho + " " + _ig2_prod).lower()
+                    _obj_det     = next((v for k, v in _CD_OBJETIVOS.items() if k in _texto_all),
+                                        "high-conversion premium brand campaign")
+                    _estilo_det  = next((v for k, v in _CD_ESTILOS.items() if k in _texto_all),
+                                        "premium commercial advertising aesthetic, modern brand photography")
+                    _emocion_det = next((v for k, v in _CD_EMOCIONES.items() if k in _texto_all),
+                                        "aspirational confident premium brand energy")
+                    _pais_det    = _CD_PAISES.get(_ig2_pais, _CD_PAISES["default"])
+
+                    _texto_instruccion = (
+                        f'CRITICAL: Render this exact text prominently in the image with bold premium '
+                        f'sans-serif typography, perfectly integrated into the composition: "{_ig2_texto_img}"'
+                        if _ig2_texto_img else
+                        "No overlay text — pure visual storytelling power."
+                    )
 
                     _prompt_meta = (
-                        f"You are a world-class creative director and prompt engineer.\n\n"
-                        f"Build a complete professional image generation prompt using these elements:\n\n"
-                        f"BUSINESS CONTEXT:\n"
+                        f"You are the Creative Director of a world-class advertising agency "
+                        f"(Ogilvy, BBDO, Droga5 level).\n\n"
+                        f"Write ONE premium image generation prompt that produces a campaign-quality "
+                        f"photograph — indistinguishable from a real agency photoshoot.\n\n"
+                        f"CLIENT BRIEF:\n"
                         f"- Brand: {_ig2_marca}\n"
-                        f"- Niche: {_ig2_nicho}\n"
-                        f"- Product: {_ig2_prod}\n"
-                        f"- Country: {_ig2_pais}\n"
-                        f"- Target: {_ig2_cli}\n"
+                        f"- Product/Service: {_ig2_prod or _ig2_nicho}\n"
+                        f"- Market: {_ig2_pais}\n"
+                        f"- Audience: {_ig2_cli or 'premium adults 25-45'}\n"
                         f"- Platform: {_ig2_red}\n"
-                        f"- Request: {_ig2_desc}\n\n"
-                        f"BUILD PROMPT WITH THESE LAYERS:\n\n"
-                        f"[CAMPAIGN TYPE] Identify the campaign type from the request.\n"
-                        f"[PRODUCT VISUAL] How should the product/service appear?\n"
-                        f"[COMMERCIAL OBJECTIVE] What emotion drives purchase action?\n"
-                        f"[VISUAL STYLE] Define the exact aesthetic.\n"
-                        f"[ATMOSPHERE] Describe lighting, mood, environment.\n"
-                        f"[PHOTOGRAPHY TYPE] Exact shot type and angle.\n"
-                        f"[COMPOSITION] Spatial arrangement and framing.\n"
-                        f"[TECHNICAL QUALITY] Camera, lens, lighting setup. "
-                        f"Always include: photorealistic, ultra-sharp, 8K quality, "
-                        f"professional commercial photography.\n"
-                        f"[PLATFORM FORMAT] Visual optimized for {_ig2_red}.\n"
-                        f"[CULTURAL CONTEXT] Elements that resonate in {_ig2_pais}.\n"
-                        f"{_texto_instruccion}\n\n"
-                        f"Generate ONE complete cohesive prompt in English, 150-250 words.\n"
-                        f"Output ONLY the prompt, nothing else."
+                        f"- Creative request: \"{_ig2_desc}\"\n\n"
+                        f"CREATIVE DIRECTION (auto-detected):\n"
+                        f"- Campaign objective: {_obj_det}\n"
+                        f"- Visual style: {_estilo_det}\n"
+                        f"- Emotional direction: {_emocion_det}\n"
+                        f"- Cultural context: {_pais_det}\n\n"
+                        f"MANDATORY QUALITY BASELINE:\n{_CD_CALIDAD}\n\n"
+                        f"TEXT REQUIREMENT: {_texto_instruccion}\n\n"
+                        f"BUILD THE PROMPT WITH:\n"
+                        f"1. Campaign type + visual style (specific, cinematic language)\n"
+                        f"2. Exact scene with product placement and hero element position\n"
+                        f"3. Lighting: direction, color temperature, shadow behavior\n"
+                        f"4. Color palette: 3-4 specific named colors\n"
+                        f"5. Photography technique (editorial, lifestyle, flat-lay, hero shot, etc.)\n"
+                        f"6. Cultural and emotional resonance for {_ig2_pais}\n"
+                        f"7. Full technical specs from quality baseline\n\n"
+                        f"RULES:\n"
+                        f"- FORBIDDEN words: beautiful, nice, stunning, amazing, good quality\n"
+                        f"- USE: specific cinematic, photographic, directorial language\n"
+                        f"- Write as if briefing a world-class photographer on a real set\n"
+                        f"- Output ONLY the final prompt in English, 150-200 words, no labels, no explanations."
                     )
 
                     with st.spinner("Diseñando tu sesión fotográfica profesional..."):
                         _prompt_profesional = generar_texto(_prompt_meta, max_out=400, temperatura=0.8)
 
                     if not _prompt_profesional or str(_prompt_profesional).startswith("Error"):
-                        st.error("Error al generar el prompt. Intenta de nuevo.")
+                        st.error(f"Error al construir el prompt creativo: {_prompt_profesional}")
                     else:
-                        # PASO 3 — Genera 3 variaciones
-                        _variaciones_extra = [
-                            "Emphasize product detail and texture",
-                            "Emphasize lifestyle and human emotion",
-                            "Emphasize aspirational brand feeling",
-                        ]
-                        _imagenes_generadas = []
-                        _error_api_key = False
-
-                        with st.spinner("Generando 3 variaciones de alta calidad..."):
-                            for _variacion in _variaciones_extra:
-                                _prompt_v = _prompt_profesional + f"\n\nVariation focus: {_variacion}"
+                        with st.spinner("Generando imagen premium de alta calidad..."):
+                            try:
                                 _img_b64, _err = generar_imagen_openai(
-                                    _prompt_v, _ig2_marca, _ig2_nicho, _ig2_pais,
+                                    _prompt_profesional, _ig2_marca, _ig2_nicho, _ig2_pais,
                                     formato=_ig2_formatos_map[_ig2_red],
                                     calidad=_ig2_calidad
                                 )
-                                if _err == "sin_api_key":
-                                    _error_api_key = True
-                                    break
-                                if not _err and _img_b64:
-                                    _imagenes_generadas.append(_img_b64)
+                            except Exception as _ex_gen:
+                                _img_b64, _err = None, str(_ex_gen)
 
-                        if _error_api_key:
+                        if _err == "sin_api_key":
                             st.error("Configura OPENAI_API_KEY en Streamlit Secrets")
-                        elif not _imagenes_generadas:
-                            st.error("No se pudo generar ninguna imagen. Intenta de nuevo.")
-                        else:
-                            # PASO 4 — Muestra las 3 variaciones
-                            st.success(f"✅ {len(_imagenes_generadas)} variación(es) generada(s)")
+                        elif _err:
+                            st.error(f"Error al generar imagen: {_err}")
+                        elif _img_b64:
                             import base64 as _b64mod
+                            try:
+                                if not _img_b64.startswith("http"):
+                                    _img_bytes = _b64mod.b64decode(_img_b64)
+                                    st.image(_img_bytes,
+                                             caption=f"Campaña premium: {_ig2_desc[:50]}",
+                                             use_container_width=True)
+                                    st.download_button(
+                                        "⬇️ Descargar imagen",
+                                        data=_img_bytes,
+                                        file_name=f"chero_img_{_ig2_marca}.png",
+                                        mime="image/png",
+                                        key="ig2_dl_0"
+                                    )
+                                else:
+                                    st.image(_img_b64,
+                                             caption=f"Campaña premium: {_ig2_desc[:50]}",
+                                             use_container_width=True)
+                            except Exception as _show_err:
+                                st.error(f"Error al mostrar imagen: {_show_err}")
 
-                            _cols = st.columns(len(_imagenes_generadas))
-                            for _i, (_col, _b64) in enumerate(zip(_cols, _imagenes_generadas)):
-                                with _col:
-                                    if _b64 and not _b64.startswith("http"):
-                                        _img_bytes = _b64mod.b64decode(_b64)
-                                        st.image(_img_bytes, caption=f"Variación {_i+1}", use_container_width=True)
-                                        st.download_button(
-                                            f"⬇️ Descargar {_i+1}",
-                                            data=_img_bytes,
-                                            file_name=f"chero_img_{_i+1}.png",
-                                            mime="image/png",
-                                            key=f"ig2_dl_{_i}"
-                                        )
-                                    else:
-                                        st.image(_b64, caption=f"Variación {_i+1}", use_container_width=True)
-
-                            with st.expander("Ver prompt generado por IA"):
+                            with st.expander("Ver prompt cinematográfico generado por IA"):
                                 st.code(_prompt_profesional)
 
                             consumir(_ig2_creditos)
-                            st.session_state["imagenes_usadas"] = _ig2_usadas + len(_imagenes_generadas)
+                            st.session_state["imagenes_usadas"] = _ig2_usadas + 1
 
                             if _ig2_email:
                                 guardar_reporte(
                                     _ig2_email,
                                     "imagen_banner",
-                                    f"3 variaciones: {_ig2_desc[:60]} | {_ig2_red}",
+                                    f"Imagen premium: {_ig2_desc[:60]} | {_ig2_red}",
                                     _prompt_profesional
                                 )
+                        else:
+                            st.error("La API no retornó imagen. Intenta con otra descripción.")
 
 
     # ── SIMULADOR DE CAMPAÑA ──────────────────────────────────────────────────
