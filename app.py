@@ -466,24 +466,9 @@ def generar_imagen_openai(prompt_descripcion, marca, nicho, pais,
         if not _oai_key:
             return None, "sin_api_key"
         _oai_client = OpenAIClient(api_key=_oai_key)
-        prompt_completo = (
-            f"High-quality professional marketing photograph for {nicho} business in {pais}.\n"
-            f"{prompt_descripcion}\n"
-            f"Requirements:\n"
-            f"- Commercial photography quality\n"
-            f"- Clean composition with clear focal point\n"
-            f"- Professional lighting, no harsh shadows\n"
-            f"- Brand colors that feel premium and trustworthy\n"
-            f"- NO text, NO words, NO letters anywhere\n"
-            f"- NO distortion, NO artifacts\n"
-            f"- Suitable for Instagram/Facebook marketing\n"
-            f"- Style: modern, clean, aspirational\n"
-            f"- Resolution: crisp and sharp throughout\n"
-            f"Make it look like a professional brand photoshoot."
-        )
         response = _oai_client.images.generate(
             model="gpt-image-2",
-            prompt=prompt_completo,
+            prompt=prompt_descripcion,
             size=formato,
             quality=calidad,
             n=1,
@@ -3391,14 +3376,16 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                         st.rerun()
 
     elif opcion_mkt == "Generador de Imagenes":
-        st.subheader("🎨 Generador de Imágenes y Banners")
-        st.caption("Crea imágenes para tus posts, stories y banners con IA")
+        st.subheader("🎨 Generador de Imágenes Profesional")
+        st.caption("Crea 3 variaciones fotográficas de alta calidad — texto incluido en la imagen")
 
         _ig2_email = (st.session_state.get("user_email") or "").strip().lower()
         _ig2_plan  = st.session_state.get("plan", "Free")
         _ig2_marca = st.session_state.get("marca_guardada", nombre_marca)
         _ig2_nicho = st.session_state.get("nicho_guardado", nicho)
         _ig2_pais  = st.session_state.get("pais_guardado", pais)
+        _ig2_prod  = st.session_state.get("producto_servicio", "")
+        _ig2_cli   = st.session_state.get("cliente_ideal_guardado", "")
 
         _imagenes_limite = {
             "Free": 0, "Demo": 5, "Starter": 5,
@@ -3414,87 +3401,162 @@ Completa todas las secciones. No cortes el texto a la mitad."""
         else:
             st.caption(f"Imágenes disponibles: {_ig2_limite - _ig2_usadas}/{_ig2_limite} este mes")
 
-            # Memoria: contexto de campañas anteriores
-            if _ig2_email:
-                _ig2_ultimo = obtener_ultimo_reporte_tipo(_ig2_email, ["autopiloto", "catalogo"], dias=30)
-                if _ig2_ultimo:
-                    st.info("💡 Contexto detectado: Tienes una campaña activa. ¿Quieres que la imagen sea coherente con esa estrategia?")
-                    st.checkbox("Sí, usar contexto de mi campaña", value=True, key="ig2_usar_ctx")
-
-            _ig2_tipo = st.selectbox(
-                "¿Para qué es la imagen?",
-                ["Post cuadrado Instagram (1:1)",
-                 "Story vertical Instagram/TikTok (9:16)",
-                 "Banner horizontal Facebook (16:9)",
-                 "Thumbnail YouTube (16:9)"],
-                key="ig2_tipo"
-            )
-
-            _ig2_formatos_map = {
-                "Post cuadrado Instagram (1:1)":          "1024x1024",
-                "Story vertical Instagram/TikTok (9:16)": "1024x1536",
-                "Banner horizontal Facebook (16:9)":      "1536x1024",
-                "Thumbnail YouTube (16:9)":               "1536x1024",
-            }
-
+            # PASO 1 — Campos de la UI
             _ig2_desc = st.text_area(
-                "Describe la imagen que quieres",
-                placeholder=f"Ej: Fondo con productos naturales de {_ig2_nicho}, colores verdes y dorados, estilo premium, sin texto",
+                "¿Qué imagen quieres?",
+                placeholder="Ej: Campaña de polos para fiestas patrias con descuento",
                 height=100,
                 key="ig2_desc"
             )
 
+            _ig2_texto_img = st.text_input(
+                "Texto para incluir en la imagen (opcional)",
+                placeholder="Ej: 20% OFF | Fiestas Patrias",
+                key="ig2_texto_img"
+            )
+
+            _ig2_red = st.selectbox(
+                "Red social",
+                ["Instagram Post (1:1)",
+                 "Instagram Story / TikTok (9:16)",
+                 "Facebook Post (16:9)",
+                 "YouTube Thumbnail (16:9)",
+                 "Pinterest (2:3)",
+                 "LinkedIn (1.91:1)",
+                 "Twitter / X (16:9)",
+                 "WhatsApp Estado (9:16)"],
+                key="ig2_red"
+            )
+
+            _ig2_formatos_map = {
+                "Instagram Post (1:1)":            "1024x1024",
+                "Instagram Story / TikTok (9:16)": "1024x1792",
+                "Facebook Post (16:9)":            "1792x1024",
+                "YouTube Thumbnail (16:9)":        "1792x1024",
+                "Pinterest (2:3)":                 "1024x1536",
+                "LinkedIn (1.91:1)":               "1792x1024",
+                "Twitter / X (16:9)":              "1792x1024",
+                "WhatsApp Estado (9:16)":          "1024x1792",
+            }
+
+            # PASO 5 — Calidad siempre HIGH (excepto Free)
             _ig2_calidad_map = {
-                "Free": "low", "Demo": "low", "Starter": "low",
-                "Pro": "medium", "Agency": "high", "Admin": "high"
+                "Free": "low", "Demo": "high", "Starter": "high",
+                "Pro": "high", "Agency": "high", "Admin": "high"
             }
             _ig2_calidad  = _ig2_calidad_map.get(_ig2_plan, "low")
-            _ig2_creditos = 5
+            _ig2_creditos = 15  # 3 variaciones × 5 créditos
 
-            if st.button(f"🎨 Generar imagen ({_ig2_creditos} créditos)", key="btn_ig2_gen"):
+            if st.button(f"🎨 Generar 3 variaciones ({_ig2_creditos} créditos)", key="btn_ig2_gen"):
                 if not _ig2_desc:
                     st.warning("Describe qué imagen quieres")
                 elif verificar_creditos(_ig2_creditos):
-                    with st.spinner("Generando imagen..."):
-                        _ig2_b64, _ig2_err = generar_imagen_openai(
-                            _ig2_desc, _ig2_marca, _ig2_nicho, _ig2_pais,
-                            formato=_ig2_formatos_map[_ig2_tipo],
-                            calidad=_ig2_calidad
+                    # PASO 2 — Gemini construye el prompt profesional con 11 elementos
+                    _texto_instruccion = ""
+                    if _ig2_texto_img:
+                        _texto_instruccion = (
+                            f'\nIMPORTANT TEXT TO INCLUDE IN IMAGE:\n'
+                            f'Render this text clearly and perfectly in the image: "{_ig2_texto_img}"\n'
+                            f'Use bold, modern, highly readable typography.\n'
+                            f'Position it prominently in the composition.'
                         )
 
-                    if _ig2_err == "sin_api_key":
-                        st.error("Configura OPENAI_API_KEY en Streamlit Secrets")
-                    elif _ig2_err:
-                        st.error(f"Error: {_ig2_err}")
+                    _prompt_meta = (
+                        f"You are a world-class creative director and prompt engineer.\n\n"
+                        f"Build a complete professional image generation prompt using these elements:\n\n"
+                        f"BUSINESS CONTEXT:\n"
+                        f"- Brand: {_ig2_marca}\n"
+                        f"- Niche: {_ig2_nicho}\n"
+                        f"- Product: {_ig2_prod}\n"
+                        f"- Country: {_ig2_pais}\n"
+                        f"- Target: {_ig2_cli}\n"
+                        f"- Platform: {_ig2_red}\n"
+                        f"- Request: {_ig2_desc}\n\n"
+                        f"BUILD PROMPT WITH THESE LAYERS:\n\n"
+                        f"[CAMPAIGN TYPE] Identify the campaign type from the request.\n"
+                        f"[PRODUCT VISUAL] How should the product/service appear?\n"
+                        f"[COMMERCIAL OBJECTIVE] What emotion drives purchase action?\n"
+                        f"[VISUAL STYLE] Define the exact aesthetic.\n"
+                        f"[ATMOSPHERE] Describe lighting, mood, environment.\n"
+                        f"[PHOTOGRAPHY TYPE] Exact shot type and angle.\n"
+                        f"[COMPOSITION] Spatial arrangement and framing.\n"
+                        f"[TECHNICAL QUALITY] Camera, lens, lighting setup. "
+                        f"Always include: photorealistic, ultra-sharp, 8K quality, "
+                        f"professional commercial photography.\n"
+                        f"[PLATFORM FORMAT] Visual optimized for {_ig2_red}.\n"
+                        f"[CULTURAL CONTEXT] Elements that resonate in {_ig2_pais}.\n"
+                        f"{_texto_instruccion}\n\n"
+                        f"Generate ONE complete cohesive prompt in English, 150-250 words.\n"
+                        f"Output ONLY the prompt, nothing else."
+                    )
+
+                    with st.spinner("Diseñando tu sesión fotográfica profesional..."):
+                        _prompt_profesional = generar_texto(_prompt_meta, max_out=400, temperatura=0.8)
+
+                    if not _prompt_profesional or str(_prompt_profesional).startswith("Error"):
+                        st.error("Error al generar el prompt. Intenta de nuevo.")
                     else:
-                        import base64 as _b64mod
-                        from io import BytesIO as _BytesIO2
+                        # PASO 3 — Genera 3 variaciones
+                        _variaciones_extra = [
+                            "Emphasize product detail and texture",
+                            "Emphasize lifestyle and human emotion",
+                            "Emphasize aspirational brand feeling",
+                        ]
+                        _imagenes_generadas = []
+                        _error_api_key = False
 
-                        if _ig2_b64 and not _ig2_b64.startswith("http"):
-                            _img_bytes = _b64mod.b64decode(_ig2_b64)
-                            st.image(_img_bytes, caption=f"Banner para {_ig2_tipo}", use_container_width=True)
-                            st.info("💡 Tip: Descarga la imagen y ábrela en Canva para agregar texto, precios y tu logo con tipografía profesional.")
-                            st.download_button(
-                                "⬇️ Descargar imagen",
-                                data=_img_bytes,
-                                file_name=f"chero_banner_{_ig2_marca}.png",
-                                mime="image/png",
-                                key="ig2_download"
-                            )
+                        with st.spinner("Generando 3 variaciones de alta calidad..."):
+                            for _variacion in _variaciones_extra:
+                                _prompt_v = _prompt_profesional + f"\n\nVariation focus: {_variacion}"
+                                _img_b64, _err = generar_imagen_openai(
+                                    _prompt_v, _ig2_marca, _ig2_nicho, _ig2_pais,
+                                    formato=_ig2_formatos_map[_ig2_red],
+                                    calidad=_ig2_calidad
+                                )
+                                if _err == "sin_api_key":
+                                    _error_api_key = True
+                                    break
+                                if not _err and _img_b64:
+                                    _imagenes_generadas.append(_img_b64)
+
+                        if _error_api_key:
+                            st.error("Configura OPENAI_API_KEY en Streamlit Secrets")
+                        elif not _imagenes_generadas:
+                            st.error("No se pudo generar ninguna imagen. Intenta de nuevo.")
                         else:
-                            st.image(_ig2_b64, caption=f"Banner para {_ig2_tipo}", use_container_width=True)
-                            st.info("💡 Tip: Descarga la imagen y ábrela en Canva para agregar texto, precios y tu logo con tipografía profesional.")
+                            # PASO 4 — Muestra las 3 variaciones
+                            st.success(f"✅ {len(_imagenes_generadas)} variación(es) generada(s)")
+                            import base64 as _b64mod
 
-                        consumir(_ig2_creditos)
-                        st.session_state["imagenes_usadas"] = _ig2_usadas + 1
+                            _cols = st.columns(len(_imagenes_generadas))
+                            for _i, (_col, _b64) in enumerate(zip(_cols, _imagenes_generadas)):
+                                with _col:
+                                    if _b64 and not _b64.startswith("http"):
+                                        _img_bytes = _b64mod.b64decode(_b64)
+                                        st.image(_img_bytes, caption=f"Variación {_i+1}", use_container_width=True)
+                                        st.download_button(
+                                            f"⬇️ Descargar {_i+1}",
+                                            data=_img_bytes,
+                                            file_name=f"chero_img_{_i+1}.png",
+                                            mime="image/png",
+                                            key=f"ig2_dl_{_i}"
+                                        )
+                                    else:
+                                        st.image(_b64, caption=f"Variación {_i+1}", use_container_width=True)
 
-                        if _ig2_email:
-                            guardar_reporte(
-                                _ig2_email,
-                                "imagen_banner",
-                                f"Imagen generada: {_ig2_desc[:60]} | Tipo: {_ig2_tipo}",
-                                _ig2_desc
-                            )
+                            with st.expander("Ver prompt generado por IA"):
+                                st.code(_prompt_profesional)
+
+                            consumir(_ig2_creditos)
+                            st.session_state["imagenes_usadas"] = _ig2_usadas + len(_imagenes_generadas)
+
+                            if _ig2_email:
+                                guardar_reporte(
+                                    _ig2_email,
+                                    "imagen_banner",
+                                    f"3 variaciones: {_ig2_desc[:60]} | {_ig2_red}",
+                                    _prompt_profesional
+                                )
 
 
     # ── SIMULADOR DE CAMPAÑA ──────────────────────────────────────────────────
