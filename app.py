@@ -563,6 +563,71 @@ _CD_CALIDAD = (
     "color graded, no AI artifacts, no distortion, no stock photo feel"
 )
 
+CREATIVE_DIRECTOR_PROMPT = """You are an elite creative director and advertising agency specialized in generating premium marketing campaigns.
+
+Your task is NOT to generate simple AI images.
+Your task is to generate HIGH-CONVERTING ADVERTISEMENTS that look like they were created by Apple, Nike, Adidas, Stripe, Notion, Luxury ecommerce brands.
+
+PROJECT CONTEXT:
+Brand: {marca}
+Business Type: {nicho}
+Country: {pais}
+Platform: {plataforma}
+Campaign Goal: {objetivo}
+Audience: {cliente_ideal}
+User Request: {pedido_usuario}
+
+VISUAL STYLE RULES:
+Always prioritize:
+- cinematic lighting
+- premium composition
+- luxury branding
+- emotional storytelling
+- advertising realism
+- modern commercial photography
+- high-end editorial quality
+- high-conversion marketing aesthetic
+
+NEVER generate:
+- generic AI art
+- random stock image look
+- low-quality compositions
+- cluttered scenes
+- amateur design
+
+VISUAL QUALITY:
+ultra realistic, commercial photography, cinematic lighting, editorial advertising style, high-end composition, professional branding, depth of field, luxury atmosphere, dramatic lighting, premium campaign aesthetic, shot on Sony A7R IV, social media advertising quality, award-winning commercial photography
+
+COMPOSITION RULES:
+If product-based:
+- hero product centered composition
+- professional product placement
+- minimal distractions
+- premium ecommerce aesthetic
+
+If lifestyle-based:
+- emotional storytelling
+- aspirational lifestyle
+- luxury commercial atmosphere
+
+If SaaS/startup:
+- futuristic startup branding
+- premium workspace atmosphere
+- modern UI-inspired aesthetics
+
+MARKETING RULES:
+The image must:
+- attract attention instantly
+- feel premium and trustworthy
+- increase conversions
+- feel emotionally powerful
+- look like a real paid ad campaign
+
+TYPOGRAPHY RULES:
+{typography_rules}
+
+OUTPUT: Generate ONE premium advertising campaign image that feels cinematic, emotionally powerful, commercially optimized, visually premium, globally competitive."""
+
 
 def _sanitizar(texto, max_chars=3000):
     texto = (texto or "").strip()[:max_chars]
@@ -3532,7 +3597,7 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 if not _ig2_desc:
                     st.warning("Describe qué imagen quieres")
                 elif verificar_creditos(_ig2_creditos):
-                    # Auto-detectar dirección creativa desde el texto del usuario
+                    # Auto-detectar dirección creativa
                     _texto_all   = (_ig2_desc + " " + _ig2_nicho + " " + _ig2_prod).lower()
                     _obj_det     = next((v for k, v in _CD_OBJETIVOS.items() if k in _texto_all),
                                         "high-conversion premium brand campaign")
@@ -3542,104 +3607,91 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                                         "aspirational confident premium brand energy")
                     _pais_det    = _CD_PAISES.get(_ig2_pais, _CD_PAISES["default"])
 
-                    _texto_instruccion = (
-                        f'CRITICAL: Render this exact text prominently in the image with bold premium '
-                        f'sans-serif typography, perfectly integrated into the composition: "{_ig2_texto_img}"'
-                        if _ig2_texto_img else
-                        "No overlay text — pure visual storytelling power."
-                    )
-
-                    _prompt_meta = (
-                        f"You are the Creative Director of a world-class advertising agency "
-                        f"(Ogilvy, BBDO, Droga5 level).\n\n"
-                        f"Write ONE premium image generation prompt that produces a campaign-quality "
-                        f"photograph — indistinguishable from a real agency photoshoot.\n\n"
-                        f"CLIENT BRIEF:\n"
-                        f"- Brand: {_ig2_marca}\n"
-                        f"- Product/Service: {_ig2_prod or _ig2_nicho}\n"
-                        f"- Market: {_ig2_pais}\n"
-                        f"- Audience: {_ig2_cli or 'premium adults 25-45'}\n"
-                        f"- Platform: {_ig2_red}\n"
-                        f"- Creative request: \"{_ig2_desc}\"\n\n"
-                        f"CREATIVE DIRECTION (auto-detected):\n"
-                        f"- Campaign objective: {_obj_det}\n"
-                        f"- Visual style: {_estilo_det}\n"
-                        f"- Emotional direction: {_emocion_det}\n"
-                        f"- Cultural context: {_pais_det}\n\n"
-                        f"MANDATORY QUALITY BASELINE:\n{_CD_CALIDAD}\n\n"
-                        f"TEXT REQUIREMENT: {_texto_instruccion}\n\n"
-                        f"BUILD THE PROMPT WITH:\n"
-                        f"1. Campaign type + visual style (specific, cinematic language)\n"
-                        f"2. Exact scene with product placement and hero element position\n"
-                        f"3. Lighting: direction, color temperature, shadow behavior\n"
-                        f"4. Color palette: 3-4 specific named colors\n"
-                        f"5. Photography technique (editorial, lifestyle, flat-lay, hero shot, etc.)\n"
-                        f"6. Cultural and emotional resonance for {_ig2_pais}\n"
-                        f"7. Full technical specs from quality baseline\n\n"
-                        f"RULES:\n"
-                        f"- FORBIDDEN words: beautiful, nice, stunning, amazing, good quality\n"
-                        f"- USE: specific cinematic, photographic, directorial language\n"
-                        f"- Write as if briefing a world-class photographer on a real set\n"
-                        f"- Output ONLY the final prompt in English, 150-200 words, no labels, no explanations."
-                    )
-
-                    with st.spinner("Diseñando tu sesión fotográfica profesional..."):
-                        _prompt_profesional = generar_texto(_prompt_meta, max_out=400, temperatura=0.8)
-
-                    if not _prompt_profesional or str(_prompt_profesional).startswith("Error"):
-                        st.error(f"Error al construir el prompt creativo: {_prompt_profesional}")
+                    # Reglas de tipografía (con o sin texto pedido por el usuario)
+                    if _ig2_texto_img:
+                        _typo_rules = (
+                            f'CRITICAL: Render this exact text in the image with bold premium '
+                            f'sans-serif typography, perfectly integrated: "{_ig2_texto_img}". '
+                            f'Clean hierarchy, premium spacing, luxury branding alignment, '
+                            f'strong headline placement, minimal but powerful CTA.'
+                        )
                     else:
-                        with st.spinner("Generando imagen premium de alta calidad..."):
-                            try:
-                                _img_b64, _err = generar_imagen_openai(
-                                    _prompt_profesional, _ig2_marca, _ig2_nicho, _ig2_pais,
-                                    formato=_ig2_formatos_map[_ig2_red],
-                                    calidad=_ig2_calidad
+                        _typo_rules = (
+                            "Include elegant integrated typography if contextually appropriate. "
+                            "Use clean hierarchy, premium spacing, luxury branding alignment. "
+                            "If no text fits naturally, use pure visual storytelling power."
+                        )
+
+                    # Construir el prompt final directo a GPT Image 2 (sin pasar por Gemini)
+                    _pedido_enriquecido = (
+                        f"{_ig2_desc}. "
+                        f"Visual style: {_estilo_det}. "
+                        f"Emotional direction: {_emocion_det}. "
+                        f"Cultural context: {_pais_det}."
+                    )
+                    _prompt_final = CREATIVE_DIRECTOR_PROMPT.format(
+                        marca=_ig2_marca,
+                        nicho=_ig2_nicho,
+                        pais=_ig2_pais,
+                        plataforma=_ig2_red,
+                        objetivo=_obj_det,
+                        cliente_ideal=_ig2_cli or "premium adults 25-45",
+                        pedido_usuario=_pedido_enriquecido,
+                        typography_rules=_typo_rules,
+                    )
+
+                    with st.spinner("Generando imagen premium de alta calidad..."):
+                        try:
+                            _img_b64, _err = generar_imagen_openai(
+                                _prompt_final, _ig2_marca, _ig2_nicho, _ig2_pais,
+                                formato=_ig2_formatos_map[_ig2_red],
+                                calidad=_ig2_calidad
+                            )
+                        except Exception as _ex_gen:
+                            _img_b64, _err = None, str(_ex_gen)
+
+                    if _err == "sin_api_key":
+                        st.error("Configura OPENAI_API_KEY en Streamlit Secrets")
+                    elif _err:
+                        st.error(f"Error al generar imagen: {_err}")
+                    elif _img_b64:
+                        import base64 as _b64mod
+                        try:
+                            if not _img_b64.startswith("http"):
+                                _img_bytes = _b64mod.b64decode(_img_b64)
+                                st.image(_img_bytes,
+                                         caption=f"Campaña premium: {_ig2_desc[:50]}",
+                                         use_container_width=True)
+                                st.download_button(
+                                    "⬇️ Descargar imagen",
+                                    data=_img_bytes,
+                                    file_name=f"chero_img_{_ig2_marca}.png",
+                                    mime="image/png",
+                                    key="ig2_dl_0"
                                 )
-                            except Exception as _ex_gen:
-                                _img_b64, _err = None, str(_ex_gen)
+                            else:
+                                st.image(_img_b64,
+                                         caption=f"Campaña premium: {_ig2_desc[:50]}",
+                                         use_container_width=True)
+                        except Exception as _show_err:
+                            st.error(f"Error al mostrar imagen: {_show_err}")
 
-                        if _err == "sin_api_key":
-                            st.error("Configura OPENAI_API_KEY en Streamlit Secrets")
-                        elif _err:
-                            st.error(f"Error al generar imagen: {_err}")
-                        elif _img_b64:
-                            import base64 as _b64mod
-                            try:
-                                if not _img_b64.startswith("http"):
-                                    _img_bytes = _b64mod.b64decode(_img_b64)
-                                    st.image(_img_bytes,
-                                             caption=f"Campaña premium: {_ig2_desc[:50]}",
-                                             use_container_width=True)
-                                    st.download_button(
-                                        "⬇️ Descargar imagen",
-                                        data=_img_bytes,
-                                        file_name=f"chero_img_{_ig2_marca}.png",
-                                        mime="image/png",
-                                        key="ig2_dl_0"
-                                    )
-                                else:
-                                    st.image(_img_b64,
-                                             caption=f"Campaña premium: {_ig2_desc[:50]}",
-                                             use_container_width=True)
-                            except Exception as _show_err:
-                                st.error(f"Error al mostrar imagen: {_show_err}")
+                        with st.expander("📋 Copiar prompt para Midjourney / DALL-E"):
+                            st.caption("Haz click en el ícono de copiar (esquina superior derecha del bloque):")
+                            st.code(_prompt_final, language=None)
 
-                            with st.expander("Ver prompt cinematográfico generado por IA"):
-                                st.code(_prompt_profesional)
+                        consumir(_ig2_creditos)
+                        st.session_state["imagenes_usadas"] = _ig2_usadas + 1
 
-                            consumir(_ig2_creditos)
-                            st.session_state["imagenes_usadas"] = _ig2_usadas + 1
-
-                            if _ig2_email:
-                                guardar_reporte(
-                                    _ig2_email,
-                                    "imagen_banner",
-                                    f"Imagen premium: {_ig2_desc[:60]} | {_ig2_red}",
-                                    _prompt_profesional
-                                )
-                        else:
-                            st.error("La API no retornó imagen. Intenta con otra descripción.")
+                        if _ig2_email:
+                            guardar_reporte(
+                                _ig2_email,
+                                "imagen_banner",
+                                f"Imagen premium: {_ig2_desc[:60]} | {_ig2_red}",
+                                _prompt_final
+                            )
+                    else:
+                        st.error("La API no retornó imagen. Intenta con otra descripción.")
 
 
     # ── SIMULADOR DE CAMPAÑA ──────────────────────────────────────────────────
