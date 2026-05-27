@@ -1029,6 +1029,97 @@ def db_borrar_catalogo(user_email: str):
 
 
 # =========================
+# SUPABASE: TIENDA
+# =========================
+def guardar_config_tienda(email, plataforma, url, ck, cs):
+    if not supabase or not email:
+        return False
+    api_key = f"{ck}|{cs}"
+    try:
+        existing = supabase.table("integraciones_tienda")\
+            .select("id")\
+            .eq("user_email", email)\
+            .execute()
+        datos = {
+            "user_email": email,
+            "plataforma": plataforma,
+            "url_tienda": url,
+            "api_key": api_key,
+            "activa": True,
+        }
+        if existing.data:
+            supabase.table("integraciones_tienda")\
+                .update(datos)\
+                .eq("user_email", email)\
+                .execute()
+        else:
+            supabase.table("integraciones_tienda")\
+                .insert(datos)\
+                .execute()
+        return True
+    except Exception as e:
+        return False
+
+def obtener_config_tienda(email):
+    if not supabase or not email:
+        return None
+    try:
+        result = supabase.table("integraciones_tienda")\
+            .select("*")\
+            .eq("user_email", email)\
+            .eq("activa", True)\
+            .execute()
+        if result.data:
+            config = result.data[0]
+            claves = config["api_key"].split("|")
+            return {
+                "plataforma": config["plataforma"],
+                "url": config["url_tienda"],
+                "consumer_key": claves[0],
+                "consumer_secret": claves[1] if len(claves) > 1 else "",
+            }
+        return None
+    except Exception:
+        return None
+
+def obtener_productos_tienda(email):
+    config = obtener_config_tienda(email)
+    if not config:
+        return None
+    try:
+        if config["plataforma"] == "WooCommerce":
+            base = config["url"].rstrip("/")
+            if not base.startswith("http"):
+                base = "https://" + base
+            url = f"{base}/wp-json/wc/v3/products"
+            response = requests.get(
+                url,
+                auth=(config["consumer_key"], config["consumer_secret"]),
+                params={"per_page": 100, "status": "publish"},
+                timeout=15,
+            )
+            if response.status_code == 200:
+                productos = []
+                for p in response.json():
+                    foto_url = ""
+                    if p.get("images"):
+                        foto_url = p["images"][0]["src"]
+                    productos.append({
+                        "nombre": p["name"],
+                        "precio": p.get("price", ""),
+                        "descripcion": p.get("short_description", ""),
+                        "foto_url": foto_url,
+                        "id": p["id"],
+                    })
+                return productos
+            else:
+                return None
+    except Exception as e:
+        st.error(f"Error conectando tienda: {e}")
+        return None
+
+
+# =========================
 # SUPABASE: REPORTES
 # =========================
 def guardar_reporte(user_email, tipo, titulo, contenido):
@@ -3193,10 +3284,41 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
                 st.markdown("#### ➕ Agregar productos al catálogo")
                 fuente_add = st.selectbox(
                     "Fuente:",
-                    ["Lista manual", "API de Shopify", "API de WooCommerce", "API de TiendaNube"],
+                    ["Importar desde mi tienda", "Lista manual", "API de Shopify", "API de WooCommerce", "API de TiendaNube"],
                     key="cat_fuente_add"
                 )
-                if fuente_add == "Lista manual":
+                if fuente_add == "Importar desde mi tienda":
+                    _prods_tienda_cat = obtener_productos_tienda(user_email_cat)
+                    if _prods_tienda_cat is None:
+                        st.info("Conecta tu tienda en Tab Admin para importar productos.")
+                    elif not _prods_tienda_cat:
+                        st.warning("Tu tienda no tiene productos publicados.")
+                    else:
+                        st.success(f"\u2705 {len(_prods_tienda_cat)} productos encontrados en tu tienda")
+                        if st.button("Seleccionar todos", key="cat_tienda_all_add"):
+                            st.session_state["cat_tienda_sel_add"] = [p["nombre"] for p in _prods_tienda_cat]
+                        _cols_t = st.columns([1, 3, 2])
+                        _tienda_sel_nombres = []
+                        for _pt in _prods_tienda_cat:
+                            _check_key = f"cat_tienda_chk_add_{_pt['id']}"
+                            _checked = st.session_state.get("cat_tienda_sel_add") and _pt["nombre"] in st.session_state.get("cat_tienda_sel_add", [])
+                            with st.container():
+                                _cc1, _cc2, _cc3 = st.columns([1, 3, 2])
+                                with _cc1:
+                                    if _pt.get("foto_url"):
+                                        st.image(_pt["foto_url"], width=60)
+                                with _cc2:
+                                    st.markdown(f"**{_pt['nombre']}**")
+                                with _cc3:
+                                    if st.checkbox(f"{moneda_cat}{_pt['precio']}", key=_check_key, value=bool(_checked)):
+                                        _tienda_sel_nombres.append(_pt["nombre"])
+                        if _tienda_sel_nombres and st.button("\U0001f4be Guardar seleccionados", key="cat_tienda_save_add"):
+                            n = _guardar_lista(_tienda_sel_nombres, "tienda")
+                            st.success(f"\u2705 {n} producto(s) guardados.")
+                            st.session_state.pop("cat_modo", None)
+                            st.rerun()
+
+                elif fuente_add == "Lista manual":
                     nueva_lista = st.text_area(
                         "Pega los nuevos productos (uno por línea):",
                         placeholder="- Producto Nuevo S/99 - Descripción\n- Otro Producto S/45",
@@ -3407,12 +3529,41 @@ Completa todas las secciones. No cortes el texto a la mitad."""
             st.info("Aún no tienes productos guardados. Agrega tu catálogo:")
             fuente_new = st.selectbox(
                 "¿Cómo tienes tu catálogo?",
-                ["Lista de productos o servicios", "API de Shopify", "API de WooCommerce", "API de TiendaNube"],
+                ["Importar desde mi tienda", "Lista de productos o servicios", "API de Shopify", "API de WooCommerce", "API de TiendaNube"],
                 index=0, key="cat_fuente_new"
             )
             st.divider()
 
-            if fuente_new == "Lista de productos o servicios":
+            if fuente_new == "Importar desde mi tienda":
+                _prods_tienda_new = obtener_productos_tienda(user_email_cat)
+                if _prods_tienda_new is None:
+                    st.info("Conecta tu tienda en Tab Admin para importar productos.")
+                elif not _prods_tienda_new:
+                    st.warning("Tu tienda no tiene productos publicados.")
+                else:
+                    st.success(f"\u2705 {len(_prods_tienda_new)} productos encontrados en tu tienda")
+                    if st.button("Seleccionar todos", key="cat_tienda_all_new"):
+                        st.session_state["cat_tienda_sel_new"] = [p["nombre"] for p in _prods_tienda_new]
+                    _tienda_sel_new_nombres = []
+                    for _pt in _prods_tienda_new:
+                        _check_key_n = f"cat_tienda_chk_new_{_pt['id']}"
+                        _checked_n = _pt["nombre"] in st.session_state.get("cat_tienda_sel_new", [])
+                        _cc1n, _cc2n, _cc3n = st.columns([1, 3, 2])
+                        with _cc1n:
+                            if _pt.get("foto_url"):
+                                st.image(_pt["foto_url"], width=60)
+                        with _cc2n:
+                            st.markdown(f"**{_pt['nombre']}**")
+                        with _cc3n:
+                            if st.checkbox(f"{moneda_cat}{_pt['precio']}", key=_check_key_n, value=bool(_checked_n)):
+                                _tienda_sel_new_nombres.append(_pt["nombre"])
+                    if _tienda_sel_new_nombres and st.button("\U0001f4be Guardar seleccionados", key="cat_tienda_save_new"):
+                        n = _guardar_lista(_tienda_sel_new_nombres, "tienda")
+                        st.success(f"\u2705 {n} producto(s) guardados.")
+                        st.session_state.pop("cat_prods_temp", None)
+                        st.rerun()
+
+            elif fuente_new == "Lista de productos o servicios":
                 st.info("Pega tu lista — uno por línea con nombre, precio y descripción opcional.")
                 lista_raw = st.text_area(
                     "Tu catálogo:",
@@ -4319,49 +4470,31 @@ Sé muy específico con los números que ves en la imagen."""
             st.markdown("---")
             st.markdown("### \U0001f6d2 Conectar mi Tienda" if not _is_en_int else "### \U0001f6d2 Connect my Store")
 
-            _tienda_conectada = False
-            _tienda_record = {}
-            if supabase:
-                try:
-                    _r2 = supabase.table("integraciones").select("*") \
-                        .eq("user_email", _email_int) \
-                        .eq("tipo", "tienda_online") \
-                        .eq("activo", True) \
-                        .limit(1).execute()
-                    if _r2.data:
-                        _tienda_conectada = True
-                        _tienda_record = _r2.data[0]
-                except Exception:
-                    pass
+            _config_tienda = obtener_config_tienda(_email_int)
+            _tienda_conectada = _config_tienda is not None
 
             if _tienda_conectada:
-                _tid_raw = _tienda_record.get("account_id", "")
-                _tplat, _, _turl = _tid_raw.partition("|")
+                _tplat = _config_tienda["plataforma"]
+                _turl = _config_tienda["url"]
+                _twoo_ck = _config_tienda["consumer_key"]
+                _twoo_cs = _config_tienda["consumer_secret"]
                 st.success(f"\u2705 {_tplat} conectado: {_turl}" if not _is_en_int else f"\u2705 {_tplat} connected: {_turl}")
-                st.caption("Tienda activa — disponible en Campa\u00f1a de Cat\u00e1logo" if not _is_en_int else "Active store — available in Catalog Campaign")
+                st.caption("Tienda activa — disponible en Campaña de Catálogo" if not _is_en_int else "Active store — available in Catalog Campaign")
                 if st.button("\U0001f50c Desconectar tienda" if not _is_en_int else "\U0001f50c Disconnect store", key="tienda_desconectar"):
                     if supabase:
                         try:
-                            supabase.table("integraciones").update({"activo": False}) \
-                                .eq("user_email", _email_int).eq("tipo", "tienda_online").execute()
+                            supabase.table("integraciones_tienda").update({"activa": False}) \
+                                .eq("user_email", _email_int).execute()
                             st.success("Desconectado." if not _is_en_int else "Disconnected.")
                             st.rerun()
                         except Exception as _te:
                             st.error(str(_te))
 
-                # ── Gestión de productos ───────────────────────────────────────
+                # -- Gestión de productos -------------------------------------------------------
                 st.markdown("---")
                 st.markdown("#### 📦 Gestión de productos")
 
-                _tok_raw = _tienda_record.get("access_token", "")
                 _base_url_t = ("https://" + _turl.rstrip("/")) if not _turl.startswith("http") else _turl.rstrip("/")
-                if _tplat == "WooCommerce":
-                    _woo_creds_r = _tok_raw[len("woo:"):]
-                    _woo_ck_t, _, _woo_cs_t = _woo_creds_r.partition(":")
-                else:
-                    _sh_tok_t = _tok_raw[len("shopify"):]
-                    _sh_tok_t = _sh_tok_t.lstrip(":")
-                    _sh_host  = _turl.rstrip("/").replace("https://", "").replace("http://", "")
 
                 if st.button("🔄 Cargar productos", key="tienda_cargar_prods"):
                     with st.spinner("Cargando productos..."):
@@ -4369,23 +4502,12 @@ Sé muy específico con los números que ves en la imagen."""
                             if _tplat == "WooCommerce":
                                 _rp = requests.get(
                                     f"{_base_url_t}/wp-json/wc/v3/products",
-                                    params={"per_page": 50},
-                                    auth=(_woo_ck_t, _woo_cs_t), timeout=15
+                                    params={"per_page": 50, "status": "publish"},
+                                    auth=(_twoo_ck, _twoo_cs), timeout=15
                                 )
                                 if _rp.status_code == 200:
                                     st.session_state["tienda_productos"] = _rp.json()
-                                    st.success(f"✅ {len(st.session_state['tienda_productos'])} productos cargados")
-                                else:
-                                    st.error(f"Error {_rp.status_code}: {_rp.text[:200]}")
-                            else:
-                                _rp = requests.get(
-                                    f"https://{_sh_host}/admin/api/2024-01/products.json",
-                                    headers={"X-Shopify-Access-Token": _sh_tok_t},
-                                    params={"limit": 50}, timeout=15
-                                )
-                                if _rp.status_code == 200:
-                                    st.session_state["tienda_productos"] = _rp.json().get("products", [])
-                                    st.success(f"✅ {len(st.session_state['tienda_productos'])} productos cargados")
+                                    st.success(f"\u2705 {len(st.session_state['tienda_productos'])} productos cargados")
                                 else:
                                     st.error(f"Error {_rp.status_code}: {_rp.text[:200]}")
                         except Exception as _ep:
@@ -4409,118 +4531,73 @@ Sé muy específico con los números que ves en la imagen."""
                     _tc1, _tc2 = st.columns(2)
                     with _tc1:
                         st.markdown("**💲 Actualizar precio:**")
-                        if _tplat == "WooCommerce":
-                            _precio_act = _prod_sel.get("regular_price", "")
-                        else:
-                            _vars = _prod_sel.get("variants", [])
-                            _precio_act = _vars[0].get("price", "") if _vars else ""
+                        _precio_act = _prod_sel.get("regular_price", "")
                         _nuevo_precio = st.text_input("Nuevo precio:", value=_precio_act, key="tienda_nuevo_precio")
                         if st.button("💲 Actualizar precio", key="tienda_btn_precio"):
                             with st.spinner("Actualizando precio..."):
                                 try:
-                                    if _tplat == "WooCommerce":
-                                        _ru = requests.put(
-                                            f"{_base_url_t}/wp-json/wc/v3/products/{_prod_id}",
-                                            json={"regular_price": _nuevo_precio},
-                                            auth=(_woo_ck_t, _woo_cs_t), timeout=15
-                                        )
-                                        if _ru.status_code in (200, 201):
-                                            st.success("✅ Precio actualizado")
-                                            st.session_state.pop("tienda_productos", None)
-                                        else:
-                                            st.error(f"Error {_ru.status_code}: {_ru.text[:200]}")
+                                    _ru = requests.put(
+                                        f"{_base_url_t}/wp-json/wc/v3/products/{_prod_id}",
+                                        json={"regular_price": _nuevo_precio},
+                                        auth=(_twoo_ck, _twoo_cs), timeout=15
+                                    )
+                                    if _ru.status_code in (200, 201):
+                                        st.success("\u2705 Precio actualizado")
+                                        st.session_state.pop("tienda_productos", None)
                                     else:
-                                        _vars = _prod_sel.get("variants", [])
-                                        if _vars:
-                                            _vid = _vars[0].get("id")
-                                            _ru = requests.put(
-                                                f"https://{_sh_host}/admin/api/2024-01/variants/{_vid}.json",
-                                                headers={"X-Shopify-Access-Token": _sh_tok_t},
-                                                json={"variant": {"id": _vid, "price": _nuevo_precio}},
-                                                timeout=15
-                                            )
-                                            if _ru.status_code in (200, 201):
-                                                st.success("✅ Precio actualizado")
-                                                st.session_state.pop("tienda_productos", None)
-                                            else:
-                                                st.error(f"Error {_ru.status_code}: {_ru.text[:200]}")
-                                        else:
-                                            st.error("No se encontraron variantes.")
+                                        st.error(f"Error {_ru.status_code}: {_ru.text[:200]}")
                                 except Exception as _epu:
                                     st.error(f"Error: {_epu}")
 
                     with _tc2:
                         st.markdown("**📝 Actualizar descripción:**")
-                        if _tplat == "WooCommerce":
-                            _desc_act = _prod_sel.get("description", "")
-                        else:
-                            _desc_act = _prod_sel.get("body_html", "")
+                        _desc_act = _prod_sel.get("description", "")
                         _nueva_desc = st.text_area("Nueva descripción:", value=_desc_act[:500], height=120, key="tienda_nueva_desc")
                         if st.button("📝 Actualizar descripción", key="tienda_btn_desc"):
                             with st.spinner("Actualizando descripción..."):
                                 try:
-                                    if _tplat == "WooCommerce":
-                                        _rd = requests.put(
-                                            f"{_base_url_t}/wp-json/wc/v3/products/{_prod_id}",
-                                            json={"description": _nueva_desc},
-                                            auth=(_woo_ck_t, _woo_cs_t), timeout=15
-                                        )
-                                        if _rd.status_code in (200, 201):
-                                            st.success("✅ Descripción actualizada")
-                                            st.session_state.pop("tienda_productos", None)
-                                        else:
-                                            st.error(f"Error {_rd.status_code}: {_rd.text[:200]}")
+                                    _rd = requests.put(
+                                        f"{_base_url_t}/wp-json/wc/v3/products/{_prod_id}",
+                                        json={"description": _nueva_desc},
+                                        auth=(_twoo_ck, _twoo_cs), timeout=15
+                                    )
+                                    if _rd.status_code in (200, 201):
+                                        st.success("\u2705 Descripción actualizada")
+                                        st.session_state.pop("tienda_productos", None)
                                     else:
-                                        _rd = requests.put(
-                                            f"https://{_sh_host}/admin/api/2024-01/products/{_prod_id}.json",
-                                            headers={"X-Shopify-Access-Token": _sh_tok_t},
-                                            json={"product": {"id": _prod_id, "body_html": _nueva_desc}},
-                                            timeout=15
-                                        )
-                                        if _rd.status_code in (200, 201):
-                                            st.success("✅ Descripción actualizada")
-                                            st.session_state.pop("tienda_productos", None)
-                                        else:
-                                            st.error(f"Error {_rd.status_code}: {_rd.text[:200]}")
+                                        st.error(f"Error {_rd.status_code}: {_rd.text[:200]}")
                                 except Exception as _edu:
                                     st.error(f"Error: {_edu}")
 
             else:
                 _ti_plat = st.selectbox(
                     "Plataforma" if not _is_en_int else "Platform",
-                    ["WooCommerce", "Shopify"], key="int_tienda_plat"
+                    ["WooCommerce"], key="int_tienda_plat"
                 )
                 _ti_url = st.text_input(
                     "URL de tu tienda:" if not _is_en_int else "Your store URL:",
                     placeholder="https://mitienda.com",
                     key="int_tienda_url"
                 )
-                if _ti_plat == "WooCommerce":
-                    _ti_ck = st.text_input("Consumer Key:", placeholder="ck_...", key="int_woo_ck")
-                    _ti_cs = st.text_input("Consumer Secret:", placeholder="cs_...", type="password", key="int_woo_cs")
-                    _ti_token = f"woo:{_ti_ck}:{_ti_cs}"
-                    _ti_ok = bool(_ti_url.strip() and _ti_ck.strip() and _ti_cs.strip())
-                else:
-                    _ti_tok = st.text_input("Access Token:", placeholder="shpat_...", type="password", key="int_shopify_tok")
-                    _ti_token = f"shopify:{_ti_tok}"
-                    _ti_ok = bool(_ti_url.strip() and _ti_tok.strip())
+                _ti_ck = st.text_input("Consumer Key:", placeholder="ck_...", key="int_woo_ck")
+                _ti_cs = st.text_input("Consumer Secret:", placeholder="cs_...", type="password", key="int_woo_cs")
+                _ti_ok = bool(_ti_url.strip() and _ti_ck.strip() and _ti_cs.strip())
 
                 if st.button("\U0001f517 Conectar Tienda" if not _is_en_int else "\U0001f517 Connect Store", key="tienda_conectar"):
                     if not _ti_ok:
                         st.warning("Completa todos los campos." if not _is_en_int else "Fill all fields.")
                     elif supabase:
-                        try:
-                            supabase.table("integraciones").upsert({
-                                "user_email": _email_int,
-                                "tipo": "tienda_online",
-                                "account_id": f"{_ti_plat}|{_ti_url.strip()}",
-                                "access_token": _ti_token,
-                                "activo": True,
-                            }, on_conflict="user_email,tipo").execute()
-                            st.success(f"\u2705 {_ti_plat} conectado correctamente!" if not _is_en_int else f"\u2705 {_ti_plat} connected!")
+                        _ok_guardar = guardar_config_tienda(_email_int, _ti_plat, _ti_url.strip(), _ti_ck.strip(), _ti_cs.strip())
+                        if _ok_guardar:
+                            with st.spinner("Verificando conexión..."):
+                                _prods_test = obtener_productos_tienda(_email_int)
+                            if _prods_test is not None:
+                                st.success(f"\u2705 Conectado! {len(_prods_test)} productos encontrados")
+                            else:
+                                st.warning("Credenciales guardadas, pero no se pudo conectar a la tienda. Verifica la URL y las claves.")
                             st.rerun()
-                        except Exception as _te2:
-                            st.error(f"Error: {_te2}")
+                        else:
+                            st.error("Error al guardar la configuración.")
                     else:
                         st.warning("Supabase no configurado.")
 
