@@ -460,21 +460,38 @@ def generar_analitico(prompt, max_tokens=6000):
     return f"Error en analisis: {_ultimo_error_an}"
 
 def generar_imagen_openai(prompt_descripcion, marca, nicho, pais,
-                          formato="1024x1024", calidad="medium"):
+                          formato="1024x1024", calidad="medium",
+                          imagen_referencia_url=None):
+    import base64, io
     try:
         _oai_key = st.secrets.get("OPENAI_API_KEY", "")
         if not _oai_key:
             return None, "sin_api_key"
         _oai_client = OpenAIClient(api_key=_oai_key)
-        response = _oai_client.images.generate(
-            model="gpt-image-2",
-            prompt=prompt_descripcion,
-            size=formato,
-            quality=calidad,
-            n=1,
-            output_format="png"
-        )
-        import base64
+
+        if imagen_referencia_url:
+            import requests as _req_img
+            _img_resp = _req_img.get(imagen_referencia_url, timeout=10)
+            _img_bytes = _img_resp.content
+            _img_file = io.BytesIO(_img_bytes)
+            _img_file.name = "product.png"
+            response = _oai_client.images.edit(
+                model="gpt-image-2",
+                image=_img_file,
+                prompt=prompt_descripcion,
+                size=formato,
+                quality=calidad,
+            )
+        else:
+            response = _oai_client.images.generate(
+                model="gpt-image-2",
+                prompt=prompt_descripcion,
+                size=formato,
+                quality=calidad,
+                n=1,
+                output_format="png"
+            )
+
         img_b64 = response.data[0].b64_json
         if not img_b64:
             img_b64 = response.data[0].url
@@ -3697,9 +3714,53 @@ Completa todas las secciones. No cortes el texto a la mitad."""
         else:
             st.caption(f"Imágenes disponibles: {_ig2_limite - _ig2_usadas}/{_ig2_limite} este mes")
 
-            # PASO 1 — Campos de la UI
+            # PASO 1 — Opción de producto de tienda conectada
+            _ig2_foto_url = None
+            _ig2_nombre_prod = ""
+            _ig2_precio_prod = ""
+            _ig2_usar_producto = False
+
+            _ig2_config_tienda = obtener_config_tienda(_ig2_email)
+            if _ig2_config_tienda:
+                _ig2_usar_producto = st.checkbox(
+                    "🏪 Usar foto de un producto de mi tienda",
+                    key="ig2_usar_prod"
+                )
+                if _ig2_usar_producto:
+                    with st.spinner("Cargando productos de tu tienda..."):
+                        _ig2_productos = obtener_productos_tienda(_ig2_email)
+                    if not _ig2_productos:
+                        st.warning("No se encontraron productos con foto en tu tienda.")
+                        _ig2_usar_producto = False
+                    else:
+                        _ig2_prods_con_foto = [p for p in _ig2_productos if p.get("foto_url")]
+                        if not _ig2_prods_con_foto:
+                            st.warning("Tus productos no tienen fotos cargadas en WooCommerce.")
+                            _ig2_usar_producto = False
+                        else:
+                            _ig2_opciones = {
+                                f"{p['nombre']} - S/{p['precio']}": p
+                                for p in _ig2_prods_con_foto
+                            }
+                            _ig2_prod_elegido = st.selectbox(
+                                "Elige el producto:",
+                                list(_ig2_opciones.keys()),
+                                key="ig2_prod_sel"
+                            )
+                            _ig2_prod_obj = _ig2_opciones[_ig2_prod_elegido]
+                            _ig2_foto_url = _ig2_prod_obj["foto_url"]
+                            _ig2_nombre_prod = _ig2_prod_obj["nombre"]
+                            _ig2_precio_prod = _ig2_prod_obj["precio"]
+                            st.image(
+                                _ig2_foto_url,
+                                width=150,
+                                caption="Foto actual del producto"
+                            )
+                            st.info(f"Generando campaña para: {_ig2_nombre_prod}")
+
+            # PASO 2 — Campos de la UI
             _ig2_desc = st.text_area(
-                "¿Qué imagen quieres?",
+                "¿Qué imagen quieres?" if not _ig2_usar_producto else "Descripción adicional (opcional):",
                 placeholder="Ej: Campaña de polos para fiestas patrias con descuento",
                 height=100,
                 key="ig2_desc"
@@ -3772,30 +3833,51 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                             "If no text fits naturally, use pure visual storytelling power."
                         )
 
-                    # Construir el prompt final directo a GPT Image 2 (sin pasar por Gemini)
-                    _pedido_enriquecido = (
-                        f"{_ig2_desc}. "
-                        f"Visual style: {_estilo_det}. "
-                        f"Emotional direction: {_emocion_det}. "
-                        f"Cultural context: {_pais_det}."
-                    )
-                    _prompt_final = CREATIVE_DIRECTOR_PROMPT.format(
-                        marca=_ig2_marca,
-                        nicho=_ig2_nicho,
-                        pais=_ig2_pais,
-                        plataforma=_ig2_red,
-                        objetivo=_obj_det,
-                        cliente_ideal=_ig2_cli or "premium adults 25-45",
-                        pedido_usuario=_pedido_enriquecido,
-                        typography_rules=_typo_rules,
-                    )
+                    # Construir el prompt final
+                    if _ig2_usar_producto and _ig2_nombre_prod:
+                        _prompt_final = f"""You are an elite creative director.
+Take this exact product and create a premium marketing campaign image.
+The product MUST be the hero and clearly visible in the final image.
+
+Brand: {_ig2_marca}
+Product: {_ig2_nombre_prod}
+Price: S/{_ig2_precio_prod}
+Country: {_ig2_pais}
+Platform: {_ig2_red}
+
+Style: Premium commercial photography, cinematic lighting, professional marketing campaign.
+The product is real — maintain its exact appearance but place it in a premium marketing context.
+
+{_ig2_desc if _ig2_desc else ""}
+
+{_typo_rules}
+
+Quality: Award-winning commercial photography, Sony A7R IV quality, high conversion ad."""
+                    else:
+                        _pedido_enriquecido = (
+                            f"{_ig2_desc}. "
+                            f"Visual style: {_estilo_det}. "
+                            f"Emotional direction: {_emocion_det}. "
+                            f"Cultural context: {_pais_det}."
+                        )
+                        _prompt_final = CREATIVE_DIRECTOR_PROMPT.format(
+                            marca=_ig2_marca,
+                            nicho=_ig2_nicho,
+                            pais=_ig2_pais,
+                            plataforma=_ig2_red,
+                            objetivo=_obj_det,
+                            cliente_ideal=_ig2_cli or "premium adults 25-45",
+                            pedido_usuario=_pedido_enriquecido,
+                            typography_rules=_typo_rules,
+                        )
 
                     with st.spinner("Generando imagen premium de alta calidad..."):
                         try:
                             _img_b64, _err = generar_imagen_openai(
                                 _prompt_final, _ig2_marca, _ig2_nicho, _ig2_pais,
                                 formato=_ig2_formatos_map[_ig2_red],
-                                calidad=_ig2_calidad
+                                calidad=_ig2_calidad,
+                                imagen_referencia_url=_ig2_foto_url if _ig2_usar_producto else None
                             )
                         except Exception as _ex_gen:
                             _img_b64, _err = None, str(_ex_gen)
