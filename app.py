@@ -1032,33 +1032,32 @@ def db_borrar_catalogo(user_email: str):
 # SUPABASE: TIENDA
 # =========================
 def guardar_config_tienda(email, plataforma, url, ck, cs):
-    if not supabase or not email:
-        return False
+    if not supabase:
+        raise RuntimeError("Supabase no inicializado")
+    if not email:
+        raise ValueError("Email vacío — inicia sesión primero")
     api_key = f"{ck}|{cs}"
-    try:
-        existing = supabase.table("integraciones_tienda")\
-            .select("id")\
+    existing = supabase.table("integraciones_tienda")\
+        .select("id")\
+        .eq("user_email", email)\
+        .execute()
+    datos = {
+        "user_email": email,
+        "plataforma": plataforma,
+        "url_tienda": url,
+        "api_key": api_key,
+        "activa": True,
+    }
+    if existing.data:
+        supabase.table("integraciones_tienda")\
+            .update(datos)\
             .eq("user_email", email)\
             .execute()
-        datos = {
-            "user_email": email,
-            "plataforma": plataforma,
-            "url_tienda": url,
-            "api_key": api_key,
-            "activa": True,
-        }
-        if existing.data:
-            supabase.table("integraciones_tienda")\
-                .update(datos)\
-                .eq("user_email", email)\
-                .execute()
-        else:
-            supabase.table("integraciones_tienda")\
-                .insert(datos)\
-                .execute()
-        return True
-    except Exception as e:
-        return False
+    else:
+        supabase.table("integraciones_tienda")\
+            .insert(datos)\
+            .execute()
+    return True
 
 def obtener_config_tienda(email):
     if not supabase or not email:
@@ -4586,20 +4585,18 @@ Sé muy específico con los números que ves en la imagen."""
                 if st.button("\U0001f517 Conectar Tienda" if not _is_en_int else "\U0001f517 Connect Store", key="tienda_conectar"):
                     if not _ti_ok:
                         st.warning("Completa todos los campos." if not _is_en_int else "Fill all fields.")
-                    elif supabase:
-                        _ok_guardar = guardar_config_tienda(_email_int, _ti_plat, _ti_url.strip(), _ti_ck.strip(), _ti_cs.strip())
-                        if _ok_guardar:
-                            with st.spinner("Verificando conexión..."):
+                    else:
+                        try:
+                            guardar_config_tienda(_email_int, _ti_plat, _ti_url.strip(), _ti_ck.strip(), _ti_cs.strip())
+                            with st.spinner("Verificando conexion..."):
                                 _prods_test = obtener_productos_tienda(_email_int)
                             if _prods_test is not None:
-                                st.success(f"\u2705 Conectado! {len(_prods_test)} productos encontrados")
+                                st.success(f"Conectado! {len(_prods_test)} productos encontrados")
                             else:
                                 st.warning("Credenciales guardadas, pero no se pudo conectar a la tienda. Verifica la URL y las claves.")
                             st.rerun()
-                        else:
-                            st.error("Error al guardar la configuración.")
-                    else:
-                        st.warning("Supabase no configurado.")
+                        except Exception as _te_det:
+                            st.error(f"Error detallado: {str(_te_det)}")
 
             # ── SECCIÓN 3 — Próximamente ────────────────────────────────────
             st.markdown("---")
