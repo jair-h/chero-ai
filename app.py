@@ -4580,11 +4580,12 @@ Sé muy específico con los números que ves en la imagen."""
                 )
                 _ti_ck = st.text_input("Consumer Key:", placeholder="ck_...", key="int_woo_ck")
                 _ti_cs = st.text_input("Consumer Secret:", placeholder="cs_...", type="password", key="int_woo_cs")
+                # Google Analytics is optional — only URL, CK and CS are required
                 _ti_ok = bool(_ti_url.strip() and _ti_ck.strip() and _ti_cs.strip())
 
                 if st.button("\U0001f517 Conectar Tienda" if not _is_en_int else "\U0001f517 Connect Store", key="tienda_conectar"):
-                    if not _ti_ok:
-                        st.warning("Completa todos los campos." if not _is_en_int else "Fill all fields.")
+                    if not _ti_url.strip() or not _ti_ck.strip() or not _ti_cs.strip():
+                        st.warning("Completa URL, Consumer Key y Consumer Secret" if not _is_en_int else "Fill in URL, Consumer Key and Consumer Secret")
                     else:
                         try:
                             guardar_config_tienda(_email_int, _ti_plat, _ti_url.strip(), _ti_ck.strip(), _ti_cs.strip())
