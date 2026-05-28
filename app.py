@@ -3304,13 +3304,16 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
                     key="cat_fuente_add"
                 )
                 if fuente_add == "Importar desde mi tienda":
-                    _prods_tienda_cat = obtener_productos_tienda(user_email_cat)
-                    if _prods_tienda_cat is None:
-                        st.info("Conecta tu tienda en Tab Admin para importar productos.")
-                    elif not _prods_tienda_cat:
-                        st.warning("Tu tienda no tiene productos publicados.")
+                    _cfg_tienda_cat = obtener_config_tienda(user_email_cat)
+                    if not _cfg_tienda_cat:
+                        st.info("Ve a Tab Admin → Conectar Tienda para importar tus productos automáticamente")
                     else:
-                        st.success(f"\u2705 {len(_prods_tienda_cat)} productos encontrados en tu tienda")
+                        with st.spinner("Cargando productos de tu tienda..."):
+                            _prods_tienda_cat = obtener_productos_tienda(user_email_cat)
+                        if not _prods_tienda_cat:
+                            st.warning("Tu tienda no tiene productos publicados.")
+                        else:
+                            st.success(f"\u2705 {len(_prods_tienda_cat)} productos encontrados en tu tienda")
                         if st.button("Seleccionar todos", key="cat_tienda_all_add"):
                             st.session_state["cat_tienda_sel_add"] = [p["nombre"] for p in _prods_tienda_cat]
                         _cols_t = st.columns([1, 3, 2])
@@ -3551,13 +3554,16 @@ Completa todas las secciones. No cortes el texto a la mitad."""
             st.divider()
 
             if fuente_new == "Importar desde mi tienda":
-                _prods_tienda_new = obtener_productos_tienda(user_email_cat)
-                if _prods_tienda_new is None:
-                    st.info("Conecta tu tienda en Tab Admin para importar productos.")
-                elif not _prods_tienda_new:
-                    st.warning("Tu tienda no tiene productos publicados.")
+                _cfg_tienda_new = obtener_config_tienda(user_email_cat)
+                if not _cfg_tienda_new:
+                    st.info("Ve a Tab Admin → Conectar Tienda para importar tus productos automáticamente")
                 else:
-                    st.success(f"\u2705 {len(_prods_tienda_new)} productos encontrados en tu tienda")
+                    with st.spinner("Cargando productos de tu tienda..."):
+                        _prods_tienda_new = obtener_productos_tienda(user_email_cat)
+                    if not _prods_tienda_new:
+                        st.warning("Tu tienda no tiene productos publicados.")
+                    else:
+                        st.success(f"\u2705 {len(_prods_tienda_new)} productos encontrados en tu tienda")
                     if st.button("Seleccionar todos", key="cat_tienda_all_new"):
                         st.session_state["cat_tienda_sel_new"] = [p["nombre"] for p in _prods_tienda_new]
                     _tienda_sel_new_nombres = []
