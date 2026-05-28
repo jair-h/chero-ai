@@ -1111,7 +1111,7 @@ def obtener_productos_tienda(email):
             response = requests.get(
                 url,
                 auth=(config["consumer_key"], config["consumer_secret"]),
-                params={"per_page": 100, "status": "publish"},
+                params={"per_page": 100},
                 timeout=15,
             )
             if response.status_code == 200:
@@ -3561,13 +3561,13 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                     with st.spinner("Cargando productos de tu tienda..."):
                         _prods_tienda_new = obtener_productos_tienda(user_email_cat)
                     if not _prods_tienda_new:
-                        st.warning("Tu tienda no tiene productos publicados.")
+                        st.info("No se encontraron productos publicados en tu tienda. Verifica que tienes productos activos en WooCommerce.")
                     else:
                         st.success(f"\u2705 {len(_prods_tienda_new)} productos encontrados en tu tienda")
-                    if st.button("Seleccionar todos", key="cat_tienda_all_new"):
-                        st.session_state["cat_tienda_sel_new"] = [p["nombre"] for p in _prods_tienda_new]
+                        if st.button("Seleccionar todos", key="cat_tienda_all_new"):
+                            st.session_state["cat_tienda_sel_new"] = [p["nombre"] for p in _prods_tienda_new]
                     _tienda_sel_new_nombres = []
-                    for _pt in _prods_tienda_new:
+                    for _pt in (_prods_tienda_new or []):
                         _check_key_n = f"cat_tienda_chk_new_{_pt['id']}"
                         _checked_n = _pt["nombre"] in st.session_state.get("cat_tienda_sel_new", [])
                         _cc1n, _cc2n, _cc3n = st.columns([1, 3, 2])
