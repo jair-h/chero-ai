@@ -1,4 +1,4 @@
-import os
+﻿import os
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -149,7 +149,6 @@ _TRANS = {
         "rec_inteligente": "## ⚡ Acciones Inteligentes de Hoy",
         "btn_rec": "⚡ Ver acciones inteligentes de hoy",
         "btn_escanear": "🩺 Auditoría Maestra del Negocio (1 Crédito)",
-        "btn_acciones": "🚀 Generar 3 Acciones para Hoy (1 Crédito)",
         "plan_semanal_titulo": "## 🧠 Plan de Contenido Semanal",
         "btn_regenerar_plan": "🔄 Regenerar Plan Semanal (1 crédito)",
         "btn_generar_plan": "🚀 Generar Plan Semanal",
@@ -159,7 +158,7 @@ _TRANS = {
         "sel_herramienta": "Herramienta:",
         "mkt_tools": [
             "Auditoría Visual (Video/Foto)", "Experto TikTok/Reels", "Segmentación Ads",
-            "Generador de Personas", "Embudo de Ventas",
+            "Embudo de Ventas",
             "Storytelling de Marca", "Plan de Crisis",
             "SEO y Palabras Clave", "Artículo de Blog SEO",
             "Compliance Checker", "🕵 Inteligencia Competitiva", "Campaña de Catálogo",
@@ -175,7 +174,7 @@ _TRANS = {
         "tab_crm": "👥 CRM",
         "power_tools": [
             "Email Marketing", "Gestión de Comunidad", "Influencer Marketing",
-            "Auditoría SEO Completa", "Calendario con Horarios",
+            "Auditoría SEO Completa",
             "PR Digital", "Tracker de KPIs", "Optimizador Landing CRO",
         ],
         "tab_autopiloto": "🤖 Autopiloto",
@@ -212,7 +211,6 @@ _TRANS = {
         "rec_inteligente": "## ⚡ Today's Intelligent Actions",
         "btn_rec": "⚡ See today's intelligent actions",
         "btn_escanear": "🩺 Master Business Audit (1 Credit)",
-        "btn_acciones": "🚀 Generate 3 Actions for Today (1 Credit)",
         "plan_semanal_titulo": "## 🧠 Weekly Content Plan",
         "btn_regenerar_plan": "🔄 Regenerate Weekly Plan (1 credit)",
         "btn_generar_plan": "🚀 Generate Weekly Plan",
@@ -222,7 +220,7 @@ _TRANS = {
         "sel_herramienta": "Tool:",
         "mkt_tools": [
             "Visual Audit (Video/Photo)", "TikTok/Reels Expert", "Ads Segmentation",
-            "Persona Generator", "Sales Funnel",
+            "Sales Funnel",
             "Brand Storytelling", "Crisis Plan",
             "SEO & Keywords", "SEO Blog Article",
             "Compliance Checker", "🕵 Competitive Intelligence", "Catalog Campaign",
@@ -237,7 +235,7 @@ _TRANS = {
         "tab_power": "⚡ POWER TOOLS",
         "power_tools": [
             "Email Marketing", "Community Management", "Influencer Marketing",
-            "Complete SEO Audit", "Optimal Posting Schedule",
+            "Complete SEO Audit",
             "Digital PR Generator", "KPI Tracker", "Landing Page Optimizer (CRO)",
         ],
         "tab_autopiloto": "🤖 Autopilot",
@@ -879,6 +877,7 @@ def cargar_perfil_desde_db():
         st.session_state.nicho_guardado       = perfil.get("nicho", "") or ""
         st.session_state.cliente_ideal_guardado = perfil.get("cliente_ideal", "") or ""
         st.session_state.producto_servicio    = perfil.get("oferta_principal", "") or ""
+        st.session_state.reglas_marca         = perfil.get("reglas_marca", "") or ""
         _idioma_db = perfil.get("idioma", "Español") or "Español"
         if _idioma_db not in ("Español", "English", "Português"):
             _idioma_db = "Español"
@@ -888,6 +887,26 @@ def cargar_perfil_desde_db():
         else:
             st.session_state["lang"] = "es"
     st.session_state.perfil_cargado = True
+
+
+def db_guardar_reglas_marca(user_email: str, reglas: str):
+    if not supabase or not user_email:
+        return
+    try:
+        existente = (
+            supabase.table("perfil_negocio")
+            .select("id")
+            .eq("user_email", user_email)
+            .limit(1)
+            .execute()
+        )
+        data = existente.data or []
+        if data:
+            supabase.table("perfil_negocio").update({"reglas_marca": reglas}).eq("id", data[0]["id"]).execute()
+        else:
+            supabase.table("perfil_negocio").insert({"user_email": user_email, "reglas_marca": reglas}).execute()
+    except Exception:
+        pass
 
 
 # =========================
@@ -2205,7 +2224,7 @@ Entrega la auditoría completa en este formato:
             ("1\ufe0f\u20e3 Configura tu perfil b\u00e1sico", "Sidebar \u2192 completa marca, nicho, qu\u00e9 vendes"),
             ("2\ufe0f\u20e3 Detecta tu potencial", "Tab INICIO \u2192 Escanear Potencial de Hoy"),
             ("3\ufe0f\u20e3 Planifica tu primer contenido", "Tab INICIO \u2192 Plan de Contenido Semanal"),
-            ("4\ufe0f\u20e3 Conoce a tu cliente", "Tab MARKETING \u2192 Generador de Personas"),
+            ("4\ufe0f\u20e3 Conoce a tu cliente", "Tab MARKETING \u2192 Embudo de Ventas"),
         ]},
     ]
     _RUTAS_EN = [
@@ -2243,7 +2262,7 @@ Entrega la auditoría completa en este formato:
             ("1\ufe0f\u20e3 Set up your basic profile", "Sidebar \u2192 fill in brand, niche, what you sell"),
             ("2\ufe0f\u20e3 Detect your potential", "HOME Tab \u2192 Scan Today's Potential"),
             ("3\ufe0f\u20e3 Plan your first content", "HOME Tab \u2192 Weekly Content Plan"),
-            ("4\ufe0f\u20e3 Know your customer", "MARKETING Tab \u2192 Persona Generator"),
+            ("4\ufe0f\u20e3 Know your customer", "MARKETING Tab \u2192 Sales Funnel"),
         ]},
     ]
 
@@ -2318,6 +2337,9 @@ Entrega la auditoría completa en este formato:
                         nicho_plan = st.session_state.get("nicho_guardado", "")
                         cliente_plan = st.session_state.get("cliente_ideal_guardado", "")
                         marca_plan = st.session_state.get("marca_guardada", "")
+                        _mem_extra_plan = ""
+                        if st.session_state.get("plan_usar_autopiloto") and st.session_state.get("plan_ctx_autopiloto"):
+                            _mem_extra_plan = f"\nCONTEXTO ESTRATEGIA AUTOPILOTO ANTERIOR:\n{st.session_state['plan_ctx_autopiloto']}\nSe coherente con esa estrategia.\n"
                         _prompt_plan_regen = f"""Eres estratega de contenidos para {pais}.
 Marca: {marca_plan} | Nicho: {nicho_plan} | País: {pais}
 Producto: {st.session_state.get('producto_servicio', '')} | Cliente: {cliente_plan}{_mem_extra_plan}
@@ -2339,7 +2361,13 @@ Crea el plan semanal en este formato EXACTO:
 - Cómo medirlo: [herramienta]
 
 ## 🔥 EL POST MÁS IMPORTANTE DE LA SEMANA
-[Copy completo del post con mayor potencial viral]"""
+[Copy completo del post con mayor potencial viral]
+
+## ⏰ MEJORES HORARIOS PARA {pais}
+Instagram: [mejor día y hora]
+TikTok: [mejor día y hora]
+Facebook: [mejor día y hora]
+WhatsApp: [mejor día y hora]"""
                         nuevo_resultado = generar_texto(_prompt_plan_regen, max_out=6000)
                         guardar_plan_semanal(email_tab, semana, nuevo_resultado)
                         guardar_reporte(email_tab, "plan_semanal", f"Plan semanal regenerado {semana}", nuevo_resultado)
@@ -2380,7 +2408,13 @@ Crea el plan semanal en este formato EXACTO:
 - Cómo medirlo: [herramienta]
 
 ## 🔥 EL POST MÁS IMPORTANTE DE LA SEMANA
-[Copy completo del post con mayor potencial viral]"""
+[Copy completo del post con mayor potencial viral]
+
+## ⏰ MEJORES HORARIOS PARA {pais}
+Instagram: [mejor día y hora]
+TikTok: [mejor día y hora]
+Facebook: [mejor día y hora]
+WhatsApp: [mejor día y hora]"""
                     resultado = generar_texto(_prompt_plan_nuevo, max_out=6000)
                     guardar_plan_semanal(email_tab, semana, resultado)
                     guardar_reporte(email_tab, "plan_semanal", f"Plan semanal {semana}", resultado)
@@ -2460,7 +2494,7 @@ with tabs[2]:
     st.write(t("motor_desc"))
     _mkt_keys = [
         "Auditoría Visual (Video/Foto)", "Experto TikTok/Reels", "Segmentación Ads",
-        "Generador de Personas", "Embudo de Ventas",
+        "Embudo de Ventas",
         "Storytelling de Marca", "Plan de Crisis",
         "SEO y Palabras Clave", "Artículo de Blog SEO",
         "Compliance Checker", "🕵 Inteligencia Competitiva", "Campaña de Catálogo",
@@ -2805,7 +2839,14 @@ Haz un análisis de rendimiento predictivo:
 
     elif opcion_mkt == "Segmentación Ads":
         st.write("Genera públicos detallados para Facebook/Instagram Ads.")
-        prod = st.text_input("Producto a anunciar:", placeholder="Ej: Depas en preventa")
+        _seg_email = (st.session_state.get("user_email") or "").strip().lower()
+        _seg_catalogo = db_get_catalogo(_seg_email) if _seg_email else []
+        if _seg_catalogo:
+            _seg_nombres = [p["nombre"] for p in _seg_catalogo]
+            _seg_sel = st.selectbox("Elige el producto a anunciar:", _seg_nombres, key="seg_ads_cat_sel")
+            prod = _seg_sel
+        else:
+            prod = st.text_input("Producto a anunciar:", placeholder="Ej: Depas en preventa")
         objetivo = st.selectbox("Objetivo:", ["Ventas", "Leads/WhatsApp", "Tráfico"])
         moneda = PAISES_MONEDA.get(pais, "$")
         if prod and st.button("Generar Segmentación Completa (2 Créditos)"):
@@ -2858,15 +2899,6 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                     guardar_reporte(email_tab, "segmentacion_ads", f"Segmentación: {prod}", texto)
                 consumir(2)
 
-    elif opcion_mkt == "Generador de Personas":
-        st.write("Crea el perfil psicológico de tu comprador ideal.")
-        if st.button("Generar Avatar (1 Crédito)"):
-            if verificar_creditos(1):
-                prompt = f"Crea un BUYER PERSONA profundo para: {nicho} en {pais}.\nMarca: {nombre_marca}. Producto/Servicio: {producto_servicio}.\nIncluye nombre ficticio, edad, ocupación, dolores, deseos, objeciones y redes que usa."
-                texto = generar_texto(prompt)
-                st.markdown(texto)
-                consumir(1)
-
     elif opcion_mkt == "Embudo de Ventas":
         st.write("Define el recorrido ideal para convertir desconocidos en clientes.")
         objetivo_embudo = st.text_input("¿Qué quieres vender?", placeholder="Ej: Packs de maca negra / Depas en Surco")
@@ -2886,13 +2918,16 @@ Completa todas las secciones. No cortes el texto a la mitad."""
         _st_pais    = st.session_state.get("pais_guardado", "") or pais
         _st_prod    = st.session_state.get("producto_servicio", "") or producto_servicio
         _st_cliente = st.session_state.get("cliente_ideal_guardado", "") or cliente_ideal
+        _st_reglas  = st.session_state.get("reglas_marca", "")
         if _st_marca or _st_nicho:
             st.info(f"✅ Perfil cargado: **{_st_marca}** | {_st_nicho} | {_st_pais}")
         st.write("Construye una historia de marca que conecte y venda.")
-        historia_base = st.text_area("Cuéntame brevemente tu historia o la de tu negocio:", placeholder="Ej: Empecé buscando mejorar mi energía con productos naturales...")
-        if historia_base and st.button("Crear Storytelling (1 Crédito)"):
+        historia_extra = st.text_area("¿Algo especial sobre tu historia? (opcional)", placeholder="Ej: Empecé buscando mejorar mi energía con productos naturales...", height=80)
+        if st.button("Crear Storytelling (1 Crédito)"):
             if verificar_creditos(1):
-                _prompt_story = f"Eres experto en branding y storytelling.\nConstruye una historia de marca para:\nMarca: {_st_marca}\nNicho: {_st_nicho}\nProducto/Servicio: {_st_prod}\nPaís: {_st_pais}\nCliente ideal: {_st_cliente}\nHistoria base: {historia_base}\nDame: historia corta emocional, historia larga, versión para Instagram bio y frase de posicionamiento."
+                _hist_ctx = f"\nContexto adicional: {historia_extra}" if historia_extra.strip() else ""
+                _reglas_ctx = f"\nSigue estas reglas de marca: {_st_reglas}" if _st_reglas else ""
+                _prompt_story = f"Eres experto en branding y storytelling.\nConstruye una historia de marca para:\nMarca: {_st_marca}\nNicho: {_st_nicho}\nProducto/Servicio: {_st_prod}\nPaís: {_st_pais}\nCliente ideal: {_st_cliente}{_hist_ctx}{_reglas_ctx}\nDame: historia corta emocional, historia larga, versión para Instagram bio y frase de posicionamiento."
                 texto = generar_texto(_prompt_story, max_out=8000)
                 email_tab = (st.session_state.get("user_email") or "").strip().lower()
                 if email_tab:
@@ -4234,6 +4269,8 @@ Escribe las reglas de forma clara y aplicable para redactar contenido."""
                     email_tab = (st.session_state.get("user_email") or "").strip().lower()
                     if email_tab:
                         guardar_reporte(email_tab, "reglas_marca", f"Reglas de marca - {nombre_marca}", texto)
+                        db_guardar_reglas_marca(email_tab, reglas_texto.strip())
+                    st.success("✅ Reglas de marca guardadas en tu perfil")
                     consumir(1)
                 else:
                     st.warning("Completa al menos un campo antes de guardar.")
@@ -4804,7 +4841,7 @@ with tabs[6]:
 
     _POWER_KEYS = [
         "Email Marketing", "Gesti\u00f3n de Comunidad", "Influencer Marketing",
-        "Auditor\u00eda SEO Completa", "Calendario con Horarios",
+        "Auditor\u00eda SEO Completa",
         "PR Digital", "Tracker de KPIs", "Optimizador Landing CRO",
     ]
     _power_disp = st.selectbox(
@@ -5061,52 +5098,6 @@ with tabs[6]:
                 consumir(3)
 
     # ── 5. CALENDARIO CON HORARIOS ────────────────────────────────────────────
-    elif opcion_power == "Calendario con Horarios":
-        if _is_en_pw:
-            st.subheader("\U0001f4c5 Optimal Posting Schedule")
-            _cal_redes_lbl = "Select your active networks:"
-            _cal_redes_opts = ["Instagram", "TikTok", "Facebook", "LinkedIn", "YouTube", "Twitter/X"]
-            _cal_btn = "\U0001f4c5 Generate 4-week calendar (2 credits)"
-        else:
-            st.subheader("\U0001f4c5 Calendario con Horarios")
-            _cal_redes_lbl = "Selecciona tus redes activas:"
-            _cal_redes_opts = ["Instagram", "TikTok", "Facebook", "LinkedIn", "YouTube", "Twitter/X"]
-            _cal_btn = "\U0001f4c5 Generar calendario de 4 semanas (2 cr\u00e9ditos)"
-
-        _cal_redes = st.multiselect(_cal_redes_lbl, _cal_redes_opts,
-                                     default=["Instagram", "TikTok"], key="cal_redes")
-        if st.button(_cal_btn, key="btn_cal_gen"):
-            if not _cal_redes:
-                st.warning("Selecciona al menos una red." if not _is_en_pw else "Select at least one network.")
-            elif verificar_creditos(2):
-                _cal_nicho  = st.session_state.get("nicho_guardado", nicho)
-                _cal_pais   = st.session_state.get("pais_guardado", pais)
-                _cal_marca  = st.session_state.get("marca_guardada", "")
-                _cal_prod   = st.session_state.get("producto_servicio", "")
-                _cal_prefix = "Respond ONLY in English. Adapt to US/global market.\n\n" if _is_en_pw else ""
-                _cal_prompt = (_cal_prefix +
-                    f"Crea un calendario \u00f3ptimo de publicaci\u00f3n para:\n"
-                    f"Marca: {_cal_marca} | Nicho: {_cal_nicho} | Pa\u00eds: {_cal_pais}\n"
-                    f"Qu\u00e9 vende: {_cal_prod}\n"
-                    f"Redes activas: {', '.join(_cal_redes)}\n\n"
-                    f"Para CADA RED genera:\n"
-                    f"\U0001f4f1 [NOMBRE DE LA RED]:\n"
-                    f"- 3 mejores d\u00edas para publicar\n"
-                    f"- 2 mejores horarios por d\u00eda (adaptados al pa\u00eds {_cal_pais})\n"
-                    f"- Tipo de contenido que mejor funciona en cada horario\n"
-                    f"- Justificaci\u00f3n basada en comportamiento de audiencia\n\n"
-                    f"Luego genera una TABLA DE 4 SEMANAS con formato:\n"
-                    f"Semana | D\u00eda | Red | Horario | Tipo de contenido | Objetivo\n"
-                    f"(28 filas, una por publicaci\u00f3n sugerida)\n")
-                with st.spinner("Generando calendario..." if not _is_en_pw else "Generating schedule..."):
-                    _cal_res = generar_texto(_cal_prompt, max_out=6000, modelo=MODELO_FUERTE)
-                st.markdown(_cal_res)
-                _cal_email = (st.session_state.get("user_email") or "").strip().lower()
-                if _cal_email:
-                    guardar_reporte(_cal_email, "calendario_horarios",
-                                    f"Calendario {', '.join(_cal_redes)} - {_cal_marca}", _cal_res)
-                consumir(2)
-
     # ── 6. PR DIGITAL ─────────────────────────────────────────────────────────
     elif opcion_power == "PR Digital":
         if _is_en_pw:
