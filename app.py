@@ -6260,18 +6260,18 @@ if _sec_activa == "power":
 
         _seo_pag = st.selectbox(_seo_pag_lbl, _seo_pag_opts, key="seo_pag")
         # \u2500\u2500 CAMBIO 5: analizar la URL real de la p\u00e1gina \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-        _seo_url = st.text_input("\ud83c\udf10 URL de tu p\u00e1gina (recomendado, an\u00e1lisis real):" if not _is_en_pw
-                                  else "\ud83c\udf10 Your page URL (recommended, real analysis):",
+        _seo_url = st.text_input("\U0001F310 URL de tu p\u00e1gina (recomendado, an\u00e1lisis real):" if not _is_en_pw
+                                  else "\U0001F310 Your page URL (recommended, real analysis):",
                                   placeholder="Ej: mitienda.com" if not _is_en_pw else "Ex: mystore.com",
                                   key="seo_url_scrape")
         _seo_man = st.text_area(_seo_man_lbl, placeholder=_seo_man_ph, height=200, key="seo_man")
         if st.button(_seo_btn, key="btn_seo_gen"):
             _seo_scrape_txt = ""
             if _seo_url.strip():
-                with st.spinner("\ud83c\udf10 Leyendo tu p\u00e1gina..." if not _is_en_pw else "\ud83c\udf10 Reading your page..."):
+                with st.spinner("\U0001F310 Leyendo tu p\u00e1gina..." if not _is_en_pw else "\U0001F310 Reading your page..."):
                     _seo_sc = scrapear_url(_seo_url)
                 if _seo_sc.get("error"):
-                    st.warning(f"\ud83c\udf10 {_seo_sc['error']}")
+                    st.warning(f"\U0001F310 {_seo_sc['error']}")
                 else:
                     _seo_scrape_txt = _scrape_a_texto(_seo_sc)
                     st.success(f"\u2705 P\u00e1gina le\u00edda: {_seo_sc['title'][:60]}")
