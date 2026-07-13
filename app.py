@@ -1776,10 +1776,28 @@ with st.sidebar:
     st.markdown("---")
 
     st.markdown(t("tu_cuenta"))
+
+    # ── Restaurar sesión desde la URL (?u=email): el clic en el pulpo navega
+    #    y recarga la página, esto evita que el usuario pierda su login ────────
+    if not (st.session_state.get("user_email") or "").strip():
+        try:
+            _u_qp = st.query_params.get("u")
+        except Exception:
+            _u_qp = None
+        if _u_qp and re.match(r'^[^@]+@[^@]+\.[^@]+$', _u_qp.strip().lower()):
+            st.session_state.user_email = _u_qp.strip().lower()
+
     email_in = st.text_input(t("email_label"), value=st.session_state.user_email, placeholder="tu@empresa.com")
 
     if email_in:
         nuevo_email = email_in.strip().lower()
+
+        # Persistir el email en la URL para sobrevivir recargas del pulpo
+        try:
+            if st.query_params.get("u") != nuevo_email:
+                st.query_params["u"] = nuevo_email
+        except Exception:
+            pass
 
         if nuevo_email != st.session_state.get("user_email", ""):
             st.session_state.perfil_cargado = False
@@ -2381,10 +2399,14 @@ document.querySelectorAll(".agent").forEach(g=>{
   g.addEventListener("click", ()=>{
     const id = g.dataset.agent;
     try{
-      const url = new URL(window.parent.location);
+      // En Streamlit Cloud el iframe es cross-origin: no se puede LEER
+      // window.parent.location, pero document.referrer trae la URL del padre
+      // y NAVEGAR window.top sí está permitido.
+      const base = document.referrer || window.parent.location.href;
+      const url = new URL(base);
       url.searchParams.set("agente", id);
-      window.parent.location = url;
-    }catch(e){ console.log("Clic en agente:", id); }
+      window.top.location.href = url.toString();
+    }catch(e){ console.log("Clic en agente:", id, e); }
   });
 });
 </script>
@@ -2493,7 +2515,7 @@ if _qp_agente:
         st.session_state["_subfuncion_activa"] = ""
         st.session_state["ctx_compartido"] = ""
     try:
-        st.query_params.clear()
+        del st.query_params["agente"]  # solo este param; conservar "u" (email persistido)
     except Exception:
         pass
 
