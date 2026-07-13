@@ -1,4 +1,4 @@
-﻿import os
+import os
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -541,6 +541,17 @@ def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
     if _ctx_compartido:
         prompt = f"CONTEXTO DE TRABAJO PREVIO DE TU EQUIPO DE AGENTES (úsalo para ser coherente):\n{_ctx_compartido[:2500]}\n\n" + prompt
 
+    # FIX truncamiento: Gemini 2.5 gasta parte de max_output_tokens en "thinking".
+    # Piso de 6000 tokens + límite al thinking para que la respuesta visible no se corte.
+    max_out = max(int(max_out or 0), 6000)
+    _cfg_kwargs = {"max_output_tokens": max_out}
+    if temperatura is not None:
+        _cfg_kwargs["temperature"] = temperatura
+    try:
+        _cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
+    except Exception:
+        pass
+
     st.session_state["_ultima_gen_ok"] = False
     _ultimo_error = None
     for _intento in range(3):
@@ -548,16 +559,16 @@ def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
             response = client.models.generate_content(
                 model=modelo,
                 contents=_prefix + prompt,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=max_out,
-                    **({} if temperatura is None else {"temperature": temperatura})
-                )
+                config=types.GenerateContentConfig(**_cfg_kwargs)
             )
             st.session_state["_ultima_gen_ok"] = True
             return response.text
         except Exception as e:
             _ultimo_error = e
             _msg = str(e).upper()
+            if "THINKING" in _msg and "thinking_config" in _cfg_kwargs:
+                _cfg_kwargs.pop("thinking_config", None)
+                continue
             if any(x in _msg for x in ["503", "UNAVAILABLE", "OVERLOADED", "RESOURCE_EXHAUSTED"]):
                 if _intento < 2:
                     st.info("🐙 Los servidores de IA están ocupados. Reintentando en 5 segundos..." if st.session_state.get("lang") != "en" else "🐙 AI servers are busy. Retrying in 5 seconds...")
@@ -595,6 +606,19 @@ def generar_analitico(prompt, max_tokens=6000):
     _reglas_an = st.session_state.get("reglas_marca", "")
     prompt = construir_contexto_base(_pais_ctx or "LATAM", _ctx_pais_an["moneda"], _idioma_an, _reglas_an) + "\n" + prompt
 
+    # FIX truncamiento: piso de 6000 tokens + límite al thinking (igual que generar_texto)
+    max_tokens = max(int(max_tokens or 0), 6000)
+    _cfg_an = {
+        "system_instruction": SYSTEM_ANALITICO,
+        "temperature": 0.0,
+        "top_p": 0.1,
+        "max_output_tokens": max_tokens,
+    }
+    try:
+        _cfg_an["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
+    except Exception:
+        pass
+
     st.session_state["_ultima_gen_ok"] = False
     _ultimo_error_an = None
     for _intento_an in range(3):
@@ -602,18 +626,16 @@ def generar_analitico(prompt, max_tokens=6000):
             resp = client.models.generate_content(
                 model=MODELO_FUERTE,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_ANALITICO,
-                    temperature=0.0,
-                    top_p=0.1,
-                    max_output_tokens=max_tokens
-                )
+                config=types.GenerateContentConfig(**_cfg_an)
             )
             st.session_state["_ultima_gen_ok"] = True
             return resp.text
         except Exception as e:
             _ultimo_error_an = e
             _msg_an = str(e).upper()
+            if "THINKING" in _msg_an and "thinking_config" in _cfg_an:
+                _cfg_an.pop("thinking_config", None)
+                continue
             if any(x in _msg_an for x in ["503", "UNAVAILABLE", "OVERLOADED", "RESOURCE_EXHAUSTED"]):
                 if _intento_an < 2:
                     st.info("🐙 Los servidores de IA están ocupados. Reintentando en 5 segundos..." if st.session_state.get("lang") != "en" else "🐙 AI servers are busy. Retrying in 5 seconds...")
@@ -2179,16 +2201,16 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
 # TENTAKL — TU EQUIPO DE 9 AGENTES (CAMBIO 2)
 # =========================================================
 AGENT_COLORS = {
-    "estratega": "#7C3AED", "creativo": "#16A34A", "visual": "#F97316",
-    "growth": "#EAB308", "comercial": "#0D9488", "espia": "#EC4899",
-    "operaciones": "#2563EB", "analitico": "#64748B", "autopiloto": "#D4A017",
+    "estrategia": "#2563EB", "contenido": "#16A34A", "imagenes": "#F97316",
+    "publicidad": "#7C3AED", "ventas": "#0D9488", "competencia": "#EC4899",
+    "gestion": "#8B5CF6", "metricas": "#D4A017", "autopiloto": "#D4A017",
 }
 
 AGENTES = {
-    "estratega": {
-        "emoji": "🧠", "color": "#7C3AED",
-        "nombre": ("Estratega", "Strategist"),
-        "desc": ("Diagnóstico, tendencias y plan semanal", "Diagnosis, trends and weekly plan"),
+    "estrategia": {
+        "emoji": "🧠", "color": "#2563EB",
+        "nombre": ("Estrategia y Diagnóstico", "Strategy & Diagnosis"),
+        "desc": ("Analiza tu negocio, mercado y arma tu plan", "Analyzes your business, market and builds your plan"),
         "subfunciones": [
             ("⚡ Acciones Inteligentes de Hoy", "⚡ Today's Smart Actions", "inicio", "acciones"),
             ("🩺 Auditoría Maestra del Negocio", "🩺 Master Business Audit", "inicio", "auditoria"),
@@ -2197,86 +2219,238 @@ AGENTES = {
             ("🪄 Planificador con Tendencias Reales", "🪄 Real Trends Planner", "calendario", "planificador"),
         ],
     },
-    "creativo": {
-        "emoji": "🎨", "color": "#16A34A",
-        "nombre": ("Creativo", "Creative"),
-        "desc": ("Contenido que conecta y vende", "Content that connects and sells"),
+    "contenido": {
+        "emoji": "✍️", "color": "#16A34A",
+        "nombre": ("Contenido", "Content"),
+        "desc": ("Reels, copies, blog, emails y storytelling", "Reels, copy, blog, emails and storytelling"),
         "subfunciones": [
             ("🎬 Experto TikTok/Reels", "🎬 TikTok/Reels Expert", "marketing", "Experto TikTok/Reels"),
             ("📖 Storytelling de Marca", "📖 Brand Storytelling", "marketing", "Storytelling de Marca"),
             ("📝 Artículo de Blog SEO", "📝 SEO Blog Article", "marketing", "Artículo de Blog SEO"),
             ("🔑 SEO y Palabras Clave", "🔑 SEO & Keywords", "marketing", "SEO y Palabras Clave"),
+            ("📧 Email Marketing", "📧 Email Marketing", "power", "Email Marketing"),
             ("🚨 Plan de Crisis", "🚨 Crisis Plan", "marketing", "Plan de Crisis"),
+        ],
+    },
+    "imagenes": {
+        "emoji": "🖼️", "color": "#F97316",
+        "nombre": ("Imágenes", "Images"),
+        "desc": ("Creativos premium y auditoría visual", "Premium creatives and visual audit"),
+        "subfunciones": [
+            ("🎨 Generador de Imágenes Premium", "🎨 Premium Image Generator", "marketing", "Generador de Imagenes"),
             ("🎞 Auditoría Visual (Video/Foto)", "🎞 Visual Audit (Video/Photo)", "marketing", "Auditoría Visual (Video/Foto)"),
         ],
     },
-    "visual": {
-        "emoji": "🖼️", "color": "#F97316",
-        "nombre": ("Visual", "Visual"),
-        "desc": ("Imágenes premium y campañas de catálogo", "Premium images and catalog campaigns"),
-        "subfunciones": [
-            ("🎨 Generador de Imágenes Premium", "🎨 Premium Image Generator", "marketing", "Generador de Imagenes"),
-            ("🛍 Campaña por Catálogo", "🛍 Catalog Campaign", "marketing", "Campaña de Catálogo"),
-        ],
-    },
-    "growth": {
-        "emoji": "🚀", "color": "#EAB308",
-        "nombre": ("Growth", "Growth"),
-        "desc": ("Ads, embudos y crecimiento", "Ads, funnels and growth"),
+    "publicidad": {
+        "emoji": "📣", "color": "#7C3AED",
+        "nombre": ("Publicidad", "Advertising"),
+        "desc": ("Ads, segmentación, compliance y campañas", "Ads, targeting, compliance and campaigns"),
         "subfunciones": [
             ("🎯 Segmentación de Ads", "🎯 Ads Segmentation", "marketing", "Segmentación Ads"),
             ("🛡 Compliance Checker", "🛡 Compliance Checker", "marketing", "Compliance Checker"),
             ("🧪 Simulador de Campaña", "🧪 Campaign Simulator", "marketing", "Simulador de Campaña"),
-            ("🌀 Embudo de Ventas", "🌀 Sales Funnel", "marketing", "Embudo de Ventas"),
+            ("🛍 Campaña por Catálogo", "🛍 Catalog Campaign", "marketing", "Campaña de Catálogo"),
             ("🤝 Influencer Marketing", "🤝 Influencer Marketing", "power", "Influencer Marketing"),
             ("📰 PR Digital", "📰 Digital PR", "power", "PR Digital"),
         ],
     },
-    "comercial": {
+    "ventas": {
         "emoji": "💰", "color": "#0D9488",
-        "nombre": ("Comercial", "Sales"),
-        "desc": ("Precios, cierres, cotizaciones y CRM", "Pricing, closing, quotes and CRM"),
+        "nombre": ("Ventas", "Sales"),
+        "desc": ("Embudos, precios, ofertas y cierres", "Funnels, pricing, offers and closing"),
         "subfunciones": [
+            ("🌀 Embudo de Ventas", "🌀 Sales Funnel", "marketing", "Embudo de Ventas"),
             ("🧠 Psicólogo de Precios", "🧠 Price Psychology", "ventas", "Psicólogo de Precios"),
             ("🥊 Mata-Objeciones", "🥊 Objection Buster", "ventas", "Mata-Objeciones"),
             ("🏷 Calculadora de Descuentos", "🏷 Discount Calculator", "ventas", "Calculadora Descuentos"),
             ("📄 Cotizaciones", "📄 Quotes", "admin", "Cotizaciones"),
-            ("📜 Contratos", "📜 Contracts", "admin", "Contratos"),
-            ("👥 CRM con IA", "👥 AI CRM", "crm", "crm"),
         ],
     },
-    "espia": {
-        "emoji": "🕵️", "color": "#EC4899",
-        "nombre": ("Espía", "Spy"),
-        "desc": ("Competencia, SEO y conversión", "Competitors, SEO and conversion"),
+    "competencia": {
+        "emoji": "🎯", "color": "#EC4899",
+        "nombre": ("Competencia", "Competitors"),
+        "desc": ("Espionaje, gaps y posicionamiento", "Spying, gaps and positioning"),
         "subfunciones": [
             ("🕵 Inteligencia Competitiva", "🕵 Competitive Intelligence", "marketing", "🕵 Inteligencia Competitiva"),
             ("🔍 Auditoría SEO Completa", "🔍 Complete SEO Audit", "power", "Auditoría SEO Completa"),
-            ("🎯 Optimizador Landing CRO", "🎯 Landing Page Optimizer (CRO)", "power", "Optimizador Landing CRO"),
         ],
     },
-    "operaciones": {
-        "emoji": "⚙️", "color": "#2563EB",
-        "nombre": ("Operaciones", "Operations"),
-        "desc": ("Email, comunidad, marca e integraciones", "Email, community, brand and integrations"),
+    "gestion": {
+        "emoji": "📋", "color": "#8B5CF6",
+        "nombre": ("Gestión", "Management"),
+        "desc": ("CRM, contratos, marca e integraciones", "CRM, contracts, brand and integrations"),
         "subfunciones": [
-            ("📧 Email Marketing", "📧 Email Marketing", "power", "Email Marketing"),
-            ("💬 Gestión de Comunidad", "💬 Community Management", "power", "Gestión de Comunidad"),
+            ("👥 CRM con IA", "👥 AI CRM", "crm", "crm"),
+            ("📜 Contratos", "📜 Contracts", "admin", "Contratos"),
             ("📏 Reglas de Marca", "📏 Brand Rules", "admin", "Reglas de Marca"),
             ("🔗 Integraciones (tiendas y GA)", "🔗 Integrations (stores & GA)", "admin", "Integraciones"),
+            ("💬 Gestión de Comunidad", "💬 Community Management", "power", "Gestión de Comunidad"),
         ],
     },
-    "analitico": {
-        "emoji": "📊", "color": "#64748B",
-        "nombre": ("Analítico", "Analytics"),
-        "desc": ("ROI, KPIs y métricas con IA", "ROI, KPIs and AI metrics"),
+    "metricas": {
+        "emoji": "📊", "color": "#D4A017",
+        "nombre": ("Métricas", "Metrics"),
+        "desc": ("KPIs, ROI, analítica y optimización", "KPIs, ROI, analytics and optimization"),
         "subfunciones": [
             ("📈 Analista ROI (CSV)", "📈 ROI Analyst (CSV)", "admin", "Analista ROI (CSV)"),
             ("📊 Analizador de Métricas", "📊 Metrics Analyzer", "admin", "Analizador de Métricas"),
             ("🎯 Tracker de KPIs", "🎯 KPI Tracker", "power", "Tracker de KPIs"),
+            ("🎯 Optimizador Landing CRO", "🎯 Landing Page Optimizer (CRO)", "power", "Optimizador Landing CRO"),
         ],
     },
 }
+
+
+# ══════════════════════════════════════════════════════════════════
+# CENTRO DE MANDO: PULPO INTERACTIVO SVG (FASE 1)
+# ══════════════════════════════════════════════════════════════════
+_PULPO_ESTADO_TXT = {
+    "es": {"waiting": "Esperando", "analyzing": "Analizando...", "working": "Trabajando...",
+           "completed": "Terminado ✓", "error": "Error — reintentar"},
+    "en": {"waiting": "Waiting", "analyzing": "Analyzing...", "working": "Working...",
+           "completed": "Done ✓", "error": "Error — retry"},
+}
+
+_PULPO_NODOS = [
+    # id, path tentáculo, cx, cy, relleno suave, color, grad(x1,y1,x2,y2,start)
+    ("estrategia",  "M445 395 C 350 330, 280 250, 205 175", 175, 150, "#EAF1FE", "#2563EB", (430, 400, 175, 150, "#7C3AED")),
+    ("contenido",   "M435 430 C 340 415, 250 390, 178 350", 150, 330, "#EAF7EE", "#16A34A", (420, 430, 150, 330, "#7C3AED")),
+    ("imagenes",    "M440 470 C 350 490, 265 505, 192 515", 165, 520, "#FFF1E8", "#F97316", (430, 470, 165, 520, "#7C3AED")),
+    ("publicidad",  "M465 500 C 400 570, 330 630, 275 670", 255, 690, "#F3EEFF", "#7C3AED", (460, 500, 255, 690, "#6D28D9")),
+    ("metricas",    "M555 395 C 650 330, 720 250, 795 175", 825, 150, "#FDF7E3", "#D4A017", (570, 400, 825, 150, "#7C3AED")),
+    ("gestion",     "M565 430 C 660 415, 750 390, 822 350", 850, 330, "#F3EEFF", "#8B5CF6", (580, 430, 850, 330, "#7C3AED")),
+    ("competencia", "M560 470 C 650 490, 735 505, 808 515", 835, 520, "#FDEEF6", "#EC4899", (570, 470, 835, 520, "#7C3AED")),
+    ("ventas",      "M535 500 C 600 570, 670 630, 725 670", 745, 690, "#E6F5F3", "#0D9488", (540, 500, 745, 690, "#6D28D9")),
+]
+
+_PULPO_CSS_JS_HEAD = """<style>
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:transparent;margin:0;padding:0;}
+  .agent{cursor:pointer;transition:opacity .3s ease;}
+  .agent .tentacle{transition:opacity .4s ease, stroke-width .3s ease;}
+  .agent .node-ring{transition:all .3s ease;}
+  .agent .badge-check,.agent .badge-error,.agent .spinner,.agent .progress-arc{opacity:0;}
+  .agent .status-txt{font-size:11px;fill:#8A84A0;}
+  .agent.waiting{filter:grayscale(1);opacity:.45;}
+  .agent.analyzing .node-circle{animation:pulso 1.6s ease-in-out infinite;}
+  .agent.analyzing .tentacle{animation:pulsoT 1.6s ease-in-out infinite;}
+  @keyframes pulso{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}
+  @keyframes pulsoT{0%,100%{opacity:1;}50%{opacity:.55;}}
+  .agent .node-circle{transform-box:fill-box;transform-origin:center;}
+  .agent.working .node-circle{filter:drop-shadow(0 0 10px var(--agent-color));}
+  .agent.working .tentacle{stroke-width:30;filter:drop-shadow(0 0 6px var(--agent-color));}
+  .agent.working .spinner{opacity:1;animation:girar 1.1s linear infinite;transform-box:fill-box;transform-origin:center;}
+  .agent.working .progress-arc{opacity:1;}
+  @keyframes girar{to{transform:rotate(360deg);}}
+  .agent.completed .node-ring{stroke:#16A34A;stroke-width:4;}
+  .agent.completed .badge-check{opacity:1;}
+  .agent.error .node-ring{stroke:#DC2626;stroke-width:4;}
+  .agent.error .badge-error{opacity:1;}
+  .agent.error{animation:tiemble .35s ease 1;}
+  @keyframes tiemble{25%{transform:translateX(-3px);}75%{transform:translateX(3px);}}
+  .agent:hover .tentacle{stroke-width:32;}
+  .agent:hover .node-label{font-weight:700;}
+  #cuerpo-pulpo{animation:respira 5s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}
+  @keyframes respira{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}
+</style>
+"""
+
+_PULPO_JS_TAIL = """<script>
+const ESTADO_TXT = __ESTADO_TXT__;
+const CIRCUNF = 2 * Math.PI * 52;
+window.TENTAKL = {
+  setState(agente, estado){
+    const g = document.getElementById("agent-"+agente);
+    if(!g) return;
+    g.classList.remove("waiting","analyzing","working","completed","error");
+    g.classList.add(estado);
+    const txt = g.querySelector(".status-txt");
+    if(txt) txt.textContent = ESTADO_TXT[estado] || estado;
+    if(estado !== "working") this.setProgress(agente, 0);
+  },
+  setProgress(agente, pct){
+    const g = document.getElementById("agent-"+agente);
+    if(!g) return;
+    const arc = g.querySelector(".progress-arc");
+    if(arc) arc.setAttribute("stroke-dasharray", (CIRCUNF*pct/100) + " " + CIRCUNF);
+  },
+  reset(){
+    document.querySelectorAll(".agent").forEach(g=>{ this.setState(g.dataset.agent, "waiting"); });
+  }
+};
+document.querySelectorAll(".agent").forEach(g=>{
+  g.addEventListener("click", ()=>{
+    const id = g.dataset.agent;
+    try{
+      const url = new URL(window.parent.location);
+      url.searchParams.set("agente", id);
+      window.parent.location = url;
+    }catch(e){ console.log("Clic en agente:", id); }
+  });
+});
+</script>
+"""
+
+
+def _pulpo_html(estados=None, en=False):
+    """Genera el HTML del pulpo interactivo con los estados actuales de cada agente."""
+    import json as _json_p
+    estados = estados or {}
+    _txt = _PULPO_ESTADO_TXT["en" if en else "es"]
+    _defs = ['<linearGradient id="gradCuerpo" x1="0" y1="0" x2="0" y2="1">'
+             '<stop offset="0%" stop-color="#8B5CF6"/><stop offset="100%" stop-color="#6D28D9"/></linearGradient>',
+             '<radialGradient id="gradMedallon" cx="50%" cy="40%" r="70%">'
+             '<stop offset="0%" stop-color="#2A2545"/><stop offset="100%" stop-color="#15112B"/></radialGradient>']
+    _nodos = []
+    for _aid, _path, _cx, _cy, _soft, _color, _grad in _PULPO_NODOS:
+        _gx1, _gy1, _gx2, _gy2, _gstart = _grad
+        _defs.append(
+            f'<linearGradient id="gt-{_aid}" gradientUnits="userSpaceOnUse" '
+            f'x1="{_gx1}" y1="{_gy1}" x2="{_gx2}" y2="{_gy2}">'
+            f'<stop offset="0%" stop-color="{_gstart}"/><stop offset="85%" stop-color="{_color}"/></linearGradient>'
+        )
+        _estado = estados.get(_aid, "waiting")
+        if _estado not in ("waiting", "analyzing", "working", "completed", "error"):
+            _estado = "waiting"
+        _ag_cfg_p = AGENTES.get(_aid, {})
+        _emoji_p = _ag_cfg_p.get("emoji", "🤖")
+        _label_p = (_ag_cfg_p.get("nombre", (_aid, _aid))[1] if en else _ag_cfg_p.get("nombre", (_aid, _aid))[0])
+        _label_corto = _label_p.split(" y ")[0].split(" & ")[0]
+        _bx, _by = _cx + 37, _cy - 35
+        _nodos.append(f'''
+  <g class="agent {_estado}" id="agent-{_aid}" data-agent="{_aid}" style="--agent-color:{_color}">
+    <path class="tentacle" d="{_path}" fill="none" stroke="url(#gt-{_aid})" stroke-width="26" stroke-linecap="round"/>
+    <circle class="node-ring" cx="{_cx}" cy="{_cy}" r="52" fill="#fff" stroke="{_color}" stroke-width="2.5"/>
+    <circle class="node-circle" cx="{_cx}" cy="{_cy}" r="44" fill="{_soft}"/>
+    <circle class="progress-arc" cx="{_cx}" cy="{_cy}" r="52" fill="none" stroke="{_color}" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 327" transform="rotate(-90 {_cx} {_cy})"/>
+    <circle class="spinner" cx="{_cx}" cy="{_cy}" r="52" fill="none" stroke="{_color}" stroke-width="3" stroke-dasharray="40 287"/>
+    <text x="{_cx}" y="{_cy + 10}" text-anchor="middle" font-size="30">{_emoji_p}</text>
+    <g class="badge-check"><circle cx="{_bx}" cy="{_by}" r="14" fill="#16A34A"/><path d="M{_bx - 7} {_by} l5 5 l10 -10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/></g>
+    <g class="badge-error"><circle cx="{_bx}" cy="{_by}" r="14" fill="#DC2626"/><text x="{_bx}" y="{_by + 6}" text-anchor="middle" fill="#fff" font-size="16" font-weight="bold">↻</text></g>
+    <text class="node-label" x="{_cx}" y="{_cy + 78}" text-anchor="middle" font-size="16" font-weight="600" fill="#15112B">{_label_corto}</text>
+    <text class="status-txt" x="{_cx}" y="{_cy + 96}" text-anchor="middle">{_txt[_estado]}</text>
+  </g>''')
+
+    _cuerpo = '''
+  <g id="cuerpo-pulpo">
+    <ellipse cx="500" cy="330" rx="130" ry="145" fill="url(#gradCuerpo)"/>
+    <ellipse cx="455" cy="245" rx="26" ry="34" fill="#A78BFA" opacity=".35"/>
+    <rect x="415" y="270" width="170" height="88" rx="40" fill="#15112B"/>
+    <rect x="422" y="277" width="156" height="74" rx="34" fill="#1E1938"/>
+    <rect x="455" y="298" width="14" height="22" rx="3" fill="#67E8F9"/>
+    <rect x="531" y="298" width="14" height="22" rx="3" fill="#67E8F9"/>
+    <path d="M470 334 Q500 350 530 334" stroke="#67E8F9" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <circle cx="378" cy="315" r="20" fill="#5B21B6"/>
+    <circle cx="622" cy="315" r="20" fill="#5B21B6"/>
+    <circle cx="500" cy="452" r="42" fill="url(#gradMedallon)" stroke="#8B5CF6" stroke-width="4"/>
+    <path d="M505 428 L485 458 L500 458 L492 480 L516 448 L501 448 L508 428 Z" fill="#F59E0B"/>
+  </g>'''
+
+    return (_PULPO_CSS_JS_HEAD
+            + '<svg id="tentakl-svg" viewBox="0 0 1000 860" width="100%" '
+            + 'style="max-width:900px;display:block;margin:0 auto;" xmlns="http://www.w3.org/2000/svg">'
+            + "<defs>" + "".join(_defs) + "</defs>"
+            + "".join(_nodos) + _cuerpo + "</svg>"
+            + _PULPO_JS_TAIL.replace("__ESTADO_TXT__", _json_p.dumps(_txt, ensure_ascii=False)))
 
 
 def _render_contexto_compartido(agente_actual):
@@ -2307,6 +2481,22 @@ def _render_contexto_compartido(agente_actual):
 
 
 _is_en_ui = st.session_state.get("lang") == "en"
+
+# ── Puente pulpo → Streamlit: clic en un tentáculo llega como ?agente=X ──────
+try:
+    _qp_agente = st.query_params.get("agente")
+except Exception:
+    _qp_agente = None
+if _qp_agente:
+    if _qp_agente in AGENTES or _qp_agente == "autopiloto":
+        st.session_state.agente_activo = _qp_agente
+        st.session_state["_subfuncion_activa"] = ""
+        st.session_state["ctx_compartido"] = ""
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+
 _agente_activo = st.session_state.get("agente_activo")
 _plan_ui = st.session_state.get("plan", "Free")
 _es_admin_ui = ((st.session_state.get("user_email", "").strip().lower() in ADMIN_EMAILS)
@@ -2317,63 +2507,102 @@ _sec_activa = None
 _opcion_activa = None
 
 if _es_home:
-    # ── HOME: hero Autopiloto + grid de 8 agentes ──────────────────────────────
-    st.markdown("## " + ("🐙 Tu equipo de marketing con IA" if not _is_en_ui else "🐙 Your AI marketing team"))
-
-    _ap_lock = _plan_ui in ("Free", "Starter")
-    _ap_titulo_hero = "⚡ AUTOPILOTO" if not _is_en_ui else "⚡ AUTOPILOT"
-    _ap_sub_hero = ("Tu equipo completo trabajando en secuencia por ti · 8 créditos"
-                    if not _is_en_ui else "Your whole team working in sequence for you · 8 credits")
-    _ap_lock_txt = ("🔒 Disponible en Pro" if not _is_en_ui else "🔒 Available in Pro") if _ap_lock else ""
+    # ══ CENTRO DE MANDO (FASE 1): pulpo interactivo + objetivo ══════════════
     st.markdown(
-        f"""<div style="background:linear-gradient(90deg,#7C3AED,#D4A017);border-radius:12px;
-        padding:18px 22px;margin-bottom:8px;color:white;">
-        <span style="font-size:1.3em;font-weight:700;">{_ap_titulo_hero}</span>
-        <span style="float:right;font-weight:600;">{_ap_lock_txt}</span><br>
-        <span style="opacity:.92;">{_ap_sub_hero}</span></div>""",
+        "<h2 style='text-align:center;margin-bottom:2px;'>"
+        + ("🐙 ¿Qué quieres lograr hoy?" if not _is_en_ui else "🐙 What do you want to achieve today?")
+        + "</h2>",
         unsafe_allow_html=True,
     )
-    if st.button(("⚡ Activar Autopiloto →" if not _ap_lock else "🔒 Ver Autopiloto (Pro)") if not _is_en_ui
-                 else ("⚡ Activate Autopilot →" if not _ap_lock else "🔒 See Autopilot (Pro)"),
-                 key="hero_autopiloto", use_container_width=True):
-        st.session_state.agente_activo = "autopiloto"
-        st.rerun()
+    st.markdown(
+        "<p style='text-align:center;color:#6B6580;margin-top:0;'>"
+        + ("Escribe tu objetivo y tu equipo de agentes se organiza solo."
+           if not _is_en_ui else "Write your goal and your agent team organizes itself.")
+        + "</p>",
+        unsafe_allow_html=True,
+    )
+    _col_obj1, _col_obj2 = st.columns([4, 1])
+    with _col_obj1:
+        _objetivo_home = st.text_input(
+            "Objetivo", label_visibility="collapsed",
+            placeholder=("Ej: Quiero lanzar una campaña de Fiestas Patrias para mi marca de maca negra"
+                         if not _is_en_ui else "Ex: I want to launch a holiday campaign for my brand"),
+            key="centro_mando_objetivo",
+        )
+    with _col_obj2:
+        _btn_empezar = st.button(
+            "🚀 " + ("Empezar trabajo" if not _is_en_ui else "Start working"),
+            key="btn_empezar_trabajo", use_container_width=True,
+        )
+    if _btn_empezar:
+        if not _objetivo_home.strip():
+            st.warning("Escribe primero qué quieres lograr." if not _is_en_ui else "First write what you want to achieve.")
+        else:
+            st.session_state["objetivo_actual"] = _objetivo_home.strip()
+            st.session_state["autopiloto_descripcion"] = _objetivo_home.strip()
+            st.session_state.agente_activo = "autopiloto"
+            st.rerun()
 
-    st.markdown("")
-    _orden_agentes = ["estratega", "creativo", "visual", "growth",
-                      "comercial", "espia", "operaciones", "analitico"]
-    for _fila_ag in (_orden_agentes[:4], _orden_agentes[4:]):
-        _cols_ag = st.columns(4)
-        for _col_ag, _ag_id in zip(_cols_ag, _fila_ag):
-            _ag_cfg = AGENTES[_ag_id]
-            _ag_nombre = _ag_cfg["nombre"][1] if _is_en_ui else _ag_cfg["nombre"][0]
-            _ag_desc = _ag_cfg["desc"][1] if _is_en_ui else _ag_cfg["desc"][0]
-            with _col_ag:
-                st.markdown(
-                    f"""<div style="border-top:3px solid {_ag_cfg['color']};border-radius:4px;
-                    padding-top:6px;margin-bottom:4px;"></div>""",
-                    unsafe_allow_html=True,
-                )
-                if st.button(f"{_ag_cfg['emoji']} {_ag_nombre}", key=f"card_{_ag_id}",
-                             use_container_width=True):
-                    st.session_state.agente_activo = _ag_id
-                    st.session_state["_subfuncion_activa"] = ""
-                    st.session_state["ctx_compartido"] = ""
-                    st.rerun()
-                st.caption(_ag_desc)
+    # ── Pulpo interactivo (con fallback a tarjetas si el componente falla) ───
+    _pulpo_ok = True
+    try:
+        import streamlit.components.v1 as _components_pulpo
+        _components_pulpo.html(
+            _pulpo_html(st.session_state.get("agent_states", {}), _is_en_ui),
+            height=720, scrolling=False,
+        )
+    except Exception:
+        _pulpo_ok = False
 
-    st.markdown("")
-    _cols_extra = st.columns(2 if _es_admin_ui else 1)
-    with _cols_extra[0]:
+    # ── Accesos secundarios ───────────────────────────────────────────────────
+    _cols_modo = st.columns(4 if _es_admin_ui else 3)
+    with _cols_modo[0]:
+        if st.button("🧰 " + ("Explorar herramientas" if not _is_en_ui else "Explore tools"),
+                     key="btn_modo_herramientas", use_container_width=True):
+            st.session_state["modo_herramientas"] = not st.session_state.get("modo_herramientas", False)
+            st.rerun()
+    with _cols_modo[1]:
+        _ap_lock_home = _plan_ui in ("Free", "Starter")
+        if st.button(("⚡ Autopiloto" if not _ap_lock_home else "🔒 Autopiloto (Pro)"),
+                     key="btn_home_autopiloto", use_container_width=True):
+            st.session_state.agente_activo = "autopiloto"
+            st.rerun()
+    with _cols_modo[2]:
         if st.button("📂 " + ("Mis Reportes" if not _is_en_ui else "My Reports"),
                      key="btn_home_reportes", use_container_width=True):
             st.session_state.agente_activo = "reportes"
             st.rerun()
     if _es_admin_ui:
-        with _cols_extra[1]:
+        with _cols_modo[3]:
             if st.button("🛠 Dashboard Admin", key="btn_home_admin_dash", use_container_width=True):
                 st.session_state.agente_activo = "admin_dashboard"
                 st.rerun()
+
+    # ── Modo Herramientas / fallback: tarjetas por agente ────────────────────
+    if st.session_state.get("modo_herramientas") or not _pulpo_ok:
+        st.divider()
+        st.markdown("#### 🧰 " + ("Tus agentes y herramientas" if not _is_en_ui else "Your agents and tools"))
+        _orden_agentes = ["estrategia", "contenido", "imagenes", "publicidad",
+                          "ventas", "competencia", "gestion", "metricas"]
+        for _fila_ag in (_orden_agentes[:4], _orden_agentes[4:]):
+            _cols_ag = st.columns(4)
+            for _col_ag, _ag_id in zip(_cols_ag, _fila_ag):
+                _ag_cfg = AGENTES[_ag_id]
+                _ag_nombre = _ag_cfg["nombre"][1] if _is_en_ui else _ag_cfg["nombre"][0]
+                _ag_desc = _ag_cfg["desc"][1] if _is_en_ui else _ag_cfg["desc"][0]
+                with _col_ag:
+                    st.markdown(
+                        f"""<div style="border-top:3px solid {_ag_cfg['color']};border-radius:4px;
+                        padding-top:6px;margin-bottom:4px;"></div>""",
+                        unsafe_allow_html=True,
+                    )
+                    if st.button(f"{_ag_cfg['emoji']} {_ag_nombre}", key=f"card_{_ag_id}",
+                                 use_container_width=True):
+                        st.session_state.agente_activo = _ag_id
+                        st.session_state["_subfuncion_activa"] = ""
+                        st.session_state["ctx_compartido"] = ""
+                        st.rerun()
+                    st.caption(_ag_desc)
 
 elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto"):
     if st.button("← " + ("Volver a mis agentes" if not _is_en_ui else "Back to my agents"),
@@ -5971,14 +6200,14 @@ if _sec_activa == "autopiloto":
         )
 
         _AP_ROLES = {
-            "estratega":  ("Estratega", "diagnóstico del negocio, tendencias y plan de acción"),
-            "creativo":   ("Creativo", "contenido para redes, guiones de TikTok/Reels y storytelling"),
-            "visual":     ("Visual", "dirección de arte y briefs de imágenes de campaña"),
-            "growth":     ("Growth", "campañas de ads, segmentación, embudos y compliance"),
-            "comercial":  ("Comercial", "precios, ofertas, cierres de venta y seguimiento"),
-            "espia":      ("Espía", "análisis de competencia y diferenciación"),
-            "operaciones":("Operaciones", "emails, comunidad y consistencia de marca"),
-            "analitico":  ("Analítico", "KPIs, métricas y plan de medición"),
+            "estrategia":  ("Estrategia y Diagnóstico", "diagnóstico del negocio, tendencias y plan de acción"),
+            "contenido":   ("Contenido", "contenido para redes, guiones, emails y storytelling"),
+            "imagenes":    ("Imágenes", "dirección de arte y briefs de imágenes de campaña"),
+            "publicidad":  ("Publicidad", "campañas de ads, segmentación, presupuesto y compliance"),
+            "ventas":      ("Ventas", "embudos, precios, ofertas, cierres y cotizaciones"),
+            "competencia": ("Competencia", "análisis de competencia, gaps y diferenciación"),
+            "gestion":     ("Gestión", "CRM, seguimiento de clientes y consistencia de marca"),
+            "metricas":    ("Métricas", "KPIs, métricas y plan de medición"),
         }
 
         if st.button("⚡ Activar Autopiloto (8 créditos)" if not _is_en_ap else "⚡ Activate Autopilot (8 credits)",
@@ -6019,10 +6248,10 @@ if _sec_activa == "autopiloto":
                     _ap_secuencia = []
                 if not _ap_secuencia:
                     _ap_secuencia = [
-                        ("estratega", "Diagnostica el negocio y define la estrategia del mes"),
-                        ("creativo", "Crea 5 posts listos para publicar según la estrategia"),
-                        ("growth", "Diseña la campaña de ads con segmentación y presupuesto"),
-                        ("comercial", "Define ofertas, precios y guion de cierre de ventas"),
+                        ("estrategia", "Diagnostica el negocio y define la estrategia del mes"),
+                        ("contenido", "Crea 5 posts listos para publicar según la estrategia"),
+                        ("publicidad", "Diseña la campaña de ads con segmentación y presupuesto"),
+                        ("ventas", "Define ofertas, precios y guion de cierre de ventas"),
                     ]
                 _ap_secuencia = _ap_secuencia[:6]  # límite técnico de costo
 
