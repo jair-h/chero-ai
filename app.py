@@ -2658,6 +2658,222 @@ def _render_contexto_compartido(agente_actual):
     st.session_state["ctx_compartido"] = "\n\n".join(_partes_ctx)
 
 
+# ══════════════════════════════════════════════════════════════════
+# FASE 4: PANEL INTERNO POR AGENTE
+# ══════════════════════════════════════════════════════════════════
+TIPOS_POR_AGENTE = {
+    "estrategia": ["recomendacion", "diagnostico", "tendencia_adaptada", "plan_semanal", "autopiloto"],
+    "contenido": ["storytelling", "seo", "blog_seo", "plan_crisis", "email_marketing"],
+    "imagenes": ["imagen_banner"],
+    "publicidad": ["segmentacion_ads", "compliance", "catalogo", "influencer_marketing", "pr_digital"],
+    "ventas": ["embudo_ventas", "cotizacion"],
+    "competencia": ["sentimiento", "auditoria_seo"],
+    "gestion": ["contrato", "reglas_marca", "community_management"],
+    "metricas": ["kpi_tracker", "landing_cro", "roi", "metricas", "ga_analytics"],
+}
+
+_BADGES_ESTADO = {
+    "es": {"idle": "🟢 Listo", "waiting": "⚪ Esperando", "analyzing": "🔵 Analizando...",
+           "working": "🟡 Trabajando...", "completed": "✅ Terminado", "error": "🔴 Error"},
+    "en": {"idle": "🟢 Ready", "waiting": "⚪ Waiting", "analyzing": "🔵 Analyzing...",
+           "working": "🟡 Working...", "completed": "✅ Done", "error": "🔴 Error"},
+}
+
+
+def _render_panel_agente(agente_id, en):
+    """FASE 4: descripción, estado, tarea activa y resultados recientes del agente."""
+    _ag_p = AGENTES.get(agente_id, {})
+    _desc_p = _ag_p.get("desc", ("", ""))[1 if en else 0]
+    _estado_p = st.session_state.get("agent_states", {}).get(agente_id, "idle")
+    _badge_p = _BADGES_ESTADO["en" if en else "es"].get(_estado_p, _estado_p)
+    _c_p1, _c_p2 = st.columns([3, 1])
+    with _c_p1:
+        st.caption(_desc_p)
+    with _c_p2:
+        st.caption(("Estado: " if not en else "Status: ") + _badge_p)
+
+    # Tarea activa del Centro de Mando (si este agente está en la corrida actual)
+    if st.session_state.get("cm_fase") in ("confirmar", "ejecutar"):
+        for _aid_p, _tarea_p in (st.session_state.get("cm_secuencia") or []):
+            if _aid_p == agente_id and _tarea_p:
+                st.info(("📌 Tarea activa: " if not en else "📌 Active task: ") + _tarea_p)
+                break
+
+    # Resultados recientes de ESTE agente
+    _em_p = (st.session_state.get("user_email") or "").strip().lower()
+    _tipos_p = TIPOS_POR_AGENTE.get(agente_id, [])
+    if _em_p and supabase and _tipos_p:
+        try:
+            _res_p = (supabase.table("reportes")
+                      .select("tipo_reporte,titulo,contenido,created_at")
+                      .eq("user_email", _em_p)
+                      .in_("tipo_reporte", _tipos_p)
+                      .order("created_at", desc=True)
+                      .limit(3).execute())
+            _reps_p = _res_p.data or []
+        except Exception:
+            _reps_p = []
+        if _reps_p:
+            with st.expander("🗂 " + ("Resultados recientes de este agente" if not en else "Recent results from this agent")):
+                for _i_p, _r_p in enumerate(_reps_p):
+                    st.markdown(f"**{str(_r_p.get('titulo', ''))[:70]}** · {str(_r_p.get('created_at', ''))[:10]}")
+                    if st.toggle("Ver" if not en else "View", key=f"panel_ver_{agente_id}_{_i_p}"):
+                        st.markdown(str(_r_p.get("contenido", ""))[:3000])
+                    st.divider()
+
+
+# ══════════════════════════════════════════════════════════════════
+# CENTRO DE MANDO: FASES COMPARTIDAS (home + Autopiloto, FASE 5)
+# ══════════════════════════════════════════════════════════════════
+def _cm_render_confirmacion(_en, _plan_u):
+    """Pantalla de confirmación: agentes elegidos, edición, costo, confirmar/cancelar."""
+    _plan_cm = st.session_state["cm_plan"]
+    st.info("🐙 " + ("TENTAKL utilizará estos agentes para: " if not _en else "TENTAKL will use these agents for: ")
+            + f"**{_plan_cm.get('objetivo_interpretado', '')}**")
+    _tareas_plan = dict(_plan_cm.get("agentes", []))
+    for _aid_c, _tarea_c in _plan_cm.get("agentes", []):
+        _agc = AGENTES.get(_aid_c, {})
+        _nomc = _agc.get("nombre", (_aid_c, _aid_c))[1 if _en else 0]
+        st.markdown(f"{_agc.get('emoji', '🤖')} **{_nomc}** — {_tarea_c}")
+
+    _labels_por_id = {_k: (_v["nombre"][1] if _en else _v["nombre"][0]) for _k, _v in AGENTES.items()}
+    _ids_por_label = {_v: _k for _k, _v in _labels_por_id.items()}
+    _sel_edit = st.multiselect(
+        "✏️ " + ("Editar selección de agentes:" if not _en else "Edit agent selection:"),
+        list(_labels_por_id.values()),
+        default=[_labels_por_id[_a] for _a, _t in _plan_cm.get("agentes", []) if _a in _labels_por_id],
+        key="cm_edit_sel",
+    )
+    _ids_finales = [_ids_por_label[_l] for _l in _sel_edit if _l in _ids_por_label][:6]
+    _n_ag_cm = max(len(_ids_finales), 1)
+    st.caption(("💳 Costo: 8 créditos · ⏱ Tiempo aproximado: " if not _en else "💳 Cost: 8 credits · ⏱ Approx time: ")
+               + f"{_n_ag_cm * 30}-{_n_ag_cm * 60} seg")
+    _col_cm1, _col_cm2 = st.columns(2)
+    with _col_cm1:
+        _btn_conf = st.button("✅ " + ("Confirmar y ejecutar (8 créditos)" if not _en else "Confirm and run (8 credits)"),
+                              key="cm_btn_confirmar", use_container_width=True)
+    with _col_cm2:
+        if st.button("❌ " + ("Cancelar" if not _en else "Cancel"), key="cm_btn_cancelar", use_container_width=True):
+            st.session_state["cm_fase"] = None
+            st.session_state["cm_plan"] = None
+            st.rerun()
+    if _btn_conf:
+        if not _ids_finales:
+            st.warning("Selecciona al menos un agente." if not _en else "Select at least one agent.")
+        elif _plan_u not in ("Pro", "Agency", "Admin"):
+            _mostrar_upgrade("🔒 " + ("El Centro de Mando coordinado está disponible desde el plan Pro ($39/mes):"
+                                      if not _en else "The coordinated Command Center is available from the Pro plan ($39/mo):"))
+        elif verificar_creditos(COSTO_CREDITOS["autopiloto"]):
+            st.session_state["cm_secuencia"] = [(_i2, _tareas_plan.get(_i2, _TAREAS_GENERICAS.get(_i2, ""))) for _i2 in _ids_finales]
+            st.session_state["agent_states"] = {_i2: "waiting" for _i2 in _ids_finales}
+            st.session_state["cm_resultado"] = {}
+            st.session_state["cm_es_reintento"] = False
+            st.session_state["cm_fase"] = "ejecutar"
+            st.rerun()
+
+
+def _cm_render_ejecucion(_en):
+    """Ejecución secuencial con estados en vivo sobre el pulpo + progreso total."""
+    _sec_cm = st.session_state.get("cm_secuencia") or []
+    _pedido_cm = st.session_state.get("objetivo_actual", "")
+    _es_retry_cm = st.session_state.get("cm_es_reintento", False)
+    _estados_cm = st.session_state.get("agent_states", {}) or {}
+    _outs_cm = st.session_state.get("cm_resultado") or {}
+    _pulpo_live = st.empty()
+    _prog_total = st.progress(0.0, text=("Progreso total" if not _en else "Total progress"))
+    _ctx_cm = ""
+    _exitos_cm = 0
+    _total_cm = max(len(_sec_cm), 1)
+    with st.status("⚡ " + ("Tu equipo está trabajando..." if not _en else "Your team is working..."),
+                   expanded=True) as _status_cm:
+        for _n_cm, (_aid_r, _tarea_r) in enumerate(_sec_cm):
+            _agr = AGENTES.get(_aid_r, {})
+            _nomr = _agr.get("nombre", (_aid_r, _aid_r))[1 if _en else 0]
+            _msgr = _MENSAJES_AGENTE.get(_aid_r, ("Trabajando...", "Working..."))[1 if _en else 0]
+            _estados_cm[_aid_r] = "working"
+            st.session_state["agent_states"] = _estados_cm
+            with _pulpo_live.container():
+                if _pulpo_component is not None:
+                    try:
+                        _pulpo_component(estados=_estados_cm, en=_en,
+                                         key=f"pulpo_run_{_n_cm}", default=None)
+                    except Exception:
+                        pass
+            _prog_total.progress(_n_cm / _total_cm,
+                                 text=(f"Paso {_n_cm + 1}/{_total_cm}" if not _en else f"Step {_n_cm + 1}/{_total_cm}"))
+            st.write(f"{_agr.get('emoji', '🤖')} **{_nomr}** — {_msgr}")
+            _prompt_r = (
+                f"Eres el agente {_nomr} del equipo de marketing Tentakl.\n"
+                f"OBJETIVO GENERAL DEL USUARIO: {_pedido_cm}\n"
+                + (f"TRABAJO PREVIO DE TUS COLEGAS (sé coherente):\n{_ctx_cm[-3000:]}\n" if _ctx_cm else "")
+                + f"\nTU TAREA ESPECÍFICA: {_tarea_r}\n"
+                "Entrega un resultado accionable, específico y listo para usar. "
+                "No repitas lo que ya hicieron tus colegas."
+            )
+            _out_r = generar_texto(_prompt_r, max_out=4000)
+            if _out_r:
+                _exitos_cm += 1
+                _estados_cm[_aid_r] = "completed"
+                _outs_cm[_aid_r] = (_nomr, _agr.get("emoji", "🤖"), _out_r)
+                _ctx_cm += f"\n--- {_nomr}: {_tarea_r} ---\n{_out_r[:1200]}\n"
+            else:
+                _estados_cm[_aid_r] = "error"
+            st.session_state["agent_states"] = _estados_cm
+        with _pulpo_live.container():
+            if _pulpo_component is not None:
+                try:
+                    _pulpo_component(estados=_estados_cm, en=_en,
+                                     key="pulpo_run_final", default=None)
+                except Exception:
+                    pass
+        _prog_total.progress(1.0, text=("Completado" if not _en else "Completed"))
+        _status_cm.update(label="✅ " + ("Equipo completado" if not _en else "Team finished"),
+                          state="complete")
+    if _exitos_cm > 0 and not _es_retry_cm:
+        st.session_state["_ultima_gen_ok"] = True
+        consumir(COSTO_CREDITOS["autopiloto"], tipo_accion="autopiloto")
+        _email_cm = (st.session_state.get("user_email") or "").strip().lower()
+        if _email_cm:
+            db_incrementar_autopiloto(_email_cm, dt.now().strftime("%Y-%m"))
+    if _exitos_cm > 0:
+        _email_cm2 = (st.session_state.get("user_email") or "").strip().lower()
+        if _email_cm2:
+            _full_cm = "\n\n".join([f"## {_e2} {_n2}\n{_o2}" for _n2, _e2, _o2 in _outs_cm.values()])
+            guardar_reporte(_email_cm2, "autopiloto",
+                            f"Centro de Mando: {_pedido_cm[:60]} - {dt.now().strftime('%d/%m/%Y %H:%M')}",
+                            _full_cm)
+    st.session_state["cm_resultado"] = _outs_cm
+    st.session_state["cm_es_reintento"] = False
+    st.session_state["cm_fase"] = "done"
+    st.rerun()
+
+
+def _cm_render_done(_en):
+    """Trabajo terminado: resultados, reintento gratis de errores, nuevo trabajo."""
+    st.success("🐙 " + ("Trabajo terminado" if not _en else "Work finished"))
+    _outs_done = st.session_state.get("cm_resultado") or {}
+    _sec_done = st.session_state.get("cm_secuencia") or []
+    _estados_done = st.session_state.get("agent_states", {}) or {}
+    _errores_done = [(_a3, _t3) for _a3, _t3 in _sec_done if _estados_done.get(_a3) == "error"]
+    if _errores_done:
+        if st.button("🔄 " + ("Reintentar agentes con error (gratis)" if not _en else "Retry failed agents (free)"),
+                     key="cm_btn_retry"):
+            st.session_state["cm_secuencia"] = _errores_done
+            st.session_state["cm_es_reintento"] = True
+            st.session_state["cm_fase"] = "ejecutar"
+            st.rerun()
+    with st.expander("📋 " + ("Ver resultado completo" if not _en else "See full result"), expanded=bool(_outs_done)):
+        for _nomd, _emod, _outd in _outs_done.values():
+            st.markdown(f"### {_emod} {_nomd}")
+            st.markdown(_outd)
+            st.divider()
+    if st.button("🆕 " + ("Nuevo trabajo" if not _en else "New task"), key="cm_btn_nuevo"):
+        for _k4 in ("cm_fase", "cm_plan", "cm_secuencia", "cm_resultado", "cm_es_reintento", "objetivo_actual"):
+            st.session_state.pop(_k4, None)
+        st.session_state["agent_states"] = {}
+        st.rerun()
+
+
 _is_en_ui = st.session_state.get("lang") == "en"
 
 # ── Puente pulpo → Streamlit: clic en un tentáculo llega como ?agente=X ──────
@@ -2727,146 +2943,13 @@ if _es_home:
             st.session_state["cm_fase"] = "confirmar"
             st.rerun()
 
-    # ── FASE 2: pantalla de confirmación ─────────────────────────────────────
+    # ── Fases del Centro de Mando (compartidas con Autopiloto) ───────────────
     if _cm_fase == "confirmar" and st.session_state.get("cm_plan"):
-        _plan_cm = st.session_state["cm_plan"]
-        st.info("🐙 " + ("TENTAKL utilizará estos agentes para: " if not _is_en_ui else "TENTAKL will use these agents for: ")
-                + f"**{_plan_cm.get('objetivo_interpretado', '')}**")
-        _tareas_plan = dict(_plan_cm.get("agentes", []))
-        for _aid_c, _tarea_c in _plan_cm.get("agentes", []):
-            _agc = AGENTES.get(_aid_c, {})
-            _nomc = _agc.get("nombre", (_aid_c, _aid_c))[1 if _is_en_ui else 0]
-            st.markdown(f"{_agc.get('emoji', '🤖')} **{_nomc}** — {_tarea_c}")
-
-        _labels_por_id = {_k: (_v["nombre"][1] if _is_en_ui else _v["nombre"][0]) for _k, _v in AGENTES.items()}
-        _ids_por_label = {_v: _k for _k, _v in _labels_por_id.items()}
-        _sel_edit = st.multiselect(
-            "✏️ " + ("Editar selección de agentes:" if not _is_en_ui else "Edit agent selection:"),
-            list(_labels_por_id.values()),
-            default=[_labels_por_id[_a] for _a, _t in _plan_cm.get("agentes", []) if _a in _labels_por_id],
-            key="cm_edit_sel",
-        )
-        _ids_finales = [_ids_por_label[_l] for _l in _sel_edit if _l in _ids_por_label][:6]
-        _n_ag_cm = max(len(_ids_finales), 1)
-        st.caption(("💳 Costo: 8 créditos · ⏱ Tiempo aproximado: " if not _is_en_ui else "💳 Cost: 8 credits · ⏱ Approx time: ")
-                   + f"{_n_ag_cm * 30}-{_n_ag_cm * 60} seg")
-        _col_cm1, _col_cm2 = st.columns(2)
-        with _col_cm1:
-            _btn_conf = st.button("✅ " + ("Confirmar y ejecutar (8 créditos)" if not _is_en_ui else "Confirm and run (8 credits)"),
-                                  key="cm_btn_confirmar", use_container_width=True)
-        with _col_cm2:
-            if st.button("❌ " + ("Cancelar" if not _is_en_ui else "Cancel"), key="cm_btn_cancelar", use_container_width=True):
-                st.session_state["cm_fase"] = None
-                st.session_state["cm_plan"] = None
-                st.rerun()
-        if _btn_conf:
-            if not _ids_finales:
-                st.warning("Selecciona al menos un agente." if not _is_en_ui else "Select at least one agent.")
-            elif _plan_ui not in ("Pro", "Agency", "Admin"):
-                _mostrar_upgrade("🔒 " + ("El Centro de Mando coordinado está disponible desde el plan Pro ($39/mes):"
-                                          if not _is_en_ui else "The coordinated Command Center is available from the Pro plan ($39/mo):"))
-            elif verificar_creditos(COSTO_CREDITOS["autopiloto"]):
-                st.session_state["cm_secuencia"] = [(_i2, _tareas_plan.get(_i2, _TAREAS_GENERICAS.get(_i2, ""))) for _i2 in _ids_finales]
-                st.session_state["agent_states"] = {_i2: "waiting" for _i2 in _ids_finales}
-                st.session_state["cm_resultado"] = {}
-                st.session_state["cm_es_reintento"] = False
-                st.session_state["cm_fase"] = "ejecutar"
-                st.rerun()
-
-    # ── FASE 3: ejecución secuencial con estados en vivo sobre el pulpo ──────
+        _cm_render_confirmacion(_is_en_ui, _plan_ui)
     elif _cm_fase == "ejecutar":
-        _sec_cm = st.session_state.get("cm_secuencia") or []
-        _pedido_cm = st.session_state.get("objetivo_actual", "")
-        _es_retry_cm = st.session_state.get("cm_es_reintento", False)
-        _estados_cm = st.session_state.get("agent_states", {}) or {}
-        _outs_cm = st.session_state.get("cm_resultado") or {}
-        _pulpo_live = st.empty()
-        _ctx_cm = ""
-        _exitos_cm = 0
-        with st.status("⚡ " + ("Tu equipo está trabajando..." if not _is_en_ui else "Your team is working..."),
-                       expanded=True) as _status_cm:
-            for _n_cm, (_aid_r, _tarea_r) in enumerate(_sec_cm):
-                _agr = AGENTES.get(_aid_r, {})
-                _nomr = _agr.get("nombre", (_aid_r, _aid_r))[1 if _is_en_ui else 0]
-                _msgr = _MENSAJES_AGENTE.get(_aid_r, ("Trabajando...", "Working..."))[1 if _is_en_ui else 0]
-                _estados_cm[_aid_r] = "working"
-                st.session_state["agent_states"] = _estados_cm
-                with _pulpo_live.container():
-                    if _pulpo_component is not None:
-                        try:
-                            _pulpo_component(estados=_estados_cm, en=_is_en_ui,
-                                             key=f"pulpo_run_{_n_cm}", default=None)
-                        except Exception:
-                            pass
-                st.write(f"{_agr.get('emoji', '🤖')} **{_nomr}** — {_msgr}")
-                _prompt_r = (
-                    f"Eres el agente {_nomr} del equipo de marketing Tentakl.\n"
-                    f"OBJETIVO GENERAL DEL USUARIO: {_pedido_cm}\n"
-                    + (f"TRABAJO PREVIO DE TUS COLEGAS (sé coherente):\n{_ctx_cm[-3000:]}\n" if _ctx_cm else "")
-                    + f"\nTU TAREA ESPECÍFICA: {_tarea_r}\n"
-                    "Entrega un resultado accionable, específico y listo para usar. "
-                    "No repitas lo que ya hicieron tus colegas."
-                )
-                _out_r = generar_texto(_prompt_r, max_out=4000)
-                if _out_r:
-                    _exitos_cm += 1
-                    _estados_cm[_aid_r] = "completed"
-                    _outs_cm[_aid_r] = (_nomr, _agr.get("emoji", "🤖"), _out_r)
-                    _ctx_cm += f"\n--- {_nomr}: {_tarea_r} ---\n{_out_r[:1200]}\n"
-                else:
-                    _estados_cm[_aid_r] = "error"
-                st.session_state["agent_states"] = _estados_cm
-            with _pulpo_live.container():
-                if _pulpo_component is not None:
-                    try:
-                        _pulpo_component(estados=_estados_cm, en=_is_en_ui,
-                                         key="pulpo_run_final", default=None)
-                    except Exception:
-                        pass
-            _status_cm.update(label="✅ " + ("Equipo completado" if not _is_en_ui else "Team finished"),
-                              state="complete")
-        if _exitos_cm > 0 and not _es_retry_cm:
-            st.session_state["_ultima_gen_ok"] = True
-            consumir(COSTO_CREDITOS["autopiloto"], tipo_accion="autopiloto")
-            _email_cm = (st.session_state.get("user_email") or "").strip().lower()
-            if _email_cm:
-                db_incrementar_autopiloto(_email_cm, dt.now().strftime("%Y-%m"))
-        if _exitos_cm > 0:
-            _email_cm2 = (st.session_state.get("user_email") or "").strip().lower()
-            if _email_cm2:
-                _full_cm = "\n\n".join([f"## {_e2} {_n2}\n{_o2}" for _n2, _e2, _o2 in _outs_cm.values()])
-                guardar_reporte(_email_cm2, "autopiloto",
-                                f"Centro de Mando: {_pedido_cm[:60]} - {dt.now().strftime('%d/%m/%Y %H:%M')}",
-                                _full_cm)
-        st.session_state["cm_resultado"] = _outs_cm
-        st.session_state["cm_es_reintento"] = False
-        st.session_state["cm_fase"] = "done"
-        st.rerun()
-
-    # ── Trabajo terminado ─────────────────────────────────────────────────────
+        _cm_render_ejecucion(_is_en_ui)
     elif _cm_fase == "done":
-        st.success("🐙 " + ("Trabajo terminado" if not _is_en_ui else "Work finished"))
-        _outs_done = st.session_state.get("cm_resultado") or {}
-        _sec_done = st.session_state.get("cm_secuencia") or []
-        _estados_done = st.session_state.get("agent_states", {}) or {}
-        _errores_done = [(_a3, _t3) for _a3, _t3 in _sec_done if _estados_done.get(_a3) == "error"]
-        if _errores_done:
-            if st.button("🔄 " + ("Reintentar agentes con error (gratis)" if not _is_en_ui else "Retry failed agents (free)"),
-                         key="cm_btn_retry"):
-                st.session_state["cm_secuencia"] = _errores_done
-                st.session_state["cm_es_reintento"] = True
-                st.session_state["cm_fase"] = "ejecutar"
-                st.rerun()
-        with st.expander("📋 " + ("Ver resultado completo" if not _is_en_ui else "See full result"), expanded=bool(_outs_done)):
-            for _nomd, _emod, _outd in _outs_done.values():
-                st.markdown(f"### {_emod} {_nomd}")
-                st.markdown(_outd)
-                st.divider()
-        if st.button("🆕 " + ("Nuevo trabajo" if not _is_en_ui else "New task"), key="cm_btn_nuevo"):
-            for _k4 in ("cm_fase", "cm_plan", "cm_secuencia", "cm_resultado", "cm_es_reintento", "objetivo_actual"):
-                st.session_state.pop(_k4, None)
-            st.session_state["agent_states"] = {}
-            st.rerun()
+        _cm_render_done(_is_en_ui)
 
     # ── Pulpo interactivo (clic bidireccional, sin recarga) ───────────────────
     _pulpo_ok = _pulpo_component is not None
@@ -2958,6 +3041,7 @@ elif _agente_activo in AGENTES:
         {_ag_cfg['emoji']} {_ag_nombre_v}</h3>""",
         unsafe_allow_html=True,
     )
+    _render_panel_agente(_agente_activo, _is_en_ui)
     _render_contexto_compartido(_agente_activo)
     _sub_labels = [(s[1] if _is_en_ui else s[0]) for s in _ag_cfg["subfunciones"]]
     _sub_sel = st.selectbox("Herramienta del agente:" if not _is_en_ui else "Agent tool:",
@@ -6460,7 +6544,7 @@ if _sec_activa == "power":
                 consumir(2)
 
 
-# --- SECCIÓN: AUTOPILOTO (orquestador dinámico, CAMBIO 8) ---
+# --- SECCIÓN: AUTOPILOTO (Centro de Mando completo, FASE 5) ---
 if _sec_activa == "autopiloto":
     _is_en_ap = st.session_state.get("lang") == "en"
     _email_ap = (st.session_state.get("user_email") or "").strip().lower()
@@ -6468,165 +6552,51 @@ if _sec_activa == "autopiloto":
     _mes_ap = dt.now().strftime("%Y-%m")
 
     st.subheader("⚡ Autopiloto" if not _is_en_ap else "⚡ Autopilot")
-    st.caption("Tu equipo de agentes coordinado en secuencia · 8 créditos por corrida"
-               if not _is_en_ap else "Your agent team coordinated in sequence · 8 credits per run")
+    st.caption("Tu equipo de agentes coordinado: tú das el objetivo, el pulpo organiza y ejecuta · 8 créditos por corrida"
+               if not _is_en_ap else
+               "Your coordinated agent team: you set the goal, the octopus organizes and executes · 8 credits per run")
 
     if not _email_ap:
         st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección."
                    if not _is_en_ap else "⚠ Enter your email in the sidebar to access this section.")
     elif _plan_ap not in ("Pro", "Agency", "Admin"):
-        _mostrar_upgrade("🔒 El Autopiloto está disponible desde el plan Pro ($39/mes). Deja que tu equipo completo trabaje por ti:"
-                         if not _is_en_ap else
-                         "🔒 Autopilot is available from the Pro plan ($39/mo). Let your whole team work for you:")
+        _mostrar_upgrade("🔒 " + ("El Autopiloto está disponible desde el plan Pro ($39/mes). Deja que tu equipo completo trabaje por ti:"
+                                  if not _is_en_ap else
+                                  "Autopilot is available from the Pro plan ($39/mo). Let your whole team work for you:"))
     else:
         _usos_ap = db_get_autopiloto_usos(_email_ap, _mes_ap)
-        st.caption((f"Corridas este mes: {_usos_ap}" if not _is_en_ap else f"Runs this month: {_usos_ap}"))
+        st.caption(f"Corridas este mes: {_usos_ap}" if not _is_en_ap else f"Runs this month: {_usos_ap}")
 
-        _ap_pedido = st.text_area(
-            "¿Qué necesitas que tu equipo logre?" if not _is_en_ap else "What do you need your team to achieve?",
-            placeholder=("Ej: Quiero aumentar ventas 30% este mes, tengo un nuevo producto lanzando la próxima semana."
-                         if not _is_en_ap else
-                         "Ex: I want to increase sales 30% this month, I have a new product launching next week."),
-            height=90, key="ap_pedido_orq"
-        )
-        _ap_incluir_img = st.checkbox(
-            "🎨 Incluir 1 imagen de campaña (descuenta 1 imagen de tu límite mensual, sin créditos extra)"
-            if not _is_en_ap else
-            "🎨 Include 1 campaign image (uses 1 image from your monthly limit, no extra credits)",
-            key="ap_incluir_img"
-        )
+        _cm_fase_ap = st.session_state.get("cm_fase")
 
-        _AP_ROLES = {
-            "estrategia":  ("Estrategia y Diagnóstico", "diagnóstico del negocio, tendencias y plan de acción"),
-            "contenido":   ("Contenido", "contenido para redes, guiones, emails y storytelling"),
-            "imagenes":    ("Imágenes", "dirección de arte y briefs de imágenes de campaña"),
-            "publicidad":  ("Publicidad", "campañas de ads, segmentación, presupuesto y compliance"),
-            "ventas":      ("Ventas", "embudos, precios, ofertas, cierres y cotizaciones"),
-            "competencia": ("Competencia", "análisis de competencia, gaps y diferenciación"),
-            "gestion":     ("Gestión", "CRM, seguimiento de clientes y consistencia de marca"),
-            "metricas":    ("Métricas", "KPIs, métricas y plan de medición"),
-        }
-
-        if st.button("⚡ Activar Autopiloto (8 créditos)" if not _is_en_ap else "⚡ Activate Autopilot (8 credits)",
-                     key="btn_autopiloto_orq"):
-            if not verificar_creditos(COSTO_CREDITOS["autopiloto"]):
-                pass
-            else:
-                _ap_img_ok = True
-                if _ap_incluir_img:
-                    _ap_img_ok, _ap_img_msg = verificar_limite_imagenes()
-                    if not _ap_img_ok:
-                        st.warning(f"🎨 {_ap_img_msg} " + ("La corrida seguirá sin imagen." if not _is_en_ap else "The run will continue without an image."))
-
-                # ── 1. PLANNER: Gemini decide la secuencia (máx 6 agentes) ────────
-                _ap_plan_prompt = (
-                    "Eres el coordinador de un equipo de agentes de marketing.\n"
-                    "AGENTES DISPONIBLES (id: especialidad):\n"
-                    + "\n".join([f"- {k}: {v[1]}" for k, v in _AP_ROLES.items()])
-                    + f"\n\nPEDIDO DEL USUARIO: {_ap_pedido or 'Plan completo de marketing para este mes'}\n\n"
-                    "Devuelve SOLO un JSON válido (sin markdown, sin explicación) con la secuencia óptima "
-                    "de agentes para cumplir el pedido. Máximo 6 agentes, mínimo 3, sin repetir. Formato:\n"
-                    '[{"agente": "estratega", "tarea": "descripción específica de qué debe hacer"}]'
-                )
-                with st.spinner("🧠 Planificando la secuencia de tu equipo..." if not _is_en_ap else "🧠 Planning your team sequence..."):
-                    _ap_plan_raw = generar_texto(_ap_plan_prompt, max_out=2000, temperatura=0.2)
-
-                import json as _json_ap
-                import re as _re_ap
-                _ap_secuencia = []
-                try:
-                    _ap_match = _re_ap.search(r"\[.*\]", _ap_plan_raw or "", _re_ap.DOTALL)
-                    if _ap_match:
-                        for _paso in _json_ap.loads(_ap_match.group(0)):
-                            _ag_id_p = str(_paso.get("agente", "")).strip().lower()
-                            if _ag_id_p in _AP_ROLES and _ag_id_p not in [s[0] for s in _ap_secuencia]:
-                                _ap_secuencia.append((_ag_id_p, str(_paso.get("tarea", ""))[:300]))
-                except Exception:
-                    _ap_secuencia = []
-                if not _ap_secuencia:
-                    _ap_secuencia = [
-                        ("estrategia", "Diagnostica el negocio y define la estrategia del mes"),
-                        ("contenido", "Crea 5 posts listos para publicar según la estrategia"),
-                        ("publicidad", "Diseña la campaña de ads con segmentación y presupuesto"),
-                        ("ventas", "Define ofertas, precios y guion de cierre de ventas"),
-                    ]
-                _ap_secuencia = _ap_secuencia[:6]  # límite técnico de costo
-
-                # ── 2. EJECUCIÓN EN SECUENCIA con contexto acumulado ─────────────
-                _ap_outputs = []
-                _ap_contexto = ""
-                _ap_exitos = 0
-                with st.status("⚡ Tu equipo está trabajando..." if not _is_en_ap else "⚡ Your team is working...",
-                               expanded=True) as _ap_status:
-                    for _n_ag, (_ag_id_run, _tarea_run) in enumerate(_ap_secuencia, start=1):
-                        _rol_nom, _rol_esp = _AP_ROLES[_ag_id_run]
-                        _emoji_run = AGENTES.get(_ag_id_run, {}).get("emoji", "🤖")
-                        st.write(f"{_emoji_run} **{_rol_nom}** ({_n_ag}/{len(_ap_secuencia)})...")
-                        _prompt_run = (
-                            f"Eres el agente {_rol_nom}, especialista en {_rol_esp}, "
-                            f"dentro de un equipo de marketing con IA.\n"
-                            f"PEDIDO GENERAL DEL USUARIO: {_ap_pedido or 'Plan completo de marketing para este mes'}\n"
-                            + (f"TRABAJO PREVIO DE TUS COLEGAS (sé coherente con esto):\n{_ap_contexto[-3000:]}\n" if _ap_contexto else "")
-                            + f"\nTU TAREA ESPECÍFICA: {_tarea_run}\n"
-                            "Entrega un resultado accionable, específico y listo para usar. No repitas lo que ya hicieron tus colegas."
-                        )
-                        _out_run = generar_texto(_prompt_run, max_out=4000)
-                        if _out_run:
-                            _ap_exitos += 1
-                            _ap_outputs.append((_rol_nom, _emoji_run, _out_run))
-                            _ap_contexto += f"\n--- {_rol_nom}: {_tarea_run} ---\n{_out_run[:1200]}\n"
-                        else:
-                            _ap_outputs.append((_rol_nom, _emoji_run,
-                                                "⚠ Este agente tuvo un problema. Los demás resultados están completos."
-                                                if not _is_en_ap else "⚠ This agent had a problem. The other results are complete."))
-
-                    # ── 3. Imagen opcional (tarifa plana: solo descuenta del límite) ──
-                    _ap_img_b64 = None
-                    if _ap_incluir_img and _ap_img_ok and _ap_exitos > 0:
-                        st.write("🎨 **Visual** — " + ("generando imagen de campaña..." if not _is_en_ap else "generating campaign image..."))
-                        _ap_cfg_img = get_plan_config(_plan_ap)
-                        _ap_img_b64, _ap_img_err = generar_imagen_openai(
-                            f"Campaña: {_ap_pedido[:200] if _ap_pedido else st.session_state.get('producto_servicio','')}",
-                            st.session_state.get("marca_guardada", ""),
-                            st.session_state.get("nicho_guardado", ""),
-                            st.session_state.get("pais_guardado", "Perú"),
-                            formato="1024x1024",
-                            calidad=_ap_cfg_img["calidad_imagen"],
-                        )
-                        if _ap_img_b64:
-                            registrar_uso_imagen()
-
-                    _ap_status.update(label="✅ " + ("Equipo completado" if not _is_en_ap else "Team finished"),
-                                      state="complete")
-
-                # ── 4. Cobro, registro y guardado (solo si hubo al menos 1 éxito) ──
-                if _ap_exitos > 0:
-                    st.session_state["_ultima_gen_ok"] = True
-                    consumir(COSTO_CREDITOS["autopiloto"], tipo_accion="autopiloto")
-                    db_incrementar_autopiloto(_email_ap, _mes_ap)
-                    _ap_full = "\n\n".join([f"## {_e} {_n}\n{_o}" for _n, _e, _o in _ap_outputs])
-                    guardar_reporte(_email_ap, "autopiloto",
-                                    f"Autopiloto {dt.now().strftime('%d/%m/%Y %H:%M')}", _ap_full)
-                    st.session_state["_ap_resultado_orq"] = _ap_outputs
-                    st.session_state["_ap_img_orq"] = _ap_img_b64
+        if _cm_fase_ap not in ("confirmar", "ejecutar", "done"):
+            _ap_obj = st.text_area(
+                "¿Qué necesitas que tu equipo logre?" if not _is_en_ap else "What do you need your team to achieve?",
+                value=st.session_state.get("objetivo_actual", ""),
+                placeholder=("Ej: Quiero aumentar ventas 30% este mes, tengo un nuevo producto lanzando la próxima semana."
+                             if not _is_en_ap else
+                             "Ex: I want to increase sales 30% this month, launching a new product next week."),
+                height=90, key="ap_obj_cm",
+            )
+            if st.button("🧠 " + ("Planificar mi equipo (gratis)" if not _is_en_ap else "Plan my team (free)"),
+                         key="btn_ap_planificar"):
+                if not _ap_obj.strip():
+                    st.warning("Escribe primero qué quieres lograr." if not _is_en_ap else "First write what you want to achieve.")
                 else:
-                    st.session_state["_ultima_gen_ok"] = False
-                    _msg_ia_ocupada()
+                    st.session_state["objetivo_actual"] = _ap_obj.strip()
+                    with st.spinner("🐙 El pulpo está analizando tu objetivo..." if not _is_en_ap
+                                    else "🐙 The octopus is analyzing your goal..."):
+                        st.session_state["cm_plan"] = seleccionar_agentes_para_objetivo(_ap_obj.strip())
+                    st.session_state["cm_fase"] = "confirmar"
+                    st.rerun()
 
-        # ── Mostrar resultados de la última corrida ────────────────────────────
-        if st.session_state.get("_ap_resultado_orq"):
-            st.divider()
-            for _nom_r, _emo_r, _out_r in st.session_state["_ap_resultado_orq"]:
-                with st.expander(f"{_emo_r} {_nom_r}", expanded=False):
-                    st.markdown(_out_r)
-            if st.session_state.get("_ap_img_orq"):
-                st.image(st.session_state["_ap_img_orq"],
-                         caption="🎨 Imagen de campaña" if not _is_en_ap else "🎨 Campaign image",
-                         use_container_width=True)
+        if _cm_fase_ap == "confirmar" and st.session_state.get("cm_plan"):
+            _cm_render_confirmacion(_is_en_ap, _plan_ap)
+        elif _cm_fase_ap == "ejecutar":
+            _cm_render_ejecucion(_is_en_ap)
+        elif _cm_fase_ap == "done":
+            _cm_render_done(_is_en_ap)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CRM DATABASE HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def crm_get_contactos(user_email):
