@@ -21,7 +21,7 @@ with warnings.catch_warnings():
 from openai import OpenAI as OpenAIClient
 
 # ✅ SIEMPRE PRIMERO: configuración de página
-st.set_page_config(page_title="CHERO | Agencia AI", page_icon="🍒", layout="wide")
+st.set_page_config(page_title="Tentakl.ai", page_icon="🐙", layout="wide")
 
 # --- SECRETOS ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
@@ -69,14 +69,75 @@ except Exception as e:
 MODELO_RAPIDO = "gemini-2.5-flash-lite"
 MODELO_FUERTE = "gemini-2.5-flash"
 
-PLANES = {
-    "Free":   {"limite": 15,   "video": True, "max_output": 1000},
-    "Demo":   {"limite": 50,   "video": True, "max_output": 1500},
-    "Starter": {"limite": 40,  "video": True, "max_output": 1500},
-    "Pro":     {"limite": 150, "video": True, "max_output": 2500},
-    "Agency":  {"limite": 400, "video": True, "max_output": 4000},
-    "Admin":   {"limite": 9999,"video": True, "max_output": 8000},
+# =========================
+# COSTOS Y LÍMITES (esquema Tentakl)
+# =========================
+COSTO_CREDITOS = {
+    "funcion_texto": 1,      # cualquier subfunción de texto
+    "imagen": 5,             # generar imagen (además descuenta 1 del límite de imágenes)
+    "edicion_imagen": 5,     # editar imagen con referencia (también descuenta 1 del límite)
+    "autopiloto": 8,         # una corrida completa de Autopiloto
 }
+
+PRECIOS_PLANES = {"Starter": 19, "Pro": 39, "Agency": 79}
+
+# Fallback si planes_config no está disponible (la fuente de verdad es Supabase)
+_PLANES_FALLBACK = {
+    "Free":    {"creditos": 50,   "imagenes_limite": 2,   "imagenes_limite_diario": 2,  "calidad_imagen": "low",    "precio": 0,  "creditos_renovables": False},
+    "Starter": {"creditos": 200,  "imagenes_limite": 5,   "imagenes_limite_diario": 3,  "calidad_imagen": "medium", "precio": 19, "creditos_renovables": True},
+    "Pro":     {"creditos": 500,  "imagenes_limite": 20,  "imagenes_limite_diario": 8,  "calidad_imagen": "high",   "precio": 39, "creditos_renovables": True},
+    "Agency":  {"creditos": 1500, "imagenes_limite": 100, "imagenes_limite_diario": 25, "calidad_imagen": "high",   "precio": 79, "creditos_renovables": True},
+    "Admin":   {"creditos": 9999, "imagenes_limite": 999, "imagenes_limite_diario": 999,"calidad_imagen": "high",   "precio": 0,  "creditos_renovables": True},
+}
+
+@st.cache_data(ttl=300)
+def cargar_planes_config():
+    """Lee los planes desde la tabla planes_config de Supabase (NO hardcodear).
+    Cache de 5 min para no golpear la DB en cada rerun."""
+    try:
+        if not supabase:
+            return _PLANES_FALLBACK
+        res = supabase.table("planes_config").select("*").execute()
+        planes = {}
+        for row in (res.data or []):
+            planes[row["nombre"]] = {
+                "creditos": int(row.get("creditos", 50) or 50),
+                "imagenes_limite": int(row.get("imagenes_limite", 0) or 0),
+                "imagenes_limite_diario": int(row.get("imagenes_limite_diario", 2) or 2),
+                "calidad_imagen": row.get("calidad_imagen", "low") or "low",
+                "precio": float(row.get("precio", 0) or 0),
+                "creditos_renovables": bool(row.get("creditos_renovables", True)),
+            }
+        if planes:
+            return planes
+    except Exception:
+        pass
+    return _PLANES_FALLBACK
+
+def get_plan_config(plan=None):
+    if plan is None:
+        plan = st.session_state.get("plan", "Free")
+    planes = cargar_planes_config()
+    return planes.get(plan, planes.get("Free", _PLANES_FALLBACK["Free"]))
+
+# Compatibilidad: PLANES ahora deriva de planes_config (limite = créditos del plan)
+def _planes_compat():
+    _p = {}
+    for _nombre, _cfg in cargar_planes_config().items():
+        _p[_nombre] = {"limite": _cfg["creditos"], "video": True, "max_output": 8000}
+    return _p
+
+class _PlanesProxy(dict):
+    """Permite que el código existente siga usando PLANES[plan]['limite'] leyendo de planes_config."""
+    def __getitem__(self, key):
+        return _planes_compat().get(key, {"limite": 50, "video": True, "max_output": 8000})
+    def get(self, key, default=None):
+        _todos = _planes_compat()
+        if key in _todos:
+            return _todos[key]
+        return default if default is not None else {"limite": 50, "video": True, "max_output": 8000}
+
+PLANES = _PlanesProxy()
 
 # =========================
 # SESSION STATE INICIAL (una sola vez, al inicio)
@@ -152,7 +213,7 @@ _TRANS = {
         "plan_semanal_titulo": "## 🧠 Plan de Contenido Semanal",
         "btn_regenerar_plan": "🔄 Regenerar Plan Semanal (1 crédito)",
         "btn_generar_plan": "🚀 Generar Plan Semanal",
-        "onboarding": "### 👋 ¡Bienvenido a CHERO AI!\nComienza configurando tu perfil de negocio en el sidebar izquierdo: tu marca, nicho y qué vendes.",
+        "onboarding": "### 👋 ¡Bienvenido a TENTAKL.AI!\nComienza configurando tu perfil de negocio en el sidebar izquierdo: tu marca, nicho y qué vendes.",
         "motor_atraccion": "🚀 Motor de Atracción",
         "motor_desc": "Herramientas avanzadas para crear contenido que vende.",
         "sel_herramienta": "Herramienta:",
@@ -214,7 +275,7 @@ _TRANS = {
         "plan_semanal_titulo": "## 🧠 Weekly Content Plan",
         "btn_regenerar_plan": "🔄 Regenerate Weekly Plan (1 credit)",
         "btn_generar_plan": "🚀 Generate Weekly Plan",
-        "onboarding": "### 👋 Welcome to CHERO AI!\nStart by setting up your business profile in the left sidebar: your brand, niche and what you sell.",
+        "onboarding": "### 👋 Welcome to TENTAKL.AI!\nStart by setting up your business profile in the left sidebar: your brand, niche and what you sell.",
         "motor_atraccion": "🚀 Attraction Engine",
         "motor_desc": "Advanced tools to create content that sells.",
         "sel_herramienta": "Tool:",
@@ -297,6 +358,89 @@ def get_contexto_pais(pais):
 
 
 # =========================
+def construir_contexto_base(pais, moneda, idioma, reglas_marca):
+    """CONTEXTO_BASE que se inyecta al inicio de todos los prompts (CAMBIO 3)."""
+    return f"""
+Adapta tu respuesta al mercado de {pais}.
+Usa expresiones naturales de {pais}.
+Precios y ejemplos en {moneda}.
+Referencias culturales locales de {pais}.
+Horarios y fechas relevantes.
+Responde en el idioma del usuario: {idioma}.
+Sé específico y accionable. No des respuestas genéricas.
+{"Reglas de marca: " + reglas_marca if reglas_marca else ""}
+"""
+
+
+def scrapear_url(url):
+    """CAMBIO 5: scraping real de una URL con requests + BeautifulSoup.
+    Retorna dict con title, meta, headings, texto y productos, o {'error': msg}."""
+    _en_sc = st.session_state.get("lang") == "en"
+    url = (url or "").strip()
+    if not url:
+        return {"error": ""}
+    if not url.startswith("http"):
+        url = "https://" + url
+    try:
+        from bs4 import BeautifulSoup
+    except Exception:
+        return {"error": "Falta la librería beautifulsoup4 (agregada a requirements.txt — redeploy)."}
+    try:
+        _resp = requests.get(url, timeout=10, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        })
+        if _resp.status_code in (403, 404):
+            return {"error": ("Esa página no permite acceso o no existe (error "
+                              f"{_resp.status_code}). Prueba con otra URL.") if not _en_sc
+                    else f"That page blocks access or doesn't exist (error {_resp.status_code}). Try another URL."}
+        _resp.raise_for_status()
+        _soup = BeautifulSoup(_resp.text, "html.parser")
+        for _tag in _soup(["script", "style", "noscript"]):
+            _tag.decompose()
+        _title = (_soup.title.string or "").strip() if _soup.title else ""
+        _meta = ""
+        _meta_tag = _soup.find("meta", attrs={"name": "description"})
+        if _meta_tag:
+            _meta = (_meta_tag.get("content") or "").strip()
+        _headings = [h.get_text(" ", strip=True) for h in _soup.find_all(["h1", "h2", "h3"])[:25]]
+        _texto = " ".join(_soup.get_text(" ", strip=True).split())[:8000]
+        # Detectar productos/precios visibles (para Inteligencia Competitiva)
+        _productos = []
+        import re as _re_sc
+        for _precio_m in _re_sc.finditer(r"(S/\.?|\$|USD|MXN|COP|ARS|CLP|PEN|€)\s?\d[\d.,]*", _resp.text[:60000]):
+            _productos.append(_precio_m.group(0))
+            if len(_productos) >= 20:
+                break
+        return {"title": _title, "meta": _meta, "headings": _headings,
+                "texto": _texto, "productos": _productos, "url": url, "error": None}
+    except requests.exceptions.Timeout:
+        return {"error": "La página tardó demasiado en responder (timeout). Intenta de nuevo o usa otra URL." if not _en_sc
+                else "The page took too long to respond (timeout). Try again or use another URL."}
+    except requests.exceptions.RequestException:
+        return {"error": "No se pudo acceder a esa URL. Verifica que esté bien escrita (ej: mitienda.com)." if not _en_sc
+                else "Could not access that URL. Check it's correct (e.g. mystore.com)."}
+
+
+def _scrape_a_texto(_sc):
+    """Convierte el resultado de scrapear_url en texto para el prompt."""
+    if not _sc or _sc.get("error") is not None:
+        return ""
+    _partes = [f"URL ANALIZADA: {_sc['url']}", f"TITLE: {_sc['title']}", f"META DESCRIPTION: {_sc['meta']}"]
+    if _sc["headings"]:
+        _partes.append("HEADINGS:\n- " + "\n- ".join(_sc["headings"]))
+    if _sc.get("productos"):
+        _partes.append("PRECIOS/PRODUCTOS DETECTADOS: " + ", ".join(_sc["productos"][:15]))
+    _partes.append(f"TEXTO VISIBLE:\n{_sc['texto'][:6000]}")
+    return "\n\n".join(_partes)
+
+
+def _msg_ia_ocupada():
+    if st.session_state.get("lang") == "en":
+        st.warning("🐙 The AI servers are busy right now. Please try again in 1-2 minutes. Your credits were NOT charged.")
+    else:
+        st.warning("🐙 Los servidores de IA están ocupados en este momento. Intenta de nuevo en 1-2 minutos. NO se descontaron tus créditos.")
+
+
 def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
     import time as _time
     from datetime import datetime as _dt_rl
@@ -387,6 +531,17 @@ def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
         )
     prompt = _idioma_instruccion + prompt
 
+    # ── CONTEXTO_BASE (CAMBIO 3): se antepone a TODOS los prompts ─────────────
+    _idioma_cb = st.session_state.get("idioma_preferido", "Español")
+    _reglas_cb = st.session_state.get("reglas_marca", "")
+    prompt = construir_contexto_base(_pais_ctx or "LATAM", _ctx_pais["moneda"], _idioma_cb, _reglas_cb) + "\n" + prompt
+
+    # ── Memoria compartida entre agentes (CAMBIO 8) ───────────────────────────
+    _ctx_compartido = st.session_state.get("ctx_compartido", "")
+    if _ctx_compartido:
+        prompt = f"CONTEXTO DE TRABAJO PREVIO DE TU EQUIPO DE AGENTES (úsalo para ser coherente):\n{_ctx_compartido[:2500]}\n\n" + prompt
+
+    st.session_state["_ultima_gen_ok"] = False
     _ultimo_error = None
     for _intento in range(3):
         try:
@@ -398,20 +553,21 @@ def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
                     **({} if temperatura is None else {"temperature": temperatura})
                 )
             )
+            st.session_state["_ultima_gen_ok"] = True
             return response.text
         except Exception as e:
             _ultimo_error = e
             _msg = str(e).upper()
             if any(x in _msg for x in ["503", "UNAVAILABLE", "OVERLOADED", "RESOURCE_EXHAUSTED"]):
                 if _intento < 2:
+                    st.info("🐙 Los servidores de IA están ocupados. Reintentando en 5 segundos..." if st.session_state.get("lang") != "en" else "🐙 AI servers are busy. Retrying in 5 seconds...")
                     _time.sleep(5)
                     continue
             break
-    st.warning("Gemini está ocupado. Espera 1-2 minutos e intenta de nuevo.")
-    st.button("Reintentar", key=f"retry_btn_{id(prompt)}")
-    return f"Error en IA: {_ultimo_error}"
+    _msg_ia_ocupada()
+    return ""
 
-SYSTEM_ANALITICO = """Eres CHERO, el Analista de Datos Senior del negocio del usuario.
+SYSTEM_ANALITICO = """Eres TENTAKL, el Analista de Datos Senior del negocio del usuario.
 REGLAS ABSOLUTAS:
 1. Solo afirmas lo que puedes deducir directamente de los datos o inputs proporcionados.
 2. Nunca inventas métricas, porcentajes, nombres de clientes, ni ejemplos específicos que no estén en el input.
@@ -432,6 +588,14 @@ def generar_analitico(prompt, max_tokens=6000):
             f"Nicho: {_nicho_ctx}\nOferta: {_oferta_ctx}\n\n"
         )
         prompt = _ctx + prompt
+
+    # ── CONTEXTO_BASE (CAMBIO 3) ───────────────────────────────────────────────
+    _ctx_pais_an = get_contexto_pais(_pais_ctx)
+    _idioma_an = st.session_state.get("idioma_preferido", "Español")
+    _reglas_an = st.session_state.get("reglas_marca", "")
+    prompt = construir_contexto_base(_pais_ctx or "LATAM", _ctx_pais_an["moneda"], _idioma_an, _reglas_an) + "\n" + prompt
+
+    st.session_state["_ultima_gen_ok"] = False
     _ultimo_error_an = None
     for _intento_an in range(3):
         try:
@@ -445,17 +609,19 @@ def generar_analitico(prompt, max_tokens=6000):
                     max_output_tokens=max_tokens
                 )
             )
+            st.session_state["_ultima_gen_ok"] = True
             return resp.text
         except Exception as e:
             _ultimo_error_an = e
             _msg_an = str(e).upper()
             if any(x in _msg_an for x in ["503", "UNAVAILABLE", "OVERLOADED", "RESOURCE_EXHAUSTED"]):
                 if _intento_an < 2:
+                    st.info("🐙 Los servidores de IA están ocupados. Reintentando en 5 segundos..." if st.session_state.get("lang") != "en" else "🐙 AI servers are busy. Retrying in 5 seconds...")
                     _time_an.sleep(5)
                     continue
             break
-    st.warning("Gemini está ocupado. Espera 1-2 minutos e intenta de nuevo.")
-    return f"Error en analisis: {_ultimo_error_an}"
+    _msg_ia_ocupada()
+    return ""
 
 def generar_imagen_openai(prompt_descripcion, marca, nicho, pais,
                           formato="1024x1024", calidad="medium",
@@ -748,7 +914,7 @@ def _panel_edicion(resultado, key_suffix, max_tokens=6000):
 # =========================
 # SUPABASE: USUARIOS
 # =========================
-def db_upsert_usuario(email: str, plan: str, creditos_usados: int, trial_ends_at=None):
+def db_upsert_usuario(email: str, plan: str, creditos_usados: int, extra: dict = None):
     if not supabase:
         return
     try:
@@ -757,12 +923,11 @@ def db_upsert_usuario(email: str, plan: str, creditos_usados: int, trial_ends_at
             "plan": plan,
             "creditos_usados": int(creditos_usados),
         }
-        if trial_ends_at is not None:
-            payload["trial_ends_at"] = trial_ends_at
+        if extra:
+            payload.update(extra)
         supabase.table("usuarios").upsert(payload, on_conflict="email").execute()
-    except Exception as e:
+    except Exception:
         st.warning("No se pudo guardar en Supabase (usuarios).")
-        st.exception(e)
 
 def db_get_usuario(email: str):
     if not supabase:
@@ -779,20 +944,48 @@ def db_get_usuario(email: str):
 ADMIN_EMAILS = {"jairh798@gmail.com"}
 
 def asegurar_usuario_desde_db():
+    """Sincroniza el usuario desde la DB. Ya NO existe el plan Demo:
+    - Si el correo existe → login (aunque no tenga créditos: 1 cuenta Free por correo).
+    - Si no existe → NO se crea automáticamente; requiere aceptar T&C (CAMBIO 10)."""
     email = st.session_state.get("user_email", "").strip().lower()
     if email and not st.session_state.get("user_sincronizado", False):
         datos = db_get_usuario(email)
         if datos:
-            st.session_state.plan = datos.get("plan", "Free")
-            st.session_state.usados = datos.get("creditos_usados", 0)
+            _plan_db = datos.get("plan", "Free")
+            if _plan_db == "Demo":  # migrar cuentas Demo legadas a Free
+                _plan_db = "Free"
+                db_upsert_usuario(email, "Free", int(datos.get("creditos_usados", 0) or 0))
+            st.session_state.plan = _plan_db
+            st.session_state.usados = int(datos.get("creditos_usados", 0) or 0)
+            st.session_state.creditos_extra = int(datos.get("creditos_extra", 0) or 0)
+            st.session_state.imagenes_usadas = int(datos.get("imagenes_usadas", 0) or 0)
+            st.session_state.imagenes_usadas_hoy = int(datos.get("imagenes_usadas_hoy", 0) or 0)
+            st.session_state.fecha_ultimo_uso_imagen = datos.get("fecha_ultimo_uso_imagen") or ""
+            st.session_state.encuesta_completada = bool(datos.get("encuesta_completada", False))
+            st.session_state["_cuenta_pendiente_tc"] = False
+            st.session_state.user_sincronizado = True
         else:
-            db_upsert_usuario(email, "Demo", 0)
-            st.session_state.plan = "Demo"
-            st.session_state.usados = 0
+            # Cuenta nueva: pedir aceptación de T&C antes de crearla
+            st.session_state["_cuenta_pendiente_tc"] = True
         if email in ADMIN_EMAILS:
             st.session_state.plan = "Admin"
             st.session_state.usados = 0
-        st.session_state.user_sincronizado = True
+            st.session_state["_cuenta_pendiente_tc"] = False
+            st.session_state.user_sincronizado = True
+
+def crear_cuenta_free(email):
+    """Crea la cuenta Free (50 créditos, 2 imágenes low, una única vez) tras aceptar T&C."""
+    db_upsert_usuario(email, "Free", 0, extra={
+        "fecha_aceptacion_tc": dt.now(timezone.utc).isoformat(),
+    })
+    st.session_state.plan = "Free"
+    st.session_state.usados = 0
+    st.session_state.creditos_extra = 0
+    st.session_state.imagenes_usadas = 0
+    st.session_state.imagenes_usadas_hoy = 0
+    st.session_state.encuesta_completada = False
+    st.session_state["_cuenta_pendiente_tc"] = False
+    st.session_state.user_sincronizado = True
 
 # =========================
 # SUPABASE: PERFIL NEGOCIO
@@ -1423,25 +1616,95 @@ st.markdown("""
 # =========================
 # CRÉDITOS
 # =========================
+def creditos_restantes_usuario():
+    """Créditos disponibles = créditos del plan (planes_config) + créditos extra - usados."""
+    cfg = get_plan_config()
+    usados = int(st.session_state.get("usados", 0) or 0)
+    extra = int(st.session_state.get("creditos_extra", 0) or 0)
+    return max(int(cfg["creditos"]) + extra - usados, 0)
+
+
+def _mostrar_upgrade(mensaje=None):
+    """Todo mensaje de límite es una oportunidad de venta, nunca un error técnico."""
+    _en = st.session_state.get("lang") == "en"
+    if mensaje:
+        st.warning(mensaje)
+    _planes_cfg = cargar_planes_config()
+    _c1, _c2, _c3 = st.columns(3)
+    for _col, _pl in zip((_c1, _c2, _c3), ("Starter", "Pro", "Agency")):
+        _cfgp = _planes_cfg.get(_pl, _PLANES_FALLBACK[_pl])
+        with _col:
+            st.markdown(
+                f"**{_pl}** — ${int(_cfgp['precio'])}/mes\n\n"
+                f"✅ {_cfgp['creditos']} " + ("credits/month" if _en else "créditos/mes") + "\n\n"
+                f"🎨 {_cfgp['imagenes_limite']} " + ("images/month" if _en else "imágenes/mes") + f" ({_cfgp['calidad_imagen']})"
+            )
+    st.caption("👉 tentakl.ai/planes" if not _en else "👉 tentakl.ai/plans")
+
+
 def verificar_creditos(costo=1, video=False):
-    plan = PLANES.get(st.session_state.get("plan", "Free"), PLANES["Free"])
-    usados  = int(st.session_state.get("usados", 0) or 0)
-    limite  = int(plan["limite"])
-    restantes = limite - usados
+    _en = st.session_state.get("lang") == "en"
+    restantes = creditos_restantes_usuario()
     if int(costo) > restantes:
-        st.error(
-            f"❌ No tienes suficientes créditos.\n\n"
-            f"Necesitas **{costo}** crédito(s).\n\n"
-            f"Tienes **{restantes}** crédito(s) restantes de {limite}.\n\n"
-            f"Actualiza tu plan para continuar."
-        )
-        return False
-    if video and not plan.get("video", False):
-        st.warning("⚠ Tu plan no incluye análisis visual/video.")
+        if _en:
+            _mostrar_upgrade(f"🐙 You need **{costo}** credit(s) and you have **{restantes}** left. Upgrade to keep growing:")
+        else:
+            _mostrar_upgrade(f"🐙 Necesitas **{costo}** crédito(s) y te quedan **{restantes}**. Mejora tu plan para seguir creciendo:")
+        # Encuesta de conversión Free (una sola vez, +15 créditos)
+        if st.session_state.get("plan", "Free") == "Free" and not st.session_state.get("encuesta_completada"):
+            st.session_state["_mostrar_encuesta_free"] = True
         return False
     return True
 
-def consumir(costo=1):
+
+def _hoy_str():
+    return dt.now().strftime("%Y-%m-%d")
+
+
+def verificar_limite_imagenes():
+    """Verifica límite mensual Y diario de imágenes según el plan. Retorna (ok, mensaje)."""
+    _en = st.session_state.get("lang") == "en"
+    cfg = get_plan_config()
+    usadas_mes = int(st.session_state.get("imagenes_usadas", 0) or 0)
+    lim_mes = int(cfg["imagenes_limite"])
+    lim_dia = int(cfg["imagenes_limite_diario"])
+    # Reset diario
+    if st.session_state.get("fecha_ultimo_uso_imagen", "")[:10] != _hoy_str():
+        st.session_state.imagenes_usadas_hoy = 0
+    usadas_hoy = int(st.session_state.get("imagenes_usadas_hoy", 0) or 0)
+    if usadas_mes >= lim_mes:
+        _plan = st.session_state.get("plan", "Free")
+        if _en:
+            return False, f"You reached your {lim_mes} images this month 🎨 Pro gives you 20 in high quality → [Upgrade plan]"
+        return False, f"Alcanzaste tus {lim_mes} imágenes del mes 🎨 En Pro tienes 20 en alta calidad → [Mejorar plan]"
+    if usadas_hoy >= lim_dia:
+        if _en:
+            return False, f"You reached your daily limit of {lim_dia} images. Come back tomorrow or upgrade your plan 🚀"
+        return False, f"Alcanzaste tu límite diario de {lim_dia} imágenes. Vuelve mañana o mejora tu plan 🚀"
+    return True, ""
+
+
+def registrar_uso_imagen():
+    """Descuenta 1 imagen del límite mensual y diario, y persiste en usuarios."""
+    st.session_state.imagenes_usadas = int(st.session_state.get("imagenes_usadas", 0) or 0) + 1
+    if st.session_state.get("fecha_ultimo_uso_imagen", "")[:10] != _hoy_str():
+        st.session_state.imagenes_usadas_hoy = 0
+    st.session_state.imagenes_usadas_hoy = int(st.session_state.get("imagenes_usadas_hoy", 0) or 0) + 1
+    st.session_state.fecha_ultimo_uso_imagen = _hoy_str()
+    email = (st.session_state.get("user_email") or "").strip().lower()
+    if email:
+        db_upsert_usuario(email, st.session_state.get("plan", "Free"),
+                          int(st.session_state.get("usados", 0) or 0), extra={
+            "imagenes_usadas": st.session_state.imagenes_usadas,
+            "imagenes_usadas_hoy": st.session_state.imagenes_usadas_hoy,
+            "fecha_ultimo_uso_imagen": _hoy_str(),
+        })
+
+def consumir(costo=1, tipo_accion="funcion_texto"):
+    # CAMBIO 9: si la última generación de IA falló, NO descontar créditos
+    if st.session_state.get("_ultima_gen_ok") is False:
+        st.session_state["_ultima_gen_ok"] = True
+        return
     st.session_state.usados = int(st.session_state.get("usados", 0) or 0) + int(costo)
     email = (st.session_state.get("user_email") or "").strip().lower()
     if email:
@@ -1449,14 +1712,32 @@ def consumir(costo=1):
             db_upsert_usuario(email, st.session_state.get("plan", "Free"), st.session_state.usados)
         except Exception:
             pass
+        registrar_uso_creditos(email, tipo_accion, costo)
+
+
+def registrar_uso_creditos(email, tipo_accion, creditos):
+    """Registra cada consumo en la tabla uso_creditos (alimenta el dashboard admin)."""
+    if not supabase or not email:
+        return
+    try:
+        supabase.table("uso_creditos").insert({
+            "user_email": email,
+            "tipo_accion": tipo_accion,
+            "creditos": int(creditos),
+            "agente": st.session_state.get("agente_activo") or "general",
+            "subfuncion": st.session_state.get("_subfuncion_activa", "") or "",
+            "fecha": dt.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception:
+        pass
 
 # =========================
 # BARRA LATERAL
 # =========================
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2580/2580963.png", width=60)
-    st.title("🍒 CHERO AI")
-    st.caption("Estrategia Digital 2.0")
+    st.title("🐙 TENTAKL.AI")
+    st.caption("Tu equipo de marketing con IA" if st.session_state.get("lang") != "en" else "Your AI marketing team")
     st.markdown("---")
     _lang_actual = st.session_state.get("lang", "es")
     _col_es, _col_en = st.columns(2)
@@ -1490,6 +1771,25 @@ with st.sidebar:
             asegurar_usuario_desde_db()
         except Exception:
             st.warning("⚠ No se pudo sincronizar usuario con Supabase.")
+
+        # ── CAMBIO 10: registro nuevo requiere aceptar T&C ─────────────────────
+        if st.session_state.get("_cuenta_pendiente_tc") and re.match(r'^[^@]+@[^@]+\.[^@]+$', nuevo_email):
+            _en_tc = st.session_state.get("lang") == "en"
+            st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 50 créditos y 2 imágenes gratis, por única vez." if not _en_tc
+                    else "🐙 Welcome! Create your Free account: 50 credits and 2 free images, one time only.")
+            _acepta_tc = st.checkbox(
+                "Acepto los Términos y Condiciones y la Política de Privacidad" if not _en_tc
+                else "I accept the Terms and Conditions and the Privacy Policy",
+                key="chk_acepta_tc"
+            )
+            if st.button("🚀 Crear mi cuenta Free" if not _en_tc else "🚀 Create my Free account", key="btn_crear_cuenta"):
+                if not _acepta_tc:
+                    st.error("Debes aceptar los Términos y Condiciones para crear tu cuenta." if not _en_tc
+                             else "You must accept the Terms and Conditions to create your account.")
+                else:
+                    crear_cuenta_free(nuevo_email)
+                    st.success("✅ Cuenta creada. ¡Bienvenido a Tentakl!" if not _en_tc else "✅ Account created. Welcome to Tentakl!")
+                    st.rerun()
 
         try:
             _lang_antes = st.session_state.get("lang", "es")
@@ -1639,14 +1939,56 @@ Sé muy específico, como si describieras a una persona real."""
                 st.exception(e)
 
     plan_actual = st.session_state.get("plan", "Free")
-    st.caption(f"Plan actual: {plan_actual}")
-    limite = PLANES.get(plan_actual, PLANES["Free"])["limite"]
+    st.caption(f"Plan actual: {plan_actual}" if st.session_state.get("lang") != "en" else f"Current plan: {plan_actual}")
+    _cfg_sb = get_plan_config(plan_actual)
+    limite = int(_cfg_sb["creditos"]) + int(st.session_state.get("creditos_extra", 0) or 0)
     usados_sidebar = int(st.session_state.get("usados", 0))
     progreso = 0.0 if plan_actual == "Admin" else (min(usados_sidebar / limite, 1.0) if limite > 0 else 0)
     restantes = max(limite - usados_sidebar, 0)
     st.progress(progreso)
     st.caption(f'{t("creditos_restantes")}: {restantes}')
     st.caption(f'{t("consumo")}: {usados_sidebar} / {limite}')
+    _img_cfg_sb = int(_cfg_sb["imagenes_limite"])
+    _img_usadas_sb = int(st.session_state.get("imagenes_usadas", 0) or 0)
+    st.caption(("🎨 Imágenes: " if st.session_state.get("lang") != "en" else "🎨 Images: ") + f"{max(_img_cfg_sb - _img_usadas_sb, 0)}/{_img_cfg_sb}")
+
+    # ── Banner suave cuando quedan pocos créditos (plan Free) ─────────────────
+    if plan_actual == "Free" and 0 < restantes <= 10:
+        st.warning(f"🐙 Te quedan {restantes} créditos. Mira los planes →" if st.session_state.get("lang") != "en"
+                   else f"🐙 You have {restantes} credits left. Check out the plans →")
+
+    # ── Encuesta Free (+15 créditos, una única vez) ────────────────────────────
+    if (plan_actual == "Free" and restantes <= 0
+            and not st.session_state.get("encuesta_completada")
+            and (st.session_state.get("user_email") or "").strip()):
+        _en_enc = st.session_state.get("lang") == "en"
+        with st.expander("🎁 Gana 15 créditos extra respondiendo 3 preguntas" if not _en_enc
+                         else "🎁 Earn 15 extra credits by answering 3 questions"):
+            _enc_fav = st.text_input("¿Cuál fue tu función favorita?" if not _en_enc else "What was your favorite feature?", key="enc_fav")
+            _enc_mej = st.text_input("¿Qué mejorarías?" if not _en_enc else "What would you improve?", key="enc_mej")
+            _enc_pag = st.selectbox("¿Pagarías por Tentakl?" if not _en_enc else "Would you pay for Tentakl?",
+                                    ["Sí", "Tal vez", "No"] if not _en_enc else ["Yes", "Maybe", "No"], key="enc_pag")
+            if st.button("Enviar y recibir mis créditos" if not _en_enc else "Submit and get my credits", key="btn_enc_free"):
+                _email_enc = (st.session_state.get("user_email") or "").strip().lower()
+                try:
+                    if supabase:
+                        supabase.table("encuestas_free").upsert({
+                            "user_email": _email_enc,
+                            "funcion_favorita": _enc_fav,
+                            "mejoraria": _enc_mej,
+                            "pagaria": _enc_pag,
+                            "fecha": dt.now(timezone.utc).isoformat(),
+                        }, on_conflict="user_email").execute()
+                    st.session_state.creditos_extra = int(st.session_state.get("creditos_extra", 0) or 0) + 15
+                    st.session_state.encuesta_completada = True
+                    db_upsert_usuario(_email_enc, "Free", usados_sidebar, extra={
+                        "creditos_extra": st.session_state.creditos_extra,
+                        "encuesta_completada": True,
+                    })
+                    st.success("✅ ¡Gracias! Tienes 15 créditos extra." if not _en_enc else "✅ Thanks! You got 15 extra credits.")
+                    st.rerun()
+                except Exception:
+                    st.warning("No se pudo guardar la encuesta. Intenta de nuevo." if not _en_enc else "Could not save the survey. Try again.")
 
     # ✅ FIX: Freelancer solo aparece en planes Pro y Agency
     plan_actual_sidebar = st.session_state.get("plan", "Free")
@@ -1706,7 +2048,7 @@ Sé muy específico, como si describieras a una persona real."""
 # PDF GENERATION (ReportLab)
 # =========================
 def generar_pdf_reportlab(titulo, contenido, email=""):
-    """Genera un PDF con formato CHERO AI y retorna bytes."""
+    """Genera un PDF con formato TENTAKL.AI y retorna bytes."""
     _buf = io.BytesIO()
     _doc = SimpleDocTemplate(
         _buf,
@@ -1721,7 +2063,7 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
     _rojo = colors.HexColor("#D32F2F")
 
     _style_header = ParagraphStyle(
-        "CheroHeader",
+        "TentaklHeader",
         parent=_styles["Heading1"],
         fontSize=22,
         textColor=_rojo,
@@ -1729,7 +2071,7 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
         fontName="Helvetica-Bold",
     )
     _style_titulo = ParagraphStyle(
-        "CheroTitulo",
+        "TentaklTitulo",
         parent=_styles["Heading2"],
         fontSize=14,
         textColor=colors.black,
@@ -1738,14 +2080,14 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
         fontName="Helvetica-Bold",
     )
     _style_meta = ParagraphStyle(
-        "CheroMeta",
+        "TentaklMeta",
         parent=_styles["Normal"],
         fontSize=9,
         textColor=colors.HexColor("#555555"),
         spaceAfter=2,
     )
     _style_body = ParagraphStyle(
-        "CheroBody",
+        "TentaklBody",
         parent=_styles["Normal"],
         fontSize=10,
         leading=15,
@@ -1753,7 +2095,7 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
         wordWrap="CJK",
     )
     _style_h2 = ParagraphStyle(
-        "CheroH2",
+        "TentaklH2",
         parent=_styles["Heading2"],
         fontSize=12,
         textColor=colors.HexColor("#1A237E"),
@@ -1762,7 +2104,7 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
         fontName="Helvetica-Bold",
     )
     _style_h3 = ParagraphStyle(
-        "CheroH3",
+        "TentaklH3",
         parent=_styles["Heading3"],
         fontSize=11,
         textColor=colors.HexColor("#333333"),
@@ -1773,8 +2115,8 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
 
     _story = []
 
-    # Encabezado CHERO AI
-    _story.append(Paragraph("CHERO AI", _style_header))
+    # Encabezado TENTAKL.AI
+    _story.append(Paragraph("TENTAKL.AI", _style_header))
     _story.append(HRFlowable(width="100%", thickness=2, color=_rojo, spaceAfter=6))
 
     # Título del reporte
@@ -1833,17 +2175,247 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
     _doc.build(_story, onFirstPage=_add_page_num, onLaterPages=_add_page_num)
     return _buf.getvalue()
 
-# =========================
-# PESTAÑAS PRINCIPALES
-# =========================
-tabs = st.tabs([t("tab_inicio"), t("tab_calendario"), t("tab_marketing"), t("tab_ventas"), t("tab_admin"), t("tab_reportes"), t("tab_power"), t("tab_autopiloto"), t("tab_crm")])
+# =========================================================
+# TENTAKL — TU EQUIPO DE 9 AGENTES (CAMBIO 2)
+# =========================================================
+AGENT_COLORS = {
+    "estratega": "#7C3AED", "creativo": "#16A34A", "visual": "#F97316",
+    "growth": "#EAB308", "comercial": "#0D9488", "espia": "#EC4899",
+    "operaciones": "#2563EB", "analitico": "#64748B", "autopiloto": "#D4A017",
+}
 
-# leer desde session_state en tabs
+AGENTES = {
+    "estratega": {
+        "emoji": "🧠", "color": "#7C3AED",
+        "nombre": ("Estratega", "Strategist"),
+        "desc": ("Diagnóstico, tendencias y plan semanal", "Diagnosis, trends and weekly plan"),
+        "subfunciones": [
+            ("⚡ Acciones Inteligentes de Hoy", "⚡ Today's Smart Actions", "inicio", "acciones"),
+            ("🩺 Auditoría Maestra del Negocio", "🩺 Master Business Audit", "inicio", "auditoria"),
+            ("🔥 Radar de Tendencias Virales", "🔥 Viral Trends Radar", "inicio", "radar"),
+            ("🧠 Plan de Contenido Semanal", "🧠 Weekly Content Plan", "inicio", "plan_semanal"),
+            ("🪄 Planificador con Tendencias Reales", "🪄 Real Trends Planner", "calendario", "planificador"),
+        ],
+    },
+    "creativo": {
+        "emoji": "🎨", "color": "#16A34A",
+        "nombre": ("Creativo", "Creative"),
+        "desc": ("Contenido que conecta y vende", "Content that connects and sells"),
+        "subfunciones": [
+            ("🎬 Experto TikTok/Reels", "🎬 TikTok/Reels Expert", "marketing", "Experto TikTok/Reels"),
+            ("📖 Storytelling de Marca", "📖 Brand Storytelling", "marketing", "Storytelling de Marca"),
+            ("📝 Artículo de Blog SEO", "📝 SEO Blog Article", "marketing", "Artículo de Blog SEO"),
+            ("🔑 SEO y Palabras Clave", "🔑 SEO & Keywords", "marketing", "SEO y Palabras Clave"),
+            ("🚨 Plan de Crisis", "🚨 Crisis Plan", "marketing", "Plan de Crisis"),
+            ("🎞 Auditoría Visual (Video/Foto)", "🎞 Visual Audit (Video/Photo)", "marketing", "Auditoría Visual (Video/Foto)"),
+        ],
+    },
+    "visual": {
+        "emoji": "🖼️", "color": "#F97316",
+        "nombre": ("Visual", "Visual"),
+        "desc": ("Imágenes premium y campañas de catálogo", "Premium images and catalog campaigns"),
+        "subfunciones": [
+            ("🎨 Generador de Imágenes Premium", "🎨 Premium Image Generator", "marketing", "Generador de Imagenes"),
+            ("🛍 Campaña por Catálogo", "🛍 Catalog Campaign", "marketing", "Campaña de Catálogo"),
+        ],
+    },
+    "growth": {
+        "emoji": "🚀", "color": "#EAB308",
+        "nombre": ("Growth", "Growth"),
+        "desc": ("Ads, embudos y crecimiento", "Ads, funnels and growth"),
+        "subfunciones": [
+            ("🎯 Segmentación de Ads", "🎯 Ads Segmentation", "marketing", "Segmentación Ads"),
+            ("🛡 Compliance Checker", "🛡 Compliance Checker", "marketing", "Compliance Checker"),
+            ("🧪 Simulador de Campaña", "🧪 Campaign Simulator", "marketing", "Simulador de Campaña"),
+            ("🌀 Embudo de Ventas", "🌀 Sales Funnel", "marketing", "Embudo de Ventas"),
+            ("🤝 Influencer Marketing", "🤝 Influencer Marketing", "power", "Influencer Marketing"),
+            ("📰 PR Digital", "📰 Digital PR", "power", "PR Digital"),
+        ],
+    },
+    "comercial": {
+        "emoji": "💰", "color": "#0D9488",
+        "nombre": ("Comercial", "Sales"),
+        "desc": ("Precios, cierres, cotizaciones y CRM", "Pricing, closing, quotes and CRM"),
+        "subfunciones": [
+            ("🧠 Psicólogo de Precios", "🧠 Price Psychology", "ventas", "Psicólogo de Precios"),
+            ("🥊 Mata-Objeciones", "🥊 Objection Buster", "ventas", "Mata-Objeciones"),
+            ("🏷 Calculadora de Descuentos", "🏷 Discount Calculator", "ventas", "Calculadora Descuentos"),
+            ("📄 Cotizaciones", "📄 Quotes", "admin", "Cotizaciones"),
+            ("📜 Contratos", "📜 Contracts", "admin", "Contratos"),
+            ("👥 CRM con IA", "👥 AI CRM", "crm", "crm"),
+        ],
+    },
+    "espia": {
+        "emoji": "🕵️", "color": "#EC4899",
+        "nombre": ("Espía", "Spy"),
+        "desc": ("Competencia, SEO y conversión", "Competitors, SEO and conversion"),
+        "subfunciones": [
+            ("🕵 Inteligencia Competitiva", "🕵 Competitive Intelligence", "marketing", "🕵 Inteligencia Competitiva"),
+            ("🔍 Auditoría SEO Completa", "🔍 Complete SEO Audit", "power", "Auditoría SEO Completa"),
+            ("🎯 Optimizador Landing CRO", "🎯 Landing Page Optimizer (CRO)", "power", "Optimizador Landing CRO"),
+        ],
+    },
+    "operaciones": {
+        "emoji": "⚙️", "color": "#2563EB",
+        "nombre": ("Operaciones", "Operations"),
+        "desc": ("Email, comunidad, marca e integraciones", "Email, community, brand and integrations"),
+        "subfunciones": [
+            ("📧 Email Marketing", "📧 Email Marketing", "power", "Email Marketing"),
+            ("💬 Gestión de Comunidad", "💬 Community Management", "power", "Gestión de Comunidad"),
+            ("📏 Reglas de Marca", "📏 Brand Rules", "admin", "Reglas de Marca"),
+            ("🔗 Integraciones (tiendas y GA)", "🔗 Integrations (stores & GA)", "admin", "Integraciones"),
+        ],
+    },
+    "analitico": {
+        "emoji": "📊", "color": "#64748B",
+        "nombre": ("Analítico", "Analytics"),
+        "desc": ("ROI, KPIs y métricas con IA", "ROI, KPIs and AI metrics"),
+        "subfunciones": [
+            ("📈 Analista ROI (CSV)", "📈 ROI Analyst (CSV)", "admin", "Analista ROI (CSV)"),
+            ("📊 Analizador de Métricas", "📊 Metrics Analyzer", "admin", "Analizador de Métricas"),
+            ("🎯 Tracker de KPIs", "🎯 KPI Tracker", "power", "Tracker de KPIs"),
+        ],
+    },
+}
+
+
+def _render_contexto_compartido(agente_actual):
+    """CAMBIO 8: muestra los últimos reportes del equipo como contexto opcional."""
+    _em = (st.session_state.get("user_email") or "").strip().lower()
+    if not _em or not supabase:
+        return
+    try:
+        _res = (supabase.table("reportes")
+                .select("tipo_reporte,titulo,contenido,created_at")
+                .eq("user_email", _em)
+                .order("created_at", desc=True)
+                .limit(3).execute())
+        _reps = _res.data or []
+    except Exception:
+        return
+    if not _reps:
+        return
+    _en_ctx = st.session_state.get("lang") == "en"
+    _partes_ctx = []
+    with st.expander("📎 " + ("Contexto disponible de tu equipo de agentes" if not _en_ctx else "Available context from your agent team")):
+        st.caption("Marca lo que quieras que este agente tenga en cuenta:" if not _en_ctx else "Check what you want this agent to consider:")
+        for _i, _r in enumerate(_reps):
+            _lbl = f"{str(_r.get('titulo',''))[:70]} · {str(_r.get('created_at',''))[:10]}"
+            if st.checkbox(_lbl, key=f"ctx_chk_{agente_actual}_{_i}"):
+                _partes_ctx.append(f"--- {_r.get('titulo','')} ---\n{str(_r.get('contenido',''))[:800]}")
+    st.session_state["ctx_compartido"] = "\n\n".join(_partes_ctx)
+
+
+_is_en_ui = st.session_state.get("lang") == "en"
+_agente_activo = st.session_state.get("agente_activo")
+_plan_ui = st.session_state.get("plan", "Free")
+_es_admin_ui = ((st.session_state.get("user_email", "").strip().lower() in ADMIN_EMAILS)
+                or _plan_ui == "Admin")
+
+_es_home = _agente_activo is None
+_sec_activa = None
+_opcion_activa = None
+
+if _es_home:
+    # ── HOME: hero Autopiloto + grid de 8 agentes ──────────────────────────────
+    st.markdown("## " + ("🐙 Tu equipo de marketing con IA" if not _is_en_ui else "🐙 Your AI marketing team"))
+
+    _ap_lock = _plan_ui in ("Free", "Starter")
+    _ap_titulo_hero = "⚡ AUTOPILOTO" if not _is_en_ui else "⚡ AUTOPILOT"
+    _ap_sub_hero = ("Tu equipo completo trabajando en secuencia por ti · 8 créditos"
+                    if not _is_en_ui else "Your whole team working in sequence for you · 8 credits")
+    _ap_lock_txt = ("🔒 Disponible en Pro" if not _is_en_ui else "🔒 Available in Pro") if _ap_lock else ""
+    st.markdown(
+        f"""<div style="background:linear-gradient(90deg,#7C3AED,#D4A017);border-radius:12px;
+        padding:18px 22px;margin-bottom:8px;color:white;">
+        <span style="font-size:1.3em;font-weight:700;">{_ap_titulo_hero}</span>
+        <span style="float:right;font-weight:600;">{_ap_lock_txt}</span><br>
+        <span style="opacity:.92;">{_ap_sub_hero}</span></div>""",
+        unsafe_allow_html=True,
+    )
+    if st.button(("⚡ Activar Autopiloto →" if not _ap_lock else "🔒 Ver Autopiloto (Pro)") if not _is_en_ui
+                 else ("⚡ Activate Autopilot →" if not _ap_lock else "🔒 See Autopilot (Pro)"),
+                 key="hero_autopiloto", use_container_width=True):
+        st.session_state.agente_activo = "autopiloto"
+        st.rerun()
+
+    st.markdown("")
+    _orden_agentes = ["estratega", "creativo", "visual", "growth",
+                      "comercial", "espia", "operaciones", "analitico"]
+    for _fila_ag in (_orden_agentes[:4], _orden_agentes[4:]):
+        _cols_ag = st.columns(4)
+        for _col_ag, _ag_id in zip(_cols_ag, _fila_ag):
+            _ag_cfg = AGENTES[_ag_id]
+            _ag_nombre = _ag_cfg["nombre"][1] if _is_en_ui else _ag_cfg["nombre"][0]
+            _ag_desc = _ag_cfg["desc"][1] if _is_en_ui else _ag_cfg["desc"][0]
+            with _col_ag:
+                st.markdown(
+                    f"""<div style="border-top:3px solid {_ag_cfg['color']};border-radius:4px;
+                    padding-top:6px;margin-bottom:4px;"></div>""",
+                    unsafe_allow_html=True,
+                )
+                if st.button(f"{_ag_cfg['emoji']} {_ag_nombre}", key=f"card_{_ag_id}",
+                             use_container_width=True):
+                    st.session_state.agente_activo = _ag_id
+                    st.session_state["_subfuncion_activa"] = ""
+                    st.session_state["ctx_compartido"] = ""
+                    st.rerun()
+                st.caption(_ag_desc)
+
+    st.markdown("")
+    _cols_extra = st.columns(2 if _es_admin_ui else 1)
+    with _cols_extra[0]:
+        if st.button("📂 " + ("Mis Reportes" if not _is_en_ui else "My Reports"),
+                     key="btn_home_reportes", use_container_width=True):
+            st.session_state.agente_activo = "reportes"
+            st.rerun()
+    if _es_admin_ui:
+        with _cols_extra[1]:
+            if st.button("🛠 Dashboard Admin", key="btn_home_admin_dash", use_container_width=True):
+                st.session_state.agente_activo = "admin_dashboard"
+                st.rerun()
+
+elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto"):
+    if st.button("← " + ("Volver a mis agentes" if not _is_en_ui else "Back to my agents"),
+                 key="btn_volver_especial"):
+        st.session_state.agente_activo = None
+        st.session_state["ctx_compartido"] = ""
+        st.rerun()
+    _sec_activa = _agente_activo
+
+elif _agente_activo in AGENTES:
+    _ag_cfg = AGENTES[_agente_activo]
+    if st.button("← " + ("Volver a mis agentes" if not _is_en_ui else "Back to my agents"),
+                 key="btn_volver_agente"):
+        st.session_state.agente_activo = None
+        st.session_state["ctx_compartido"] = ""
+        st.rerun()
+    _ag_nombre_v = _ag_cfg["nombre"][1] if _is_en_ui else _ag_cfg["nombre"][0]
+    st.markdown(
+        f"""<h3 style="border-left:6px solid {_ag_cfg['color']};padding-left:10px;">
+        {_ag_cfg['emoji']} {_ag_nombre_v}</h3>""",
+        unsafe_allow_html=True,
+    )
+    _render_contexto_compartido(_agente_activo)
+    _sub_labels = [(s[1] if _is_en_ui else s[0]) for s in _ag_cfg["subfunciones"]]
+    _sub_sel = st.selectbox("Herramienta del agente:" if not _is_en_ui else "Agent tool:",
+                            _sub_labels, key=f"sub_{_agente_activo}")
+    _sub_idx = _sub_labels.index(_sub_sel)
+    _sec_activa = _ag_cfg["subfunciones"][_sub_idx][2]
+    _opcion_activa = _ag_cfg["subfunciones"][_sub_idx][3]
+    st.session_state["_subfuncion_activa"] = _ag_cfg["subfunciones"][_sub_idx][0]
+    st.divider()
+
+else:
+    st.session_state.agente_activo = None
+    _es_home = True
+
+# leer desde session_state en secciones
 alcance = st.session_state.get("alcance", f"NACIONAL ({pais})")
 producto_servicio = st.session_state.get("producto_servicio", "")
 
 # --- TAB 0: INICIO ---
-with tabs[0]:
+if _es_home:
     st.subheader(t("termometro"))
 
     # ✅ FIX: cliente_activo_nombre y todo el contenido DENTRO del with
@@ -1854,6 +2426,7 @@ with tabs[0]:
     if not st.session_state.get("nicho_guardado") and not st.session_state.get("producto_servicio"):
         st.markdown(t("onboarding"))
 
+if _sec_activa == "inicio" and _opcion_activa == "acciones":
     st.markdown(t("rec_inteligente"))
     if st.button(t("btn_rec")):
         if verificar_creditos(1):
@@ -1904,6 +2477,7 @@ Responde en este formato EXACTO sin introducciones:
         _panel_edicion(st.session_state["_ed_rec_hoy"], "rec_hoy", max_tokens=6000)
     st.caption("⚡ La acción más importante hoy · 1 crédito" if st.session_state.get("lang") != "en" else "⚡ The most important action today · 1 credit")
 
+if _sec_activa == "inicio" and _opcion_activa == "auditoria":
     st.divider()
     st.markdown("## 🩺 Auditoría Maestra del Negocio")
     st.caption("🩺 Diagnóstico profundo + potencial de mercado · 1 crédito")
@@ -2014,6 +2588,7 @@ Entrega la auditoría completa en este formato:
 
     st.caption("✨ Empieza aquí · 1 crédito" if st.session_state.get("lang") != "en" else "✨ Start here · 1 credit")
 
+if _sec_activa == "inicio" and _opcion_activa == "radar":
     # ── RADAR DE TENDENCIAS VIRALES ───────────────────────────────────────────
     st.divider()
     _radar_title = "\U0001f525 Viral Trends Radar" if st.session_state.get("lang") == "en" else "\U0001f525 Radar de Tendencias Virales"
@@ -2184,9 +2759,10 @@ Entrega la auditoría completa en este formato:
                             guardar_reporte(_email_r, "tendencia_adaptada", f"Tendencia: {_tnombre}", _adapt_res)
                         consumir(1)
 
+if _es_home:
     # ── RUTA DEL USUARIO ──────────────────────────────────────────────────────
     st.divider()
-    _ruta_title = "\U0001f5fa\ufe0f How do you want to use Chero today?" if st.session_state.get("lang") == "en" else "\U0001f5fa\ufe0f \u00bfC\u00f3mo quieres usar Chero hoy?"
+    _ruta_title = "\U0001f5fa\ufe0f How do you want to use Tentakl today?" if st.session_state.get("lang") == "en" else "\U0001f5fa\ufe0f \u00bfC\u00f3mo quieres usar Tentakl hoy?"
     st.subheader(_ruta_title)
 
     _RUTAS_ES = [
@@ -2297,6 +2873,7 @@ Entrega la auditoría completa en este formato:
                     st.caption(_step_desc)
 
 
+if _sec_activa == "inicio" and _opcion_activa == "plan_semanal":
     st.markdown(t("plan_semanal_titulo"))
     st.caption("\U0001f4c5 Planifica tu semana en 1 clic · 1 crédito" if st.session_state.get("lang") != "en" else "\U0001f4c5 Plan your week in 1 click · 1 credit")
     email_tab = (st.session_state.get("user_email") or "").strip().lower()
@@ -2425,27 +3002,14 @@ WhatsApp: [mejor día y hora]"""
                 st.markdown(st.session_state["_ed_plan_nuevo"])
                 _panel_edicion(st.session_state["_ed_plan_nuevo"], "plan_nuevo", max_tokens=6000)
 
-    # ── AUTOPILOTO SHORTCUT ───────────────────────────────────────────────────
-    st.divider()
-    _ap_title = "\U0001f916 Autopiloto IA" if st.session_state.get("lang") != "en" else "\U0001f916 AI Autopilot"
-    st.subheader(_ap_title)
-    st.caption("\U0001f916 Plan completo del mes · 5 agentes · 8 créditos" if st.session_state.get("lang") != "en" else "\U0001f916 Full monthly plan · 5 agents · 8 credits")
-    _ap_btn_lbl_i = "\U0001f916 Ir al Autopiloto →" if st.session_state.get("lang") != "en" else "\U0001f916 Go to Autopilot →"
-    st.info(("\U0001f916 **Autopiloto IA** — 5 agentes trabajan en secuencia:\n"
-             "1. Tendencias · 2. Estrategia del mes · 3. Posts listos · 4. Campaña de ads · 5. Plan de acción\n\n"
-             "→ Ve al tab **🤖 AUTOPILOTO** para activarlo.")
-            if st.session_state.get("lang") != "en" else
-            ("\U0001f916 **AI Autopilot** — 5 agents work in sequence:\n"
-             "1. Trends · 2. Monthly strategy · 3. Ready posts · 4. Ad campaign · 5. Action plan\n\n"
-             "→ Go to the **🤖 AUTOPILOT** tab to activate it."))
 
-# --- TAB 1: CALENDARIO ---
-with tabs[1]:
+# --- SECCIÓN: PLANIFICADOR CON TENDENCIAS (Estratega) ---
+if _sec_activa == "calendario":
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
-        st.info("👈 Panel izquierdo → Tu Cuenta → Email")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección." if st.session_state.get("lang") != "en" else "⚠ Enter your email in the sidebar to access this section.")
+        st.info("👈 Panel izquierdo → Tu Cuenta → Email" if st.session_state.get("lang") != "en" else "👈 Left panel → Your Account → Email")
     st.subheader("📅 Planificador Semanal Inteligente")
-    st.write("CHERO usará tendencias reales (Google Trends + YouTube) para armar tu semana.")
+    st.write("TENTAKL usará tendencias reales (Google Trends + YouTube) para armar tu semana.")
     st.info("✅ Recomendación: genera este plan **1 vez por semana** para mantener la coherencia.")
 
     if st.button("🪄 Generar Estrategia de la Semana (3 Créditos)"):
@@ -2485,11 +3049,11 @@ TONO: Experto, accionable y adaptado a la moneda {PAISES_MONEDA.get(pais, '$')}.
                 st.markdown(texto)
                 consumir(costo=costo)
 
-# --- TAB 2: MARKETING ---
-with tabs[2]:
+# --- SECCIÓN: HERRAMIENTAS DE MARKETING (varios agentes) ---
+if _sec_activa == "marketing":
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
-        st.info("👈 Panel izquierdo → Tu Cuenta → Email")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección." if st.session_state.get("lang") != "en" else "⚠ Enter your email in the sidebar to access this section.")
+        st.info("👈 Panel izquierdo → Tu Cuenta → Email" if st.session_state.get("lang") != "en" else "👈 Left panel → Your Account → Email")
     st.subheader(t("motor_atraccion"))
     st.write(t("motor_desc"))
     _mkt_keys = [
@@ -2500,9 +3064,7 @@ with tabs[2]:
         "Compliance Checker", "🕵 Inteligencia Competitiva", "Campaña de Catálogo",
         "Generador de Imagenes", "Simulador de Campaña",
     ]
-    _mkt_disp = st.selectbox(t("sel_herramienta"), t("mkt_tools"), key="mkt_sel")
-    opcion_mkt = _mkt_keys[t("mkt_tools").index(_mkt_disp)]
-    st.divider()
+    opcion_mkt = _opcion_activa
 
     if opcion_mkt == "Auditoría Visual (Video/Foto)":
         st.info("Sube tu contenido. La IA analizará calidad técnica, retención y ganchos.")
@@ -2640,7 +3202,7 @@ Hook 3: [primeros 3 segundos opción C]
             elif modo_ideas == "✨ Mejorar una idea que me gustó":
                 idea_usuario = st.text_area(
                     "¿Qué idea quieres potenciar?",
-                    placeholder="Pega o describe la idea que generó Chero o que se te ocurrió...",
+                    placeholder="Pega o describe la idea que generó Tentakl o que se te ocurrió...",
                     height=150,
                     key="idea_mejorar_input"
                 )
@@ -2721,7 +3283,7 @@ Genera 5 variaciones mejoradas con hooks distintos:
             elif modo_guion == "✏ Mejorar mi guión existente":
                 guion_usuario = st.text_area(
                     "Pega tu guión aquí",
-                    placeholder="Escribe o pega el guión que ya tienes y Chero lo mejorará...",
+                    placeholder="Escribe o pega el guión que ya tienes y Tentakl lo mejorará...",
                     height=200,
                     key="guion_mejorar_input"
                 )
@@ -2770,7 +3332,7 @@ Entrega:
             elif modo_guion == "✅ Revisar si mi guión funcionará":
                 guion_usuario = st.text_area(
                     "Pega tu guión aquí",
-                    placeholder="Escribe o pega el guión que ya tienes y Chero lo mejorará...",
+                    placeholder="Escribe o pega el guión que ya tienes y Tentakl lo mejorará...",
                     height=200,
                     key="guion_revisar_input"
                 )
@@ -3197,12 +3759,28 @@ Completa todas las secciones."""
                     with _ic_col2:
                         st.button("Hacer analisis nuevo", key="btn_ic_nuevo_ok")
         # ─────────────────────────────────────────────────────────────────────
+        _ic_url = st.text_input(
+            "URL del sitio web del competidor (opcional, para análisis real):",
+            placeholder="Ej: competidor.com",
+            key="ic_url_scrape"
+        )
         if _ic_input and st.button("🕵 Analizar Competidor (2 Creditos)", key="btn_ic_analizar"):
             if verificar_creditos(2):
                 _pais_ic = st.session_state.get("pais_guardado", pais)
+                # ── CAMBIO 5: scraping real del sitio del competidor ──────────
+                _ic_scrape_txt = ""
+                if _ic_url.strip():
+                    with st.spinner("🌐 Leyendo el sitio del competidor..."):
+                        _ic_sc = scrapear_url(_ic_url)
+                    if _ic_sc.get("error"):
+                        st.warning(f"🌐 {_ic_sc['error']} El análisis seguirá sin datos del sitio.")
+                    else:
+                        _ic_scrape_txt = ("\n\nDATOS REALES EXTRAÍDOS DE SU SITIO WEB (usa esto como fuente principal):\n"
+                                          + _scrape_a_texto(_ic_sc))
+                        st.success(f"✅ Sitio leído: {_ic_sc['title'][:60]}")
                 _prompt_ic = f"""Eres analista de inteligencia competitiva de marketing digital experto en el mercado de {_pais_ic}.
 
-Competidor a analizar: {_ic_input}
+Competidor a analizar: {_ic_input}{_ic_scrape_txt}
 Nicho del usuario: {nicho}
 Producto/Servicio propio: {producto_servicio}
 País: {_pais_ic}
@@ -3447,7 +4025,7 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
                             try:
                                 r_tn = requests.get(
                                     f"https://api.tiendanube.com/v1/{tn_id}/products",
-                                    headers={"Authentication": f"bearer {tn_tok}", "User-Agent": "CHERO-AI/1.0"},
+                                    headers={"Authentication": f"bearer {tn_tok}", "User-Agent": "TENTAKL-AI/1.0"},
                                     params={"per_page": 100}, timeout=15
                                 )
                                 if r_tn.status_code == 200:
@@ -3705,7 +4283,7 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                         try:
                             r_tn_n = requests.get(
                                 f"https://api.tiendanube.com/v1/{tn_id_n}/products",
-                                headers={"Authentication": f"bearer {tn_tok_n}", "User-Agent": "CHERO-AI/1.0"},
+                                headers={"Authentication": f"bearer {tn_tok_n}", "User-Agent": "TENTAKL-AI/1.0"},
                                 params={"per_page": 100}, timeout=15
                             )
                             if r_tn_n.status_code == 200:
@@ -3741,17 +4319,13 @@ Completa todas las secciones. No cortes el texto a la mitad."""
         _ig2_prod  = st.session_state.get("producto_servicio", "")
         _ig2_cli   = st.session_state.get("cliente_ideal_guardado", "")
 
-        _imagenes_limite = {
-            "Free": 0, "Demo": 5, "Starter": 5,
-            "Pro": 20, "Agency": 100, "Admin": 999
-        }
-        _ig2_limite = _imagenes_limite.get(_ig2_plan, 0)
+        _ig2_cfg = get_plan_config(_ig2_plan)
+        _ig2_limite = int(_ig2_cfg["imagenes_limite"])
         _ig2_usadas = st.session_state.get("imagenes_usadas", 0)
+        _ig2_ok_limite, _ig2_msg_limite = verificar_limite_imagenes()
 
-        if _ig2_limite == 0:
-            st.info("Disponible desde plan Starter ($29/mes)")
-        elif _ig2_usadas >= _ig2_limite:
-            st.warning(f"Usaste tus {_ig2_limite} imágenes de este mes. Se renuevan el 1 del próximo mes.")
+        if not _ig2_ok_limite:
+            _mostrar_upgrade(f"🐙 {_ig2_msg_limite}")
         else:
             st.caption(f"Imágenes disponibles: {_ig2_limite - _ig2_usadas}/{_ig2_limite} este mes")
 
@@ -3837,13 +4411,10 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 "WhatsApp Estado (9:16)":          "1024x1792",
             }
 
-            # Calidad HIGH para todos excepto Free
-            _ig2_calidad_map = {
-                "Free": "low", "Demo": "high", "Starter": "high",
-                "Pro": "high", "Agency": "high", "Admin": "high"
-            }
-            _ig2_calidad  = _ig2_calidad_map.get(_ig2_plan, "low")
-            _ig2_creditos = 5
+            # Calidad de imagen según plan (planes_config): Free low, Starter medium, Pro/Agency high
+            _ig2_calidad  = _ig2_cfg["calidad_imagen"]
+            _ig2_creditos = COSTO_CREDITOS["imagen"]
+            st.caption(f"Imágenes disponibles: {max(_ig2_limite - int(_ig2_usadas), 0)}/{_ig2_limite} este mes · calidad {_ig2_calidad}")
 
             if st.button(f"🎨 Generar imagen premium ({_ig2_creditos} créditos)", key="btn_ig2_gen"):
                 if not _ig2_desc:
@@ -3938,7 +4509,7 @@ Quality: Award-winning commercial photography, Sony A7R IV quality, high convers
                                 st.download_button(
                                     "⬇️ Descargar imagen",
                                     data=_img_bytes,
-                                    file_name=f"chero_img_{_ig2_marca}.png",
+                                    file_name=f"tentakl_img_{_ig2_marca}.png",
                                     mime="image/png",
                                     key="ig2_dl_0"
                                 )
@@ -3953,8 +4524,8 @@ Quality: Award-winning commercial photography, Sony A7R IV quality, high convers
                             st.caption("Haz click en el ícono de copiar (esquina superior derecha del bloque):")
                             st.code(_prompt_final, language=None)
 
-                        consumir(_ig2_creditos)
-                        st.session_state["imagenes_usadas"] = _ig2_usadas + 1
+                        consumir(_ig2_creditos, tipo_accion="imagen")
+                        registrar_uso_imagen()
 
                         if _ig2_email:
                             guardar_reporte(
@@ -4060,16 +4631,13 @@ Quality: Award-winning commercial photography, Sony A7R IV quality, high convers
                 consumir(5)
 
 
-# --- TAB 3: VENTAS ---
-with tabs[3]:
+# --- SECCIÓN: VENTAS (agente Comercial) ---
+if _sec_activa == "ventas":
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
-        st.info("👈 Panel izquierdo → Tu Cuenta → Email")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección." if st.session_state.get("lang") != "en" else "⚠ Enter your email in the sidebar to access this section.")
+        st.info("👈 Panel izquierdo → Tu Cuenta → Email" if st.session_state.get("lang") != "en" else "👈 Left panel → Your Account → Email")
     st.subheader(t("cerrador"))
-    _sales_keys = ["Psicólogo de Precios", "Mata-Objeciones", "Calculadora Descuentos"]
-    _sales_idx = st.selectbox(t("sel_herramienta"), t("sales_tools"), key="vta_sel")
-    opcion_vta = _sales_keys[t("sales_tools").index(_sales_idx)]
-    st.divider()
+    opcion_vta = _opcion_activa
 
     if opcion_vta == "Psicólogo de Precios":
         p = st.number_input("Precio a optimizar:", min_value=0.0, value=0.0)
@@ -4124,16 +4692,13 @@ with tabs[3]:
                 st.markdown(generar_texto(prompt, max_out=6000))
                 consumir(1)
 
-# --- TAB 4: ADMIN ---
-with tabs[4]:
+# --- SECCIÓN: OFICINA VIRTUAL (varios agentes) ---
+if _sec_activa == "admin":
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
-        st.info("👈 Panel izquierdo → Tu Cuenta → Email")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección." if st.session_state.get("lang") != "en" else "⚠ Enter your email in the sidebar to access this section.")
+        st.info("👈 Panel izquierdo → Tu Cuenta → Email" if st.session_state.get("lang") != "en" else "👈 Left panel → Your Account → Email")
     st.subheader(t("oficina"))
-    _admin_keys = ["Analista ROI (CSV)", "Cotizaciones", "Contratos", "Reglas de Marca", "Analizador de Métricas", "Integraciones"]
-    _admin_idx = st.selectbox(t("sel_herramienta"), t("admin_tools"), key="adm_sel")
-    opcion_adm = _admin_keys[t("admin_tools").index(_admin_idx)]
-    st.divider()
+    opcion_adm = _opcion_activa
 
     if opcion_adm == "Analista ROI (CSV)":
         csv = st.file_uploader("Sube tu archivo (Excel o CSV):", type=["csv", "xlsx"])
@@ -4538,7 +5103,7 @@ Sé muy específico con los números que ves en la imagen."""
             else:
                 # NOT CONNECTED — show instructions + form
                 st.info(
-                    "📊 **Conecta Google Analytics** para que Chero analice el tráfico de tu web:\n\n"
+                    "📊 **Conecta Google Analytics** para que Tentakl analice el tráfico de tu web:\n\n"
                     "**Paso 1:** Ve a analytics.google.com\n"
                     "**Paso 2:** Admin → Configuración de propiedad\n"
                     "**Paso 3:** Copia tu ID de propiedad (G-XXXXXXXX)\n"
@@ -4546,7 +5111,7 @@ Sé muy específico con los números que ves en la imagen."""
                     "**Paso 5:** Crea un proyecto → Habilita **Google Analytics Data API**\n"
                     "**Paso 6:** Crea credenciales → API Key\n"
                     "**Paso 7:** Pega ambos datos abajo" if not _is_en_int else
-                    "📊 **Connect Google Analytics** so Chero can analyze your web traffic:\n\n"
+                    "📊 **Connect Google Analytics** so Tentakl can analyze your web traffic:\n\n"
                     "**Step 1:** Go to analytics.google.com\n"
                     "**Step 2:** Admin → Property settings\n"
                     "**Step 3:** Copy your property ID (G-XXXXXXXX)\n"
@@ -4738,12 +5303,11 @@ Sé muy específico con los números que ves en la imagen."""
                 st.info("\U0001f4ca Google Ads\n\U0001f51c Próximamente")
 
 
-# --- TAB 5: MIS REPORTES ---
-# ✅ FIX: TODO el contenido dentro del with tabs[5]
-with tabs[5]:
+# --- SECCIÓN: MIS REPORTES ---
+if _sec_activa == "reportes":
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
-        st.info("👈 Panel izquierdo → Tu Cuenta → Email")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección." if st.session_state.get("lang") != "en" else "⚠ Enter your email in the sidebar to access this section.")
+        st.info("👈 Panel izquierdo → Tu Cuenta → Email" if st.session_state.get("lang") != "en" else "👈 Left panel → Your Account → Email")
     st.subheader("📂 Mis Reportes")
     cliente_activo_nombre_rep = st.session_state.get("cliente_activo_nombre", "").strip()
     if cliente_activo_nombre_rep:
@@ -4825,11 +5389,11 @@ def db_obtener_kpis(user_email):
     except Exception:
         return []
 
-# --- TAB 6: POWER TOOLS ---
-with tabs[6]:
+# --- SECCIÓN: POWER TOOLS (varios agentes) ---
+if _sec_activa == "power":
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
-        st.info("👈 Panel izquierdo → Tu Cuenta → Email")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección." if st.session_state.get("lang") != "en" else "⚠ Enter your email in the sidebar to access this section.")
+        st.info("👈 Panel izquierdo → Tu Cuenta → Email" if st.session_state.get("lang") != "en" else "👈 Left panel → Your Account → Email")
     _is_en_pw = st.session_state.get("lang") == "en"
 
     if _is_en_pw:
@@ -4839,19 +5403,7 @@ with tabs[6]:
         st.subheader("\u26a1 POWER TOOLS")
         st.caption("Herramientas avanzadas para profesionales.")
 
-    _POWER_KEYS = [
-        "Email Marketing", "Gesti\u00f3n de Comunidad", "Influencer Marketing",
-        "Auditor\u00eda SEO Completa",
-        "PR Digital", "Tracker de KPIs", "Optimizador Landing CRO",
-    ]
-    _power_disp = st.selectbox(
-        t("sel_herramienta"),
-        t("power_tools"),
-        key="power_sel"
-    )
-    opcion_power = _POWER_KEYS[t("power_tools").index(_power_disp)]
-
-    st.divider()
+    opcion_power = _opcion_activa
 
     # ── 1. EMAIL MARKETING ────────────────────────────────────────────────────
     if opcion_power == "Email Marketing":
@@ -5061,17 +5613,31 @@ with tabs[6]:
             _seo_btn      = "\U0001f50d Ejecutar Auditor\u00eda SEO (3 cr\u00e9ditos)"
 
         _seo_pag = st.selectbox(_seo_pag_lbl, _seo_pag_opts, key="seo_pag")
-        _seo_man = st.text_area(_seo_man_lbl, placeholder=_seo_man_ph, height=300, key="seo_man")
+        # \u2500\u2500 CAMBIO 5: analizar la URL real de la p\u00e1gina \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        _seo_url = st.text_input("\ud83c\udf10 URL de tu p\u00e1gina (recomendado, an\u00e1lisis real):" if not _is_en_pw
+                                  else "\ud83c\udf10 Your page URL (recommended, real analysis):",
+                                  placeholder="Ej: mitienda.com" if not _is_en_pw else "Ex: mystore.com",
+                                  key="seo_url_scrape")
+        _seo_man = st.text_area(_seo_man_lbl, placeholder=_seo_man_ph, height=200, key="seo_man")
         if st.button(_seo_btn, key="btn_seo_gen"):
-            if not _seo_man.strip():
-                st.warning("Pega el texto de tu p\u00e1gina primero." if not _is_en_pw else "Paste your page text first.")
+            _seo_scrape_txt = ""
+            if _seo_url.strip():
+                with st.spinner("\ud83c\udf10 Leyendo tu p\u00e1gina..." if not _is_en_pw else "\ud83c\udf10 Reading your page..."):
+                    _seo_sc = scrapear_url(_seo_url)
+                if _seo_sc.get("error"):
+                    st.warning(f"\ud83c\udf10 {_seo_sc['error']}")
+                else:
+                    _seo_scrape_txt = _scrape_a_texto(_seo_sc)
+                    st.success(f"\u2705 P\u00e1gina le\u00edda: {_seo_sc['title'][:60]}")
+            if not _seo_man.strip() and not _seo_scrape_txt:
+                st.warning("Pega el texto de tu p\u00e1gina o ingresa su URL." if not _is_en_pw else "Paste your page text or enter its URL.")
             elif verificar_creditos(3):
                 _seo_raw_text = _seo_man.strip()[:5000]
                 _seo_nicho  = st.session_state.get("nicho_guardado", nicho)
                 _seo_marca  = st.session_state.get("marca_guardada", "")
                 _seo_pais_v = st.session_state.get("pais_guardado", pais)
                 _seo_prefix = "Respond ONLY in English.\n\n" if _is_en_pw else ""
-                _seo_datos_str = f"Texto de la p\u00e1gina:\n{_seo_raw_text}"
+                _seo_datos_str = (_seo_scrape_txt + "\n\n" if _seo_scrape_txt else "") + (f"Texto adicional pegado por el usuario:\n{_seo_raw_text}" if _seo_raw_text else "")
 
                 _seo_prompt = (_seo_prefix +
                     f"Realiza una auditor\u00eda SEO completa para esta p\u00e1gina de tipo '{_seo_pag}'.\n"
@@ -5272,11 +5838,27 @@ with tabs[6]:
             _cro_ph  = "Pega aqu\u00ed todo el texto de tu landing page..."
             _cro_btn = "\U0001f3af Analizar y optimizar (2 cr\u00e9ditos)"
 
+        # ── CAMBIO 5: analizar la URL real de la landing ───────────────────────
+        _cro_url = st.text_input("🌐 URL de tu landing (recomendado, análisis real):" if not _is_en_pw
+                                  else "🌐 Your landing URL (recommended, real analysis):",
+                                  placeholder="Ej: mitienda.com/oferta" if not _is_en_pw else "Ex: mystore.com/offer",
+                                  key="cro_url_scrape")
         _cro_texto = st.text_area(_cro_lbl, placeholder=_cro_ph, height=200, key="cro_texto")
         if st.button(_cro_btn, key="btn_cro_gen"):
+            _cro_scrape_txt = ""
+            if _cro_url.strip():
+                with st.spinner("🌐 Leyendo tu landing..." if not _is_en_pw else "🌐 Reading your landing..."):
+                    _cro_sc = scrapear_url(_cro_url)
+                if _cro_sc.get("error"):
+                    st.warning(f"🌐 {_cro_sc['error']}")
+                else:
+                    _cro_scrape_txt = _scrape_a_texto(_cro_sc)
+                    st.success(f"✅ Landing leída: {_cro_sc['title'][:60]}")
+                    if not _cro_texto.strip():
+                        _cro_texto = _cro_sc["texto"][:3000]
             if not _cro_texto.strip():
-                st.warning("Pega el texto de tu landing page primero." if not _is_en_pw else "Paste your landing page text first.")
-            elif len(_cro_texto) > 3000:
+                st.warning("Pega el texto de tu landing page o ingresa su URL." if not _is_en_pw else "Paste your landing page text or enter its URL.")
+            elif len(_cro_texto) > 3000 and not _cro_scrape_txt:
                 st.warning("⚠ Texto demasiado largo, máximo 3000 caracteres")
             elif verificar_creditos(2):
                 _cro_texto = _sanitizar(_cro_texto)
@@ -5352,392 +5934,169 @@ def db_incrementar_autopiloto(user_email, mes):
     except Exception as _e:
         print(f"[Autopiloto] DB error: {_e}")
 
-# --- TAB 7: AUTOPILOTO ---
-with tabs[7]:
-    if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
-        st.info("👈 Panel izquierdo → Tu Cuenta → Email")
+# --- SECCIÓN: AUTOPILOTO (orquestador dinámico, CAMBIO 8) ---
+if _sec_activa == "autopiloto":
     _is_en_ap = st.session_state.get("lang") == "en"
-    _ap_icon  = "\U0001f916"
+    _email_ap = (st.session_state.get("user_email") or "").strip().lower()
+    _plan_ap = st.session_state.get("plan", "Free")
+    _mes_ap = dt.now().strftime("%Y-%m")
 
-    if _is_en_ap:
-        st.subheader(f"{_ap_icon} Autopilot")
-        st.caption("5 AI agents working in sequence to build your complete monthly plan.")
+    st.subheader("⚡ Autopiloto" if not _is_en_ap else "⚡ Autopilot")
+    st.caption("Tu equipo de agentes coordinado en secuencia · 8 créditos por corrida"
+               if not _is_en_ap else "Your agent team coordinated in sequence · 8 credits per run")
+
+    if not _email_ap:
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección."
+                   if not _is_en_ap else "⚠ Enter your email in the sidebar to access this section.")
+    elif _plan_ap not in ("Pro", "Agency", "Admin"):
+        _mostrar_upgrade("🔒 El Autopiloto está disponible desde el plan Pro ($39/mes). Deja que tu equipo completo trabaje por ti:"
+                         if not _is_en_ap else
+                         "🔒 Autopilot is available from the Pro plan ($39/mo). Let your whole team work for you:")
     else:
-        st.subheader(f"{_ap_icon} Autopiloto")
-        st.caption("5 agentes de IA trabajando en secuencia para armar tu plan mensual completo.")
+        _usos_ap = db_get_autopiloto_usos(_email_ap, _mes_ap)
+        st.caption((f"Corridas este mes: {_usos_ap}" if not _is_en_ap else f"Runs this month: {_usos_ap}"))
 
-    # ── Access control ─────────────────────────────────────────────────────────
-    _plan_ap   = st.session_state.get("plan", "Free")
-    _email_ap  = (st.session_state.get("user_email") or "").strip().lower()
-    _mes_ap    = dt.now().strftime("%Y-%m")
-    _LIMITES_AP = {"Free": 1, "Starter": 3, "Pro": 20, "Agency": 99999, "Admin": 99999}
-    _limite_ap  = _LIMITES_AP.get(_plan_ap, 0)
-
-    # Count current uses
-    if _plan_ap == "Free":
-        _usos_ap = 1 if st.session_state.get("autopiloto_free_usado") else 0
-    else:
-        _usos_ap = db_get_autopiloto_usos(_email_ap, _mes_ap) if _email_ap else 0
-
-    _tiene_acceso = _usos_ap < _limite_ap
-
-    if not _tiene_acceso:
-        st.warning(
-            "\U0001f916 El Autopiloto est\u00e1 disponible desde el plan Pro ($49/mes)"
+        _ap_pedido = st.text_area(
+            "¿Qué necesitas que tu equipo logre?" if not _is_en_ap else "What do you need your team to achieve?",
+            placeholder=("Ej: Quiero aumentar ventas 30% este mes, tengo un nuevo producto lanzando la próxima semana."
+                         if not _is_en_ap else
+                         "Ex: I want to increase sales 30% this month, I have a new product launching next week."),
+            height=90, key="ap_pedido_orq"
+        )
+        _ap_incluir_img = st.checkbox(
+            "🎨 Incluir 1 imagen de campaña (descuenta 1 imagen de tu límite mensual, sin créditos extra)"
             if not _is_en_ap else
-            "\U0001f916 Autopilot is available from the Pro plan ($49/mo)"
-        )
-        if _plan_ap != "Free":
-            _usados_lbl = "uses this month" if _is_en_ap else "usos este mes"
-            st.caption(f"{_usos_ap}/{_limite_ap} {_usados_lbl}")
-    else:
-
-        # ── Usage counter ──────────────────────────────────────────────────────────
-        if _plan_ap not in ("Agency", "Admin"):
-            _restantes_ap = _limite_ap - _usos_ap
-            _rest_lbl = f"{_restantes_ap} use(s) left this month" if _is_en_ap else f"{_restantes_ap} uso(s) restante(s) este mes"
-            st.info(f"\U0001f4ca {_rest_lbl}")
-
-        # ── Form ───────────────────────────────────────────────────────────────────
-        _ap_lbl = "Specific goal or extra context (optional):" if _is_en_ap else "Objetivo espec\u00edfico o contexto extra (opcional):"
-        _ap_ph  = ("Ex: I want to increase sales 30% this month, I have a new product launching next week."
-                   if _is_en_ap else
-                   "Ej: Quiero aumentar ventas 30% este mes, tengo un nuevo producto lanzando la pr\u00f3xima semana.")
-
-        autopiloto_descripcion = st.text_area(
-            _ap_lbl, placeholder=_ap_ph, height=80,
-            key="autopiloto_descripcion"
+            "🎨 Include 1 campaign image (uses 1 image from your monthly limit, no extra credits)",
+            key="ap_incluir_img"
         )
 
-        _ap_nicho_p  = st.session_state.get("nicho_guardado", nicho)
-        _ap_marca_p  = st.session_state.get("marca_guardada", "")
-        _ap_prod_p   = st.session_state.get("producto_servicio", "")
-        if not _ap_nicho_p and not _ap_marca_p and not _ap_prod_p:
-            st.warning("Para resultados óptimos completa tu perfil en el sidebar primero ⚠" if not _is_en_ap else "For best results complete your business profile in the sidebar first ⚠")
+        _AP_ROLES = {
+            "estratega":  ("Estratega", "diagnóstico del negocio, tendencias y plan de acción"),
+            "creativo":   ("Creativo", "contenido para redes, guiones de TikTok/Reels y storytelling"),
+            "visual":     ("Visual", "dirección de arte y briefs de imágenes de campaña"),
+            "growth":     ("Growth", "campañas de ads, segmentación, embudos y compliance"),
+            "comercial":  ("Comercial", "precios, ofertas, cierres de venta y seguimiento"),
+            "espia":      ("Espía", "análisis de competencia y diferenciación"),
+            "operaciones":("Operaciones", "emails, comunidad y consistencia de marca"),
+            "analitico":  ("Analítico", "KPIs, métricas y plan de medición"),
+        }
 
-        _ap_btn_lbl = f"{_ap_icon} Activate Autopilot (8 credits)" if _is_en_ap else f"{_ap_icon} Activar Autopiloto (8 cr\u00e9ditos)"
-
-        # ── Per-agent Gemini caller with 3 retries + 5s sleep on 503 ──────────
-        def _ap_llamar(prompt, max_out):
-            import time as _t2
-            for _i in range(3):
-                try:
-                    resp = client.models.generate_content(
-                        model=MODELO_FUERTE,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(max_output_tokens=max_out)
-                    )
-                    return resp.text
-                except Exception as _e2:
-                    _msg2 = str(_e2).upper()
-                    if any(x in _msg2 for x in ["503", "UNAVAILABLE", "OVERLOADED", "RESOURCE_EXHAUSTED"]):
-                        if _i < 2:
-                            _t2.sleep(5)
-                            continue
-                    break
-            return None
-
-        def _ap_fallo(num):
-            st.session_state["autopiloto_ultimo_agente"] = num
-            if not _is_en_ap:
-                st.warning(
-                    f"⚠ El Agente {num} tuvo un problema. "
-                    f"Los demás resultados están guardados. "
-                    f"Haz clic en Reintentar para continuar."
-                )
-            else:
-                st.warning(
-                    f"⚠ Agent {num} had a problem. "
-                    f"Other results are saved. "
-                    f"Click Retry to continue."
-                )
-
-        def _ap_ejecutar(desde):
-            _nicho_ap   = st.session_state.get("nicho_guardado", nicho)
-            _pais_ap    = st.session_state.get("pais_guardado", pais)
-            _marca_ap   = st.session_state.get("marca_guardada", "")
-            _prod_ap    = st.session_state.get("producto_servicio", "")
-            _cliente_ap = st.session_state.get("cliente_ideal_guardado", "")
-            _moneda_ap  = PAISES_MONEDA.get(_pais_ap, "$")
-            _desc_ap    = _sanitizar(st.session_state.get("autopiloto_descripcion", ""))
-            _lang_pfx   = "Respond ONLY in English.\n\n" if _is_en_ap else ""
-
-            # Load any existing outputs (so retry can build on them)
-            _o1 = st.session_state.get("ap_o1", "")
-            _o2 = st.session_state.get("ap_o2", "")
-            _o3 = st.session_state.get("ap_o3", "")
-            _o4 = st.session_state.get("ap_o4", "")
-
-            _pb = st.progress(0, text="🤖 Iniciando agentes..." if not _is_en_ap else "🤖 Starting agents...")
-
-            # ── AGENTE 1 — Tendencias ──────────────────────────────────────
-            if desde <= 1:
-                _lbl1 = "🔍 Agente 1/5 — Analizando tendencias..." if not _is_en_ap else "🔍 Agent 1/5 — Analyzing trends..."
-                st.info(_lbl1)
-                _pb.progress(10, text=_lbl1)
-                _p1 = (_lang_pfx +
-                    f"INSTRUCCIÓN: Responde SOLO con el contenido estructurado. Sin introducciones, sin 'Claro que sí', sin explicaciones previas. Empieza directo con el primer encabezado.\n\n"
-                    f"Nicho: {_nicho_ap} | País: {_pais_ap} | Marca: {_marca_ap} | Producto: {_prod_ap} | Cliente ideal: {_cliente_ap}\n"
-                    + (f"Objetivo extra: {_desc_ap}\n" if _desc_ap else "") +
-                    f"\n"
-                    f"## 🔥 TOP 3 TENDENCIAS AHORA EN {_pais_ap}\n"
-                    f"Para cada tendencia escribe:\n"
-                    f"**Tendencia [N]: [nombre]**\n"
-                    f"- Por qué funciona ahora:\n"
-                    f"- Cómo aplicarla a {_nicho_ap}:\n"
-                    f"- Ejemplo de post concreto:\n\n"
-                    f"## ⏰ MEJORES HORARIOS PARA PUBLICAR\n"
-                    f"| Red Social | Días | Hora | Por qué |\n"
-                    f"|---|---|---|---|\n"
-                    f"(llena la tabla con datos reales para {_pais_ap})\n\n"
-                    f"## 🏷 HASHTAGS EN CRECIMIENTO\n"
-                    f"- **Instagram:** [10 hashtags]\n"
-                    f"- **TikTok:** [10 hashtags]\n"
-                    f"- **Facebook:** [5 hashtags]")
-                _o1 = _ap_llamar(_p1, 8000)
-                if _o1 is None:
-                    _ap_fallo(1)
-                    return False
-                st.session_state["ap_o1"] = _o1
-                _pb.progress(28, text="✅ Tendencias listas" if not _is_en_ap else "✅ Trends done")
-
-            # ── AGENTE 2 — Estrategia ──────────────────────────────────────
-            if desde <= 2:
-                _lbl2 = "📋 Agente 2/5 — Creando estrategia del mes..." if not _is_en_ap else "📋 Agent 2/5 — Creating monthly strategy..."
-                st.info(_lbl2)
-                _pb.progress(30, text=_lbl2)
-                _p2 = (_lang_pfx +
-                    f"INSTRUCCIÓN: Responde SOLO con el plan estructurado. Sin introducciones. Empieza directo con Semana 1.\n\n"
-                    f"Negocio: {_marca_ap} | Producto: {_prod_ap} | Cliente: {_cliente_ap} | País: {_pais_ap}\n"
-                    f"Tendencias detectadas: {_o1[:600]}\n\n"
-                    f"## 📅 PLAN DE CONTENIDO — 4 SEMANAS\n\n"
-                    f"### SEMANA 1 — [Tema principal]\n"
-                    f"| Día | Red | Tipo de post | Objetivo | Idea concreta |\n"
-                    f"|---|---|---|---|---|\n"
-                    f"(5 filas: lunes a viernes)\n\n"
-                    f"### SEMANA 2 — [Tema principal]\n"
-                    f"(misma tabla)\n\n"
-                    f"### SEMANA 3 — [Tema principal]\n"
-                    f"(misma tabla)\n\n"
-                    f"### SEMANA 4 — [Tema principal]\n"
-                    f"(misma tabla)\n\n"
-                    f"## 🎯 OBJETIVO MENSUAL\n"
-                    f"- Métrica principal a crecer:\n"
-                    f"- Meta número concreto:\n"
-                    f"- Cómo medirlo:")
-                _o2 = _ap_llamar(_p2, 8000)
-                if _o2 is None:
-                    _ap_fallo(2)
-                    return False
-                st.session_state["ap_o2"] = _o2
-                _pb.progress(48, text="✅ Estrategia lista" if not _is_en_ap else "✅ Strategy done")
-
-            # ── AGENTE 3 — Copywriter ────────────────────────────────────
-            if desde <= 3:
-                _lbl3 = "✍ Agente 3/5 — Generando contenido..." if not _is_en_ap else "✍ Agent 3/5 — Generating content..."
-                st.info(_lbl3)
-                _pb.progress(50, text=_lbl3)
-                _p3 = (_lang_pfx +
-                    f"INSTRUCCIÓN: Escribe los 5 posts COMPLETOS. Sin introducciones. Empieza directo con POST 1.\n\n"
-                    f"Marca: {_marca_ap} | Producto: {_prod_ap} | País: {_pais_ap}\n"
-                    f"Plan base: {_o2[:400]}\n\n"
-                    f"## ✍ 5 POSTS LISTOS PARA PUBLICAR\n\n"
-                    f"---\n"
-                    f"### POST 1 — INSTAGRAM EDUCATIVO\n"
-                    f"**Red:** Instagram | **Formato:** Carrusel o imagen\n"
-                    f"**Texto completo:**\n"
-                    f"[Escribe aquí el copy completo con emojis, hasta 2200 caracteres]\n"
-                    f"**Hashtags:** [15 hashtags relevantes]\n"
-                    f"**CTA:** [llamada a la acción concreta]\n\n"
-                    f"---\n"
-                    f"### POST 2 — TIKTOK VIRAL\n"
-                    f"**Red:** TikTok | **Formato:** Video 15-60s\n"
-                    f"**Gancho (primeros 3 segundos):** [frase de impacto]\n"
-                    f"**Script completo:**\n"
-                    f"[Escribe el guión completo en bloques de tiempo]\n"
-                    f"**Hashtags:** [10 hashtags TikTok]\n\n"
-                    f"---\n"
-                    f"### POST 3 — FACEBOOK VENTAS DIRECTAS\n"
-                    f"**Red:** Facebook | **Formato:** Imagen + texto\n"
-                    f"**Texto completo:**\n"
-                    f"[Copy orientado a conversión con precio/oferta]\n"
-                    f"**CTA:** [botón o acción concreta]\n\n"
-                    f"---\n"
-                    f"### POST 4 — WHATSAPP BUSINESS\n"
-                    f"**Canal:** WhatsApp Status + mensaje directo\n"
-                    f"**Mensaje completo:**\n"
-                    f"[Texto corto, persuasivo, con emoji, máximo 500 caracteres]\n\n"
-                    f"---\n"
-                    f"### POST 5 — INSTAGRAM STORY INTERACCIÓN\n"
-                    f"**Red:** Instagram Stories | **Formato:** Story con encuesta/pregunta\n"
-                    f"**Texto principal:** [copy del story]\n"
-                    f"**Sticker sugerido:** [encuesta / pregunta / slider]\n"
-                    f"**Opciones de respuesta:** [si es encuesta]")
-                _o3 = _ap_llamar(_p3, 8000)
-                if _o3 is None:
-                    _ap_fallo(3)
-                    return False
-                st.session_state["ap_o3"] = _o3
-                _pb.progress(68, text="✅ Contenido listo" if not _is_en_ap else "✅ Content done")
-
-            # ── AGENTE 4 — Publicidad ─────────────────────────────────────
-            if desde <= 4:
-                _lbl4 = "📢 Agente 4/5 — Preparando campañas de ads..." if not _is_en_ap else "📢 Agent 4/5 — Preparing ad campaigns..."
-                st.info(_lbl4)
-                _pb.progress(70, text=_lbl4)
-                _p4 = (_lang_pfx +
-                    f"INSTRUCCIÓN: Responde SOLO con la campaña estructurada. Sin introducciones. Empieza directo con el anuncio.\n\n"
-                    f"Marca: {_marca_ap} | Producto: {_prod_ap} | País: {_pais_ap} | Moneda: {_moneda_ap}\n"
-                    f"Cliente ideal: {_cliente_ap}\n\n"
-                    f"## 📢 CAMPAÑA DE PUBLICIDAD PAGA\n\n"
-                    f"### ANUNCIO 1 — FACEBOOK/INSTAGRAM\n"
-                    f"**Objetivo:** Tráfico / Conversiones\n"
-                    f"**Texto principal (copy completo):**\n"
-                    f"[Escribe el copy completo del anuncio con emojis y gancho fuerte]\n"
-                    f"**Título del anuncio:** [máximo 27 caracteres]\n"
-                    f"**Descripción:** [máximo 125 caracteres]\n"
-                    f"**CTA del botón:** [Comprar / Reservar / Contactar / etc]\n\n"
-                    f"### SEGMENTACIÓN EXACTA\n"
-                    f"- **País/Ciudad:** {_pais_ap}\n"
-                    f"- **Edad:** [rango]\n"
-                    f"- **Género:** [si aplica]\n"
-                    f"- **Intereses a copiar en Ads Manager:**\n"
-                    f"  1. [interés]\n  2. [interés]\n  3. [interés]\n  4. [interés]\n  5. [interés]\n"
-                    f"- **Comportamientos:** [compras online / etc]\n\n"
-                    f"### PRESUPUESTO SUGERIDO\n"
-                    f"| Nivel | Presupuesto diario | Presupuesto mensual | Alcance estimado |\n"
-                    f"|---|---|---|---|\n"
-                    f"| Entrada | {_moneda_ap}X | {_moneda_ap}X | X-X personas |\n"
-                    f"| Medio | {_moneda_ap}X | {_moneda_ap}X | X-X personas |\n"
-                    f"| Escalado | {_moneda_ap}X | {_moneda_ap}X | X-X personas |\n\n"
-                    f"### 🛡 SCORE COMPLIANCE: [0-100]/100\n"
-                    f"- Elementos que podrían rechazarse: [lista]\n"
-                    f"- Ajustes recomendados: [lista]")
-                _o4 = _ap_llamar(_p4, 8000)
-                if _o4 is None:
-                    _ap_fallo(4)
-                    return False
-                st.session_state["ap_o4"] = _o4
-                _pb.progress(88, text="✅ Ads listos" if not _is_en_ap else "✅ Ads done")
-
-            # ── AGENTE 5 — Resumen ejecutivo ──────────────────────────────
-            _lbl5 = "📊 Agente 5/5 — Compilando plan de acción..." if not _is_en_ap else "📊 Agent 5/5 — Compiling action plan..."
-            st.info(_lbl5)
-            _pb.progress(90, text=_lbl5)
-            _p5 = (_lang_pfx +
-                f"INSTRUCCIÓN: Responde SOLO con el plan de acción. Sin introducciones. Empieza directo con las acciones.\n\n"
-                f"Marca: {_marca_ap} | País: {_pais_ap} | Moneda: {_moneda_ap}\n\n"
-                f"## 🎯 PLAN DE ACCIÓN — RESUMEN EJECUTIVO\n\n"
-                f"### ⚡ TOP 3 ACCIONES PARA HOY (en orden de impacto)\n"
-                f"1. **[Acción]** — [cómo hacerlo en menos de 30 min]\n"
-                f"2. **[Acción]** — [cómo hacerlo en menos de 30 min]\n"
-                f"3. **[Acción]** — [cómo hacerlo en menos de 30 min]\n\n"
-                f"### 📅 QUÉ PUBLICAR ESTA SEMANA\n"
-                f"| Día | Plataforma | Contenido | Hora |\n"
-                f"|---|---|---|---|\n"
-                f"| Lunes | | | |\n"
-                f"| Martes | | | |\n"
-                f"| Miércoles | | | |\n"
-                f"| Jueves | | | |\n"
-                f"| Viernes | | | |\n\n"
-                f"### 💰 INVERSIÓN EN ADS ESTE MES\n"
-                f"- **Mínimo recomendado:** {_moneda_ap}[X] (solo si tienes presupuesto limitado)\n"
-                f"- **Presupuesto óptimo:** {_moneda_ap}[X]\n"
-                f"- **Dónde invertir primero:** [plataforma y por qué]\n\n"
-                f"### 📊 MÉTRICA PRINCIPAL A MEDIR\n"
-                f"- **KPI #1:** [métrica] — Meta: [número concreto]\n"
-                f"- **KPI #2:** [métrica] — Meta: [número concreto]\n"
-                f"- **Cómo medirlo:** [herramienta o método]\n\n"
-                f"### 📝 RESUMEN EN 1 FRASE\n"
-                f"[Una frase que capture la estrategia completa del mes para {_marca_ap}]")
-            _o5 = _ap_llamar(_p5, 8000)
-            if _o5 is None:
-                _ap_fallo(5)
-                return False
-            st.session_state["ap_o5"] = _o5
-            _pb.progress(100, text="✅ Autopiloto completado!" if not _is_en_ap else "✅ Autopilot complete!")
-
-            # Clear any previous failure state
-            st.session_state["autopiloto_ultimo_agente"] = None
-            st.session_state["ap_fecha"] = dt.now().strftime("%d/%m/%Y %H:%M")
-
-            # Save full report to history
-            _fecha_hoy = dt.now().strftime("%d/%m/%Y")
-            _reporte_completo = (
-                f"# 🤖 Autopiloto — {_fecha_hoy}\n\n"
-                f"## 🔍 Tendencias\n{_o1}\n\n"
-                f"## 📋 Estrategia del Mes\n{_o2}\n\n"
-                f"## ✍ Contenido — 5 Posts\n{_o3}\n\n"
-                f"## 📢 Campaña de Publicidad\n{_o4}\n\n"
-                f"## 🎯 Plan de Acción HOY\n{_o5}"
-            )
-            guardar_reporte(_email_ap, "autopiloto", f"🤖 Autopiloto — {_fecha_hoy}", _reporte_completo)
-
-            # Consume credits only on fresh full run (desde == 1)
-            if desde == 1:
-                if _plan_ap == "Free":
-                    st.session_state["autopiloto_free_usado"] = True
-                else:
-                    db_incrementar_autopiloto(_email_ap, _mes_ap)
-                consumir(8)
-
-            return True
-
-        # ── Main button ──────────────────────────────────────────────────
-        if st.button(_ap_btn_lbl, key="btn_autopiloto"):
-            if not _email_ap:
-                st.warning("Ingresa tu email en el sidebar." if not _is_en_ap else "Enter your email in the sidebar.")
-            elif not verificar_creditos(8):
+        if st.button("⚡ Activar Autopiloto (8 créditos)" if not _is_en_ap else "⚡ Activate Autopilot (8 credits)",
+                     key="btn_autopiloto_orq"):
+            if not verificar_creditos(COSTO_CREDITOS["autopiloto"]):
                 pass
             else:
-                st.session_state["autopiloto_ultimo_agente"] = None
-                _spin_msg = "🤖 Ejecutando 5 agentes de IA... (~1-2 min)" if not _is_en_ap else "🤖 Running 5 AI agents... (~1-2 min)"
-                with st.spinner(_spin_msg):
-                    _ap_ejecutar(1)
+                _ap_img_ok = True
+                if _ap_incluir_img:
+                    _ap_img_ok, _ap_img_msg = verificar_limite_imagenes()
+                    if not _ap_img_ok:
+                        st.warning(f"🎨 {_ap_img_msg} " + ("La corrida seguirá sin imagen." if not _is_en_ap else "The run will continue without an image."))
 
-        # ── Retry button (appears only when an agent failed) ─────────────────
-        _ag_fallido = st.session_state.get("autopiloto_ultimo_agente")
-        if _ag_fallido:
-            _retry_lbl = (
-                f"🔄 Reintentar desde Agente {_ag_fallido}"
-                if not _is_en_ap else
-                f"🔄 Retry from Agent {_ag_fallido}"
-            )
-            if st.button(_retry_lbl, key="btn_ap_retry"):
-                _spin_retry = f"🔄 Reintentando desde Agente {_ag_fallido}..." if not _is_en_ap else f"🔄 Retrying from Agent {_ag_fallido}..."
-                with st.spinner(_spin_retry):
-                    _ap_ejecutar(_ag_fallido)
+                # ── 1. PLANNER: Gemini decide la secuencia (máx 6 agentes) ────────
+                _ap_plan_prompt = (
+                    "Eres el coordinador de un equipo de agentes de marketing.\n"
+                    "AGENTES DISPONIBLES (id: especialidad):\n"
+                    + "\n".join([f"- {k}: {v[1]}" for k, v in _AP_ROLES.items()])
+                    + f"\n\nPEDIDO DEL USUARIO: {_ap_pedido or 'Plan completo de marketing para este mes'}\n\n"
+                    "Devuelve SOLO un JSON válido (sin markdown, sin explicación) con la secuencia óptima "
+                    "de agentes para cumplir el pedido. Máximo 6 agentes, mínimo 3, sin repetir. Formato:\n"
+                    '[{"agente": "estratega", "tarea": "descripción específica de qué debe hacer"}]'
+                )
+                with st.spinner("🧠 Planificando la secuencia de tu equipo..." if not _is_en_ap else "🧠 Planning your team sequence..."):
+                    _ap_plan_raw = generar_texto(_ap_plan_prompt, max_out=2000, temperatura=0.2)
 
+                import json as _json_ap
+                import re as _re_ap
+                _ap_secuencia = []
+                try:
+                    _ap_match = _re_ap.search(r"\[.*\]", _ap_plan_raw or "", _re_ap.DOTALL)
+                    if _ap_match:
+                        for _paso in _json_ap.loads(_ap_match.group(0)):
+                            _ag_id_p = str(_paso.get("agente", "")).strip().lower()
+                            if _ag_id_p in _AP_ROLES and _ag_id_p not in [s[0] for s in _ap_secuencia]:
+                                _ap_secuencia.append((_ag_id_p, str(_paso.get("tarea", ""))[:300]))
+                except Exception:
+                    _ap_secuencia = []
+                if not _ap_secuencia:
+                    _ap_secuencia = [
+                        ("estratega", "Diagnostica el negocio y define la estrategia del mes"),
+                        ("creativo", "Crea 5 posts listos para publicar según la estrategia"),
+                        ("growth", "Diseña la campaña de ads con segmentación y presupuesto"),
+                        ("comercial", "Define ofertas, precios y guion de cierre de ventas"),
+                    ]
+                _ap_secuencia = _ap_secuencia[:6]  # límite técnico de costo
 
-        # ── Display results (persisted via session_state) ──────────────────────────
-        if st.session_state.get("ap_o1"):
-            _ts = st.session_state.get("ap_fecha", "")
-            if _ts:
-                st.caption(f"\U0001f916 \u00daltimo autopiloto: {_ts}")
+                # ── 2. EJECUCIÓN EN SECUENCIA con contexto acumulado ─────────────
+                _ap_outputs = []
+                _ap_contexto = ""
+                _ap_exitos = 0
+                with st.status("⚡ Tu equipo está trabajando..." if not _is_en_ap else "⚡ Your team is working...",
+                               expanded=True) as _ap_status:
+                    for _n_ag, (_ag_id_run, _tarea_run) in enumerate(_ap_secuencia, start=1):
+                        _rol_nom, _rol_esp = _AP_ROLES[_ag_id_run]
+                        _emoji_run = AGENTES.get(_ag_id_run, {}).get("emoji", "🤖")
+                        st.write(f"{_emoji_run} **{_rol_nom}** ({_n_ag}/{len(_ap_secuencia)})...")
+                        _prompt_run = (
+                            f"Eres el agente {_rol_nom}, especialista en {_rol_esp}, "
+                            f"dentro de un equipo de marketing con IA.\n"
+                            f"PEDIDO GENERAL DEL USUARIO: {_ap_pedido or 'Plan completo de marketing para este mes'}\n"
+                            + (f"TRABAJO PREVIO DE TUS COLEGAS (sé coherente con esto):\n{_ap_contexto[-3000:]}\n" if _ap_contexto else "")
+                            + f"\nTU TAREA ESPECÍFICA: {_tarea_run}\n"
+                            "Entrega un resultado accionable, específico y listo para usar. No repitas lo que ya hicieron tus colegas."
+                        )
+                        _out_run = generar_texto(_prompt_run, max_out=4000)
+                        if _out_run:
+                            _ap_exitos += 1
+                            _ap_outputs.append((_rol_nom, _emoji_run, _out_run))
+                            _ap_contexto += f"\n--- {_rol_nom}: {_tarea_run} ---\n{_out_run[:1200]}\n"
+                        else:
+                            _ap_outputs.append((_rol_nom, _emoji_run,
+                                                "⚠ Este agente tuvo un problema. Los demás resultados están completos."
+                                                if not _is_en_ap else "⚠ This agent had a problem. The other results are complete."))
 
-            _labels = [
-                ("\U0001f50d An\u00e1lisis de tendencias",       "ap_o1", False),
-                ("\U0001f4cb Estrategia del mes",                 "ap_o2", False),
-                ("\u270d\ufe0f Contenido listo \u2014 5 posts",  "ap_o3", False),
-                ("\U0001f4e2 Campa\u00f1a de publicidad",         "ap_o4", False),
-                ("\U0001f3af Tu plan de acci\u00f3n HOY",         "ap_o5", True),
-            ] if not _is_en_ap else [
-                ("\U0001f50d Trend analysis",          "ap_o1", False),
-                ("\U0001f4cb Monthly strategy",        "ap_o2", False),
-                ("\u270d\ufe0f Content ready \u2014 5 posts", "ap_o3", False),
-                ("\U0001f4e2 Ad campaign",             "ap_o4", False),
-                ("\U0001f3af Your action plan TODAY",  "ap_o5", True),
-            ]
+                    # ── 3. Imagen opcional (tarifa plana: solo descuenta del límite) ──
+                    _ap_img_b64 = None
+                    if _ap_incluir_img and _ap_img_ok and _ap_exitos > 0:
+                        st.write("🎨 **Visual** — " + ("generando imagen de campaña..." if not _is_en_ap else "generating campaign image..."))
+                        _ap_cfg_img = get_plan_config(_plan_ap)
+                        _ap_img_b64, _ap_img_err = generar_imagen_openai(
+                            f"Campaña: {_ap_pedido[:200] if _ap_pedido else st.session_state.get('producto_servicio','')}",
+                            st.session_state.get("marca_guardada", ""),
+                            st.session_state.get("nicho_guardado", ""),
+                            st.session_state.get("pais_guardado", "Perú"),
+                            formato="1024x1024",
+                            calidad=_ap_cfg_img["calidad_imagen"],
+                        )
+                        if _ap_img_b64:
+                            registrar_uso_imagen()
 
-            _ap_ks_map = {"ap_o1": "ap_ag1", "ap_o2": "ap_ag2", "ap_o3": "ap_ag3", "ap_o4": "ap_ag4", "ap_o5": "ap_ag5"}
-            for _exp_label, _key, _expanded in _labels:
-                with st.expander(_exp_label, expanded=_expanded):
-                    _ap_content = st.session_state.get(_key, "")
-                    st.markdown(_ap_content)
-                    if _ap_content:
-                        _panel_edicion(_ap_content, _ap_ks_map[_key], max_tokens=8000)
+                    _ap_status.update(label="✅ " + ("Equipo completado" if not _is_en_ap else "Team finished"),
+                                      state="complete")
 
+                # ── 4. Cobro, registro y guardado (solo si hubo al menos 1 éxito) ──
+                if _ap_exitos > 0:
+                    st.session_state["_ultima_gen_ok"] = True
+                    consumir(COSTO_CREDITOS["autopiloto"], tipo_accion="autopiloto")
+                    db_incrementar_autopiloto(_email_ap, _mes_ap)
+                    _ap_full = "\n\n".join([f"## {_e} {_n}\n{_o}" for _n, _e, _o in _ap_outputs])
+                    guardar_reporte(_email_ap, "autopiloto",
+                                    f"Autopiloto {dt.now().strftime('%d/%m/%Y %H:%M')}", _ap_full)
+                    st.session_state["_ap_resultado_orq"] = _ap_outputs
+                    st.session_state["_ap_img_orq"] = _ap_img_b64
+                else:
+                    st.session_state["_ultima_gen_ok"] = False
+                    _msg_ia_ocupada()
+
+        # ── Mostrar resultados de la última corrida ────────────────────────────
+        if st.session_state.get("_ap_resultado_orq"):
+            st.divider()
+            for _nom_r, _emo_r, _out_r in st.session_state["_ap_resultado_orq"]:
+                with st.expander(f"{_emo_r} {_nom_r}", expanded=False):
+                    st.markdown(_out_r)
+            if st.session_state.get("_ap_img_orq"):
+                st.image(st.session_state["_ap_img_orq"],
+                         caption="🎨 Imagen de campaña" if not _is_en_ap else "🎨 Campaign image",
+                         use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -5859,12 +6218,12 @@ def crm_completar_tarea(tarea_id):
         pass
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 8: CRM
+# SECCIÓN: CRM (agente Comercial)
 # ══════════════════════════════════════════════════════════════════════════════
-with tabs[8]:
+if _sec_activa == "crm":
     if not st.session_state.get("user_email", "").strip():
-        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección.")
-        st.info("👈 Panel izquierdo → Tu Cuenta → Email")
+        st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección." if st.session_state.get("lang") != "en" else "⚠ Enter your email in the sidebar to access this section.")
+        st.info("👈 Panel izquierdo → Tu Cuenta → Email" if st.session_state.get("lang") != "en" else "👈 Left panel → Your Account → Email")
     from datetime import datetime as _dt_crm, date as _date_crm
 
     _email_crm = (st.session_state.get("user_email") or "").strip().lower()
@@ -6183,6 +6542,167 @@ with tabs[8]:
                             st.rerun()
 
 # --- FOOTER ---
+# ══════════════════════════════════════════════════════════════════════════════
+# SECCIÓN: DASHBOARD ADMIN PRIVADO (CAMBIO 4)
+# ══════════════════════════════════════════════════════════════════════════════
+if _sec_activa == "admin_dashboard":
+    if not _es_admin_ui:
+        st.error("⛔ Acceso restringido.")
+    elif not supabase:
+        st.warning("Supabase no está conectado.")
+    else:
+        st.subheader("🛠 Dashboard Admin — Tentakl.ai")
+        _hoy_dash = dt.now().strftime("%Y-%m-%d")
+        _mes_dash = dt.now().strftime("%Y-%m")
+
+        # ── Usuarios por plan + ingresos estimados ─────────────────────────────
+        try:
+            _u_rows = supabase.table("usuarios").select("email,plan,creditos_usados,imagenes_usadas,created_at").execute().data or []
+        except Exception:
+            _u_rows = []
+        if _u_rows:
+            _df_u = pd.DataFrame(_u_rows)
+            _c_d1, _c_d2, _c_d3, _c_d4 = st.columns(4)
+            _c_d1.metric("👥 Total usuarios", len(_df_u))
+            _por_plan = _df_u["plan"].fillna("Free").value_counts()
+            _ingresos = sum(int(_por_plan.get(_p, 0)) * _precio for _p, _precio in PRECIOS_PLANES.items())
+            _c_d2.metric("💵 Ingresos estimados/mes", f"${_ingresos}")
+            _nuevos_sem = 0
+            if "created_at" in _df_u.columns:
+                try:
+                    _fechas_cr = pd.to_datetime(_df_u["created_at"], errors="coerce", utc=True)
+                    _hace7 = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=7)
+                    _nuevos_sem = int((_fechas_cr >= _hace7).sum())
+                except Exception:
+                    _nuevos_sem = 0
+            _c_d3.metric("🆕 Nuevos esta semana", _nuevos_sem)
+            _free_agotados = _df_u[(_df_u["plan"].fillna("Free") == "Free")
+                                   & (_df_u["creditos_usados"].fillna(0).astype(int) >= 50)]
+            _c_d4.metric("🎯 Free agotados (remarketing)", len(_free_agotados))
+
+            st.markdown("**Usuarios por plan**")
+            st.bar_chart(_por_plan)
+
+            with st.expander("🎯 Lista remarketing: Free que agotaron créditos y no convirtieron"):
+                if len(_free_agotados):
+                    st.dataframe(_free_agotados[["email", "creditos_usados"]], use_container_width=True)
+                else:
+                    st.caption("Nadie por ahora.")
+        else:
+            st.info("Sin datos de usuarios todavía.")
+
+        st.divider()
+
+        # ── Consumo de créditos (uso_creditos) ─────────────────────────────────
+        try:
+            _uc_rows = supabase.table("uso_creditos").select("tipo_accion,creditos,agente,subfuncion,fecha,user_email").order("fecha", desc=True).limit(2000).execute().data or []
+        except Exception:
+            _uc_rows = []
+        if _uc_rows:
+            _df_uc = pd.DataFrame(_uc_rows)
+            _df_uc["fecha_dt"] = pd.to_datetime(_df_uc["fecha"], errors="coerce", utc=True)
+            _ahora_uc = pd.Timestamp.now(tz="UTC")
+            _cr_hoy = int(_df_uc[_df_uc["fecha_dt"] >= _ahora_uc.normalize()]["creditos"].sum())
+            _cr_sem = int(_df_uc[_df_uc["fecha_dt"] >= _ahora_uc - pd.Timedelta(days=7)]["creditos"].sum())
+            _cr_mes = int(_df_uc[_df_uc["fecha_dt"] >= _ahora_uc - pd.Timedelta(days=30)]["creditos"].sum())
+            _c_u1, _c_u2, _c_u3, _c_u4 = st.columns(4)
+            _c_u1.metric("⚡ Créditos hoy", _cr_hoy)
+            _c_u2.metric("📅 Esta semana", _cr_sem)
+            _c_u3.metric("🗓 Este mes", _cr_mes)
+            _img_mes = int((_df_uc[(_df_uc["tipo_accion"].isin(["imagen", "edicion_imagen"]))
+                                   & (_df_uc["fecha_dt"] >= _ahora_uc - pd.Timedelta(days=30))]).shape[0])
+            _c_u4.metric("🎨 Imágenes este mes", _img_mes)
+
+            st.markdown("**Top 10 funciones más usadas**")
+            _top_fn = _df_uc["subfuncion"].replace("", pd.NA).dropna().value_counts().head(10)
+            if len(_top_fn):
+                st.bar_chart(_top_fn)
+            else:
+                _top_fn2 = _df_uc["tipo_accion"].value_counts().head(10)
+                st.bar_chart(_top_fn2)
+        else:
+            st.info("Aún no hay registros en uso_creditos.")
+
+        # ── Usuarios por país (perfil_negocio) ─────────────────────────────────
+        try:
+            _pn_rows = supabase.table("perfil_negocio").select("pais").execute().data or []
+        except Exception:
+            _pn_rows = []
+        if _pn_rows:
+            st.markdown("**Usuarios por país**")
+            _df_pn = pd.DataFrame(_pn_rows)
+            st.bar_chart(_df_pn["pais"].fillna("Sin país").value_counts().head(15))
+
+        st.divider()
+
+        # ── Controles del admin ────────────────────────────────────────────────
+        st.markdown("### 🎛 Controles")
+        _emails_admin_list = sorted([str(u.get("email", "")) for u in _u_rows if u.get("email")])
+        if _emails_admin_list:
+            _c_ctrl1, _c_ctrl2 = st.columns(2)
+            with _c_ctrl1:
+                _usr_sel = st.selectbox("Usuario:", _emails_admin_list, key="admdash_usr")
+                _plan_nuevo_sel = st.selectbox("Cambiar plan a:", ["Free", "Starter", "Pro", "Agency", "Admin"], key="admdash_plan")
+                if st.button("💾 Aplicar plan", key="admdash_btn_plan"):
+                    try:
+                        supabase.table("usuarios").update({"plan": _plan_nuevo_sel}).eq("email", _usr_sel).execute()
+                        st.success(f"✅ {_usr_sel} → {_plan_nuevo_sel}")
+                    except Exception as _e_adm:
+                        st.error(f"No se pudo cambiar el plan: {_e_adm}")
+            with _c_ctrl2:
+                _extra_n = st.number_input("Dar créditos extra:", min_value=1, max_value=1000, value=15, key="admdash_extra")
+                if st.button("🎁 Dar créditos", key="admdash_btn_extra"):
+                    try:
+                        _u_act = supabase.table("usuarios").select("creditos_extra").eq("email", _usr_sel).limit(1).execute().data or []
+                        _extra_act = int((_u_act[0].get("creditos_extra") if _u_act else 0) or 0)
+                        supabase.table("usuarios").update({"creditos_extra": _extra_act + int(_extra_n)}).eq("email", _usr_sel).execute()
+                        st.success(f"✅ +{int(_extra_n)} créditos para {_usr_sel}")
+                    except Exception as _e_adm2:
+                        st.error(f"No se pudo dar créditos: {_e_adm2}")
+
+        # ── Reportes generados ─────────────────────────────────────────────────
+        with st.expander("📂 Todos los reportes generados"):
+            _f_email_rep = st.text_input("Filtrar por email (opcional):", key="admdash_f_email")
+            _f_tipo_rep = st.text_input("Filtrar por tipo (opcional):", key="admdash_f_tipo")
+            try:
+                _q_rep = supabase.table("reportes").select("user_email,tipo_reporte,titulo,created_at").order("created_at", desc=True).limit(200)
+                if _f_email_rep.strip():
+                    _q_rep = _q_rep.eq("user_email", _f_email_rep.strip().lower())
+                if _f_tipo_rep.strip():
+                    _q_rep = _q_rep.eq("tipo_reporte", _f_tipo_rep.strip())
+                _rep_rows = _q_rep.execute().data or []
+                if _rep_rows:
+                    st.dataframe(pd.DataFrame(_rep_rows), use_container_width=True)
+                else:
+                    st.caption("Sin reportes con esos filtros.")
+            except Exception:
+                st.caption("No se pudieron leer los reportes.")
+
+        # ── Activar/desactivar funciones por plan (config_funciones) ───────────
+        with st.expander("🔧 Funciones por plan (config_funciones)"):
+            _todas_subf = sorted({s[0] for _agx in AGENTES.values() for s in _agx["subfunciones"]})
+            _cf_funcion = st.selectbox("Función:", _todas_subf, key="admdash_cf_fn")
+            _cf_plan = st.selectbox("Plan:", ["Free", "Starter", "Pro", "Agency"], key="admdash_cf_plan")
+            _cf_activa = st.checkbox("Activa", value=True, key="admdash_cf_act")
+            if st.button("💾 Guardar configuración", key="admdash_cf_btn"):
+                try:
+                    supabase.table("config_funciones").upsert({
+                        "funcion": _cf_funcion, "plan": _cf_plan, "activa": _cf_activa,
+                    }, on_conflict="funcion,plan").execute()
+                    st.success("✅ Configuración guardada")
+                except Exception as _e_cf:
+                    st.error(f"No se pudo guardar: {_e_cf}")
+            try:
+                _cf_rows = supabase.table("config_funciones").select("*").execute().data or []
+                if _cf_rows:
+                    st.dataframe(pd.DataFrame(_cf_rows), use_container_width=True)
+            except Exception:
+                pass
+
 st.markdown("---")
 # ✅ FIX: alcance leído desde session_state para el footer (nunca da NameError)
-st.caption(f"© 2026 CHERO AI | V5.1 Full Integrated | {st.session_state.get('alcance', 'NACIONAL')}")
+st.caption(f"© 2026 TENTAKL.AI | V5.1 Full Integrated | {st.session_state.get('alcance', 'NACIONAL')}")
+
+
+
+
