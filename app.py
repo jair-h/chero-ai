@@ -2215,6 +2215,43 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
     _doc.build(_story, onFirstPage=_add_page_num, onLaterPages=_add_page_num)
     return _buf.getvalue()
 
+# ── AUTOPILOTO SUPABASE HELPERS ──────────────────────────────────────────────
+def db_get_autopiloto_usos(user_email, mes):
+    if not supabase or not user_email:
+        return 0
+    try:
+        r = supabase.table("autopiloto_usos")\
+            .select("usos")\
+            .eq("user_email", user_email)\
+            .eq("mes", mes)\
+            .limit(1).execute()
+        data = r.data or []
+        return data[0]["usos"] if data else 0
+    except Exception:
+        return 0
+
+def db_incrementar_autopiloto(user_email, mes):
+    if not supabase or not user_email:
+        return
+    try:
+        existing = supabase.table("autopiloto_usos")\
+            .select("usos")\
+            .eq("user_email", user_email)\
+            .eq("mes", mes)\
+            .limit(1).execute()
+        data = existing.data or []
+        if data:
+            supabase.table("autopiloto_usos")\
+                .update({"usos": data[0]["usos"] + 1})\
+                .eq("user_email", user_email)\
+                .eq("mes", mes).execute()
+        else:
+            supabase.table("autopiloto_usos")\
+                .insert({"user_email": user_email, "mes": mes, "usos": 1}).execute()
+    except Exception as _e:
+        print(f"[Autopiloto] DB error: {_e}")
+
+
 # =========================================================
 # TENTAKL — TU EQUIPO DE 9 AGENTES (CAMBIO 2)
 # =========================================================
@@ -2475,6 +2512,125 @@ def _pulpo_html(estados=None, en=False):
             + _PULPO_JS_TAIL.replace("__ESTADO_TXT__", _json_p.dumps(_txt, ensure_ascii=False)))
 
 
+# ══════════════════════════════════════════════════════════════════
+# COMPONENTE BIDIRECCIONAL DEL PULPO (clic sin recargar la página)
+# ══════════════════════════════════════════════════════════════════
+try:
+    import streamlit.components.v1 as _stc_pulpo
+    _PULPO_COMPONENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pulpo_component")
+    if os.path.isdir(_PULPO_COMPONENT_DIR):
+        _pulpo_component = _stc_pulpo.declare_component("tentakl_pulpo", path=_PULPO_COMPONENT_DIR)
+    else:
+        _pulpo_component = None
+except Exception:
+    _pulpo_component = None
+
+
+# ══════════════════════════════════════════════════════════════════
+# FASE 2: SELECCIÓN AUTOMÁTICA DE AGENTES SEGÚN EL OBJETIVO
+# ══════════════════════════════════════════════════════════════════
+_TAREAS_GENERICAS = {
+    "estrategia": "Analiza el negocio, el mercado y define la estrategia para el objetivo",
+    "contenido": "Crea el concepto, los mensajes y las piezas de contenido",
+    "imagenes": "Define la dirección de arte y los briefs visuales de la campaña",
+    "publicidad": "Diseña la campaña de ads con segmentación y presupuesto",
+    "ventas": "Crea la oferta, los CTA y las respuestas a objeciones",
+    "competencia": "Analiza a la competencia y define la diferenciación",
+    "gestion": "Define el plan de seguimiento de clientes y consistencia de marca",
+    "metricas": "Define los KPIs e indicadores de seguimiento del objetivo",
+}
+
+_MENSAJES_AGENTE = {
+    "estrategia": ("Analizando tu negocio, mercado y objetivo...", "Analyzing your business, market and goal..."),
+    "contenido": ("Creando concepto, mensajes y calendario...", "Creating concept, messages and calendar..."),
+    "imagenes": ("Generando propuestas visuales...", "Generating visual proposals..."),
+    "publicidad": ("Preparando campaña, segmentación y variaciones...", "Preparing campaign, targeting and variations..."),
+    "ventas": ("Creando oferta, CTA y respuestas a objeciones...", "Creating offer, CTAs and objection handling..."),
+    "competencia": ("Analizando a tu competencia y sus gaps...", "Analyzing your competitors and their gaps..."),
+    "gestion": ("Organizando seguimiento y gestión...", "Organizing follow-up and management..."),
+    "metricas": ("Preparando indicadores y plan de seguimiento...", "Preparing KPIs and tracking plan..."),
+}
+
+
+def _seleccion_agentes_por_reglas(objetivo):
+    """Respaldo por reglas internas si Gemini falla o devuelve JSON inválido."""
+    _o = (objetivo or "").lower()
+    if any(_k in _o for _k in ["imagen", "foto", "banner", "flyer", "visual", "logo", "creativo"]):
+        _ids = ["contenido", "imagenes"]
+    elif any(_k in _o for _k in ["analiza", "metric", "métric", "roi", "kpi", "resultado", "reporte"]):
+        _ids = ["metricas", "ventas", "estrategia"]
+    elif any(_k in _o for _k in ["venta", "precio", "cotiza", "oferta", "descuento", "cerrar"]):
+        _ids = ["estrategia", "ventas", "metricas"]
+    elif any(_k in _o for _k in ["lanzar", "lanzamiento", "nuevo producto", "abrir", "empezar negocio"]):
+        _ids = ["estrategia", "competencia", "contenido", "publicidad", "ventas", "metricas"]
+    else:
+        _ids = ["estrategia", "contenido", "publicidad", "ventas", "metricas"]
+    return {"objetivo_interpretado": (objetivo or "")[:200],
+            "agentes": [(_i, _TAREAS_GENERICAS[_i]) for _i in _ids]}
+
+
+def seleccionar_agentes_para_objetivo(objetivo_usuario, perfil_negocio=None):
+    """FASE 2: Gemini analiza el objetivo y decide qué agentes activar.
+    Devuelve {"objetivo_interpretado": str, "agentes": [(id, tarea), ...]} (máx 6).
+    Si el JSON de Gemini falla, cae a la selección por reglas."""
+    import json as _json_sel
+    import re as _re_sel
+    if perfil_negocio is None:
+        perfil_negocio = {
+            "marca": st.session_state.get("marca_guardada", ""),
+            "nicho": st.session_state.get("nicho_guardado", ""),
+            "producto_servicio": st.session_state.get("producto_servicio", ""),
+            "cliente_ideal": (st.session_state.get("cliente_ideal_guardado", "") or "")[:300],
+            "pais": st.session_state.get("pais_guardado", ""),
+            "ciudad": st.session_state.get("ciudad_guardada", ""),
+            "idioma": st.session_state.get("idioma_preferido", "Español"),
+            "plan": st.session_state.get("plan", "Free"),
+            "links": (st.session_state.get("link_redes", "") + " " + st.session_state.get("link_web", "")).strip(),
+        }
+    _cat = "\n".join([f'- {_k}: {_v[1]}' for _k, _v in {
+        "estrategia": ("", "diagnóstico del negocio, tendencias, plan de acción"),
+        "contenido": ("", "contenido para redes, guiones, emails, blog, storytelling"),
+        "imagenes": ("", "imágenes, banners, creativos y dirección visual"),
+        "publicidad": ("", "campañas de ads, segmentación, presupuesto, compliance"),
+        "ventas": ("", "embudos, precios, ofertas, objeciones, cotizaciones"),
+        "competencia": ("", "análisis de competencia, gaps, posicionamiento"),
+        "gestion": ("", "CRM, clientes, contratos, seguimiento"),
+        "metricas": ("", "KPIs, ROI, analítica, optimización"),
+    }.items()])
+    _prompt_sel = (
+        "Eres el coordinador del equipo de agentes de marketing de Tentakl.\n"
+        f"AGENTES DISPONIBLES (id: especialidad):\n{_cat}\n\n"
+        f"PERFIL DEL NEGOCIO: {_json_sel.dumps(perfil_negocio, ensure_ascii=False)}\n"
+        f"OBJETIVO DEL USUARIO: {objetivo_usuario}\n\n"
+        "Analiza el objetivo y decide QUÉ agentes son necesarios (no siempre todos: "
+        "una imagen simple necesita 2, un lanzamiento completo hasta 6).\n"
+        "Responde EXCLUSIVAMENTE este JSON, sin markdown ni explicación:\n"
+        '{"objetivo_interpretado": "resumen de una línea", "agentes_necesarios": '
+        '[{"id": "estrategia", "orden": 1, "motivo": "por qué", "tarea": "tarea específica"}]}\n'
+        "Máximo 6 agentes, mínimo 1, sin repetir ids. Solo ids de la lista."
+    )
+    _raw_sel = generar_texto(_prompt_sel, max_out=2000, temperatura=0.2)
+    try:
+        _m_sel = _re_sel.search(r"\{.*\}", _raw_sel or "", _re_sel.DOTALL)
+        if _m_sel:
+            _data_sel = _json_sel.loads(_m_sel.group(0))
+            _ags = []
+            for _p_sel in sorted(_data_sel.get("agentes_necesarios", []),
+                                 key=lambda _x: _x.get("orden", 99)):
+                _id_sel = str(_p_sel.get("id", "")).strip().lower()
+                if _id_sel in AGENTES and _id_sel not in [_a[0] for _a in _ags]:
+                    _tarea_sel = str(_p_sel.get("tarea", "") or _TAREAS_GENERICAS.get(_id_sel, ""))[:300]
+                    _ags.append((_id_sel, _tarea_sel))
+            if _ags:
+                return {
+                    "objetivo_interpretado": str(_data_sel.get("objetivo_interpretado", objetivo_usuario))[:200],
+                    "agentes": _ags[:6],
+                }
+    except Exception:
+        pass
+    return _seleccion_agentes_por_reglas(objetivo_usuario)
+
+
 def _render_contexto_compartido(agente_actual):
     """CAMBIO 8: muestra los últimos reportes del equipo como contexto opcional."""
     _em = (st.session_state.get("user_email") or "").strip().lower()
@@ -2529,7 +2685,7 @@ _sec_activa = None
 _opcion_activa = None
 
 if _es_home:
-    # ══ CENTRO DE MANDO (FASE 1): pulpo interactivo + objetivo ══════════════
+    # ══ CENTRO DE MANDO (FASE 1-3): objetivo + selección + ejecución ═════════
     st.markdown(
         "<h2 style='text-align:center;margin-bottom:2px;'>"
         + ("🐙 ¿Qué quieres lograr hoy?" if not _is_en_ui else "🐙 What do you want to achieve today?")
@@ -2556,25 +2712,183 @@ if _es_home:
             "🚀 " + ("Empezar trabajo" if not _is_en_ui else "Start working"),
             key="btn_empezar_trabajo", use_container_width=True,
         )
+
+    _cm_fase = st.session_state.get("cm_fase")
+
     if _btn_empezar:
         if not _objetivo_home.strip():
             st.warning("Escribe primero qué quieres lograr." if not _is_en_ui else "First write what you want to achieve.")
+        elif not (st.session_state.get("user_email") or "").strip():
+            st.warning("Ingresa tu email en el sidebar para empezar." if not _is_en_ui else "Enter your email in the sidebar to start.")
         else:
             st.session_state["objetivo_actual"] = _objetivo_home.strip()
-            st.session_state["autopiloto_descripcion"] = _objetivo_home.strip()
-            st.session_state.agente_activo = "autopiloto"
+            with st.spinner("🐙 El pulpo está analizando tu objetivo..." if not _is_en_ui else "🐙 The octopus is analyzing your goal..."):
+                st.session_state["cm_plan"] = seleccionar_agentes_para_objetivo(_objetivo_home.strip())
+            st.session_state["cm_fase"] = "confirmar"
             st.rerun()
 
-    # ── Pulpo interactivo (con fallback a tarjetas si el componente falla) ───
-    _pulpo_ok = True
-    try:
-        import streamlit.components.v1 as _components_pulpo
-        _components_pulpo.html(
-            _pulpo_html(st.session_state.get("agent_states", {}), _is_en_ui),
-            height=720, scrolling=False,
+    # ── FASE 2: pantalla de confirmación ─────────────────────────────────────
+    if _cm_fase == "confirmar" and st.session_state.get("cm_plan"):
+        _plan_cm = st.session_state["cm_plan"]
+        st.info("🐙 " + ("TENTAKL utilizará estos agentes para: " if not _is_en_ui else "TENTAKL will use these agents for: ")
+                + f"**{_plan_cm.get('objetivo_interpretado', '')}**")
+        _tareas_plan = dict(_plan_cm.get("agentes", []))
+        for _aid_c, _tarea_c in _plan_cm.get("agentes", []):
+            _agc = AGENTES.get(_aid_c, {})
+            _nomc = _agc.get("nombre", (_aid_c, _aid_c))[1 if _is_en_ui else 0]
+            st.markdown(f"{_agc.get('emoji', '🤖')} **{_nomc}** — {_tarea_c}")
+
+        _labels_por_id = {_k: (_v["nombre"][1] if _is_en_ui else _v["nombre"][0]) for _k, _v in AGENTES.items()}
+        _ids_por_label = {_v: _k for _k, _v in _labels_por_id.items()}
+        _sel_edit = st.multiselect(
+            "✏️ " + ("Editar selección de agentes:" if not _is_en_ui else "Edit agent selection:"),
+            list(_labels_por_id.values()),
+            default=[_labels_por_id[_a] for _a, _t in _plan_cm.get("agentes", []) if _a in _labels_por_id],
+            key="cm_edit_sel",
         )
-    except Exception:
-        _pulpo_ok = False
+        _ids_finales = [_ids_por_label[_l] for _l in _sel_edit if _l in _ids_por_label][:6]
+        _n_ag_cm = max(len(_ids_finales), 1)
+        st.caption(("💳 Costo: 8 créditos · ⏱ Tiempo aproximado: " if not _is_en_ui else "💳 Cost: 8 credits · ⏱ Approx time: ")
+                   + f"{_n_ag_cm * 30}-{_n_ag_cm * 60} seg")
+        _col_cm1, _col_cm2 = st.columns(2)
+        with _col_cm1:
+            _btn_conf = st.button("✅ " + ("Confirmar y ejecutar (8 créditos)" if not _is_en_ui else "Confirm and run (8 credits)"),
+                                  key="cm_btn_confirmar", use_container_width=True)
+        with _col_cm2:
+            if st.button("❌ " + ("Cancelar" if not _is_en_ui else "Cancel"), key="cm_btn_cancelar", use_container_width=True):
+                st.session_state["cm_fase"] = None
+                st.session_state["cm_plan"] = None
+                st.rerun()
+        if _btn_conf:
+            if not _ids_finales:
+                st.warning("Selecciona al menos un agente." if not _is_en_ui else "Select at least one agent.")
+            elif _plan_ui not in ("Pro", "Agency", "Admin"):
+                _mostrar_upgrade("🔒 " + ("El Centro de Mando coordinado está disponible desde el plan Pro ($39/mes):"
+                                          if not _is_en_ui else "The coordinated Command Center is available from the Pro plan ($39/mo):"))
+            elif verificar_creditos(COSTO_CREDITOS["autopiloto"]):
+                st.session_state["cm_secuencia"] = [(_i2, _tareas_plan.get(_i2, _TAREAS_GENERICAS.get(_i2, ""))) for _i2 in _ids_finales]
+                st.session_state["agent_states"] = {_i2: "waiting" for _i2 in _ids_finales}
+                st.session_state["cm_resultado"] = {}
+                st.session_state["cm_es_reintento"] = False
+                st.session_state["cm_fase"] = "ejecutar"
+                st.rerun()
+
+    # ── FASE 3: ejecución secuencial con estados en vivo sobre el pulpo ──────
+    elif _cm_fase == "ejecutar":
+        _sec_cm = st.session_state.get("cm_secuencia") or []
+        _pedido_cm = st.session_state.get("objetivo_actual", "")
+        _es_retry_cm = st.session_state.get("cm_es_reintento", False)
+        _estados_cm = st.session_state.get("agent_states", {}) or {}
+        _outs_cm = st.session_state.get("cm_resultado") or {}
+        _pulpo_live = st.empty()
+        _ctx_cm = ""
+        _exitos_cm = 0
+        with st.status("⚡ " + ("Tu equipo está trabajando..." if not _is_en_ui else "Your team is working..."),
+                       expanded=True) as _status_cm:
+            for _n_cm, (_aid_r, _tarea_r) in enumerate(_sec_cm):
+                _agr = AGENTES.get(_aid_r, {})
+                _nomr = _agr.get("nombre", (_aid_r, _aid_r))[1 if _is_en_ui else 0]
+                _msgr = _MENSAJES_AGENTE.get(_aid_r, ("Trabajando...", "Working..."))[1 if _is_en_ui else 0]
+                _estados_cm[_aid_r] = "working"
+                st.session_state["agent_states"] = _estados_cm
+                with _pulpo_live.container():
+                    if _pulpo_component is not None:
+                        try:
+                            _pulpo_component(estados=_estados_cm, en=_is_en_ui,
+                                             key=f"pulpo_run_{_n_cm}", default=None)
+                        except Exception:
+                            pass
+                st.write(f"{_agr.get('emoji', '🤖')} **{_nomr}** — {_msgr}")
+                _prompt_r = (
+                    f"Eres el agente {_nomr} del equipo de marketing Tentakl.\n"
+                    f"OBJETIVO GENERAL DEL USUARIO: {_pedido_cm}\n"
+                    + (f"TRABAJO PREVIO DE TUS COLEGAS (sé coherente):\n{_ctx_cm[-3000:]}\n" if _ctx_cm else "")
+                    + f"\nTU TAREA ESPECÍFICA: {_tarea_r}\n"
+                    "Entrega un resultado accionable, específico y listo para usar. "
+                    "No repitas lo que ya hicieron tus colegas."
+                )
+                _out_r = generar_texto(_prompt_r, max_out=4000)
+                if _out_r:
+                    _exitos_cm += 1
+                    _estados_cm[_aid_r] = "completed"
+                    _outs_cm[_aid_r] = (_nomr, _agr.get("emoji", "🤖"), _out_r)
+                    _ctx_cm += f"\n--- {_nomr}: {_tarea_r} ---\n{_out_r[:1200]}\n"
+                else:
+                    _estados_cm[_aid_r] = "error"
+                st.session_state["agent_states"] = _estados_cm
+            with _pulpo_live.container():
+                if _pulpo_component is not None:
+                    try:
+                        _pulpo_component(estados=_estados_cm, en=_is_en_ui,
+                                         key="pulpo_run_final", default=None)
+                    except Exception:
+                        pass
+            _status_cm.update(label="✅ " + ("Equipo completado" if not _is_en_ui else "Team finished"),
+                              state="complete")
+        if _exitos_cm > 0 and not _es_retry_cm:
+            st.session_state["_ultima_gen_ok"] = True
+            consumir(COSTO_CREDITOS["autopiloto"], tipo_accion="autopiloto")
+            _email_cm = (st.session_state.get("user_email") or "").strip().lower()
+            if _email_cm:
+                db_incrementar_autopiloto(_email_cm, dt.now().strftime("%Y-%m"))
+        if _exitos_cm > 0:
+            _email_cm2 = (st.session_state.get("user_email") or "").strip().lower()
+            if _email_cm2:
+                _full_cm = "\n\n".join([f"## {_e2} {_n2}\n{_o2}" for _n2, _e2, _o2 in _outs_cm.values()])
+                guardar_reporte(_email_cm2, "autopiloto",
+                                f"Centro de Mando: {_pedido_cm[:60]} - {dt.now().strftime('%d/%m/%Y %H:%M')}",
+                                _full_cm)
+        st.session_state["cm_resultado"] = _outs_cm
+        st.session_state["cm_es_reintento"] = False
+        st.session_state["cm_fase"] = "done"
+        st.rerun()
+
+    # ── Trabajo terminado ─────────────────────────────────────────────────────
+    elif _cm_fase == "done":
+        st.success("🐙 " + ("Trabajo terminado" if not _is_en_ui else "Work finished"))
+        _outs_done = st.session_state.get("cm_resultado") or {}
+        _sec_done = st.session_state.get("cm_secuencia") or []
+        _estados_done = st.session_state.get("agent_states", {}) or {}
+        _errores_done = [(_a3, _t3) for _a3, _t3 in _sec_done if _estados_done.get(_a3) == "error"]
+        if _errores_done:
+            if st.button("🔄 " + ("Reintentar agentes con error (gratis)" if not _is_en_ui else "Retry failed agents (free)"),
+                         key="cm_btn_retry"):
+                st.session_state["cm_secuencia"] = _errores_done
+                st.session_state["cm_es_reintento"] = True
+                st.session_state["cm_fase"] = "ejecutar"
+                st.rerun()
+        with st.expander("📋 " + ("Ver resultado completo" if not _is_en_ui else "See full result"), expanded=bool(_outs_done)):
+            for _nomd, _emod, _outd in _outs_done.values():
+                st.markdown(f"### {_emod} {_nomd}")
+                st.markdown(_outd)
+                st.divider()
+        if st.button("🆕 " + ("Nuevo trabajo" if not _is_en_ui else "New task"), key="cm_btn_nuevo"):
+            for _k4 in ("cm_fase", "cm_plan", "cm_secuencia", "cm_resultado", "cm_es_reintento", "objetivo_actual"):
+                st.session_state.pop(_k4, None)
+            st.session_state["agent_states"] = {}
+            st.rerun()
+
+    # ── Pulpo interactivo (clic bidireccional, sin recarga) ───────────────────
+    _pulpo_ok = _pulpo_component is not None
+    if _cm_fase != "ejecutar":
+        _click_pulpo = None
+        if _pulpo_ok:
+            try:
+                _click_pulpo = _pulpo_component(
+                    estados=st.session_state.get("agent_states", {}) or {},
+                    en=_is_en_ui, key="pulpo_cm", default=None,
+                )
+            except Exception:
+                _pulpo_ok = False
+        if isinstance(_click_pulpo, dict):
+            _ag_click = str(_click_pulpo.get("agente", ""))
+            _ts_click = _click_pulpo.get("ts")
+            if _ag_click in AGENTES and _ts_click and _ts_click != st.session_state.get("_pulpo_click_ts"):
+                st.session_state["_pulpo_click_ts"] = _ts_click
+                st.session_state.agente_activo = _ag_click
+                st.session_state["_subfuncion_activa"] = ""
+                st.session_state["ctx_compartido"] = ""
+                st.rerun()
 
     # ── Accesos secundarios ───────────────────────────────────────────────────
     _cols_modo = st.columns(4 if _es_admin_ui else 3)
@@ -2613,11 +2927,8 @@ if _es_home:
                 _ag_nombre = _ag_cfg["nombre"][1] if _is_en_ui else _ag_cfg["nombre"][0]
                 _ag_desc = _ag_cfg["desc"][1] if _is_en_ui else _ag_cfg["desc"][0]
                 with _col_ag:
-                    st.markdown(
-                        f"""<div style="border-top:3px solid {_ag_cfg['color']};border-radius:4px;
-                        padding-top:6px;margin-bottom:4px;"></div>""",
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown(f'<div style="border-top:3px solid {_ag_cfg["color"]};border-radius:4px;padding-top:6px;margin-bottom:4px;"></div>',
+                                unsafe_allow_html=True)
                     if st.button(f"{_ag_cfg['emoji']} {_ag_nombre}", key=f"card_{_ag_id}",
                                  use_container_width=True):
                         st.session_state.agente_activo = _ag_id
@@ -6148,42 +6459,6 @@ if _sec_activa == "power":
                                     f"CRO Audit - {_cro_marca}", _cro_res)
                 consumir(2)
 
-
-# ── AUTOPILOTO SUPABASE HELPERS ──────────────────────────────────────────────
-def db_get_autopiloto_usos(user_email, mes):
-    if not supabase or not user_email:
-        return 0
-    try:
-        r = supabase.table("autopiloto_usos")\
-            .select("usos")\
-            .eq("user_email", user_email)\
-            .eq("mes", mes)\
-            .limit(1).execute()
-        data = r.data or []
-        return data[0]["usos"] if data else 0
-    except Exception:
-        return 0
-
-def db_incrementar_autopiloto(user_email, mes):
-    if not supabase or not user_email:
-        return
-    try:
-        existing = supabase.table("autopiloto_usos")\
-            .select("usos")\
-            .eq("user_email", user_email)\
-            .eq("mes", mes)\
-            .limit(1).execute()
-        data = existing.data or []
-        if data:
-            supabase.table("autopiloto_usos")\
-                .update({"usos": data[0]["usos"] + 1})\
-                .eq("user_email", user_email)\
-                .eq("mes", mes).execute()
-        else:
-            supabase.table("autopiloto_usos")\
-                .insert({"user_email": user_email, "mes": mes, "usos": 1}).execute()
-    except Exception as _e:
-        print(f"[Autopiloto] DB error: {_e}")
 
 # --- SECCIÓN: AUTOPILOTO (orquestador dinámico, CAMBIO 8) ---
 if _sec_activa == "autopiloto":
