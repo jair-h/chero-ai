@@ -1680,19 +1680,50 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp {background-color: #FFFFFF;}
-    h1, h2, h3 { color: #171717 !important; font-weight: 700; }
-    .stMarkdown h1 span, .stMarkdown h2 span, a { color: #D32F2F !important; }
-    .stButton>button {
-        background: linear-gradient(180deg, #D32F2F 0%, #B71C1C 100%);
-        color: white; border-radius: 8px; font-weight: 600; border: none;
-        padding: 0.6rem 1.2rem; width: 100%; transition: all 0.3s;
+    .stApp { background-color: #FFFFFF; }
+
+    /* Títulos siempre en tinta oscura, nunca rojos ni morado chillón */
+    h1, h2, h3, h4 { color: #15112B !important; font-weight: 700; }
+    .stMarkdown h1 span, .stMarkdown h2 span { color: #15112B !important; }
+    /* Links y acentos en morado Tentakl */
+    a, a:visited { color: #7C3AED !important; }
+
+    /* Botones por defecto (secundarios): estilo suave ghost, nada de rojo */
+    .stButton > button, .stDownloadButton > button {
+        background: #FFFFFF !important;
+        color: #15112B !important;
+        border: 1.5px solid #ECE9F7 !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        box-shadow: none !important;
+        transition: all 0.15s ease;
     }
-    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(211,47,47,0.3); }
+    .stButton > button:hover, .stDownloadButton > button:hover {
+        border-color: #7C3AED !important;
+        color: #7C3AED !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+    /* Botón primario: morado sólido (solo CTAs marcados type="primary") */
+    .stButton > button[kind="primary"],
+    .stButton > button[data-testid="stBaseButton-primary"] {
+        background: #7C3AED !important;
+        color: #FFFFFF !important;
+        border: 1.5px solid #7C3AED !important;
+    }
+    .stButton > button[kind="primary"]:hover,
+    .stButton > button[data-testid="stBaseButton-primary"]:hover {
+        background: #5B21B6 !important;
+        border-color: #5B21B6 !important;
+        color: #FFFFFF !important;
+    }
+
+    /* Inputs suaves */
     .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div>div {
-        border-radius: 8px; border: 1px solid #E5E7EB; background-color: #FAFAFA;
+        border-radius: 10px; border: 1px solid #ECE9F7; background-color: #FAF9FF;
     }
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+    /* Ocultar menú hamburguesa y footer "Made with Streamlit" */
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -1822,8 +1853,8 @@ def registrar_uso_creditos(email, tipo_accion, creditos):
 # BARRA LATERAL
 # =========================
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2580/2580963.png", width=60)
-    st.title("🐙 TENTAKL.AI")
+    st.markdown("<div style='font-size:46px;text-align:center;line-height:1;'>🐙</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center;font-size:22px;font-weight:700;color:#7C3AED;margin-top:2px;'>TENTAKL.AI</div>", unsafe_allow_html=True)
     st.caption("Tu equipo de marketing con IA" if st.session_state.get("lang") != "en" else "Your AI marketing team")
     st.markdown("---")
     _lang_actual = st.session_state.get("lang", "es")
@@ -2914,7 +2945,7 @@ def _cm_render_confirmacion(_en, _plan_u):
     _col_cm1, _col_cm2 = st.columns(2)
     with _col_cm1:
         _btn_conf = st.button("✅ " + ("Confirmar y ejecutar (8 créditos)" if not _en else "Confirm and run (8 credits)"),
-                              key="cm_btn_confirmar", use_container_width=True)
+                              key="cm_btn_confirmar", use_container_width=True, type="primary")
     with _col_cm2:
         if st.button("❌ " + ("Cancelar" if not _en else "Cancel"), key="cm_btn_cancelar", use_container_width=True):
             st.session_state["cm_fase"] = None
@@ -3177,7 +3208,7 @@ if _es_home:
     with _col_obj2:
         _btn_empezar = st.button(
             "🚀 " + ("Empezar trabajo" if not _is_en_ui else "Start working"),
-            key="btn_empezar_trabajo", use_container_width=True,
+            key="btn_empezar_trabajo", use_container_width=True, type="primary",
         )
 
     _cm_fase = st.session_state.get("cm_fase")
@@ -3224,27 +3255,32 @@ if _es_home:
                 st.session_state["ctx_compartido"] = ""
                 st.rerun()
 
-    # ── Accesos secundarios ───────────────────────────────────────────────────
-    _cols_modo = st.columns(4 if _es_admin_ui else 3)
-    with _cols_modo[0]:
-        if st.button("🧰 " + ("Explorar herramientas" if not _is_en_ui else "Explore tools"),
+    # ── Accesos secundarios: fila compacta centrada, estilo ghost ────────────
+    _ap_lock_home = _plan_ui in ("Free", "Starter")
+    if _es_admin_ui:
+        _cm_pads = st.columns([0.5, 1.3, 1.3, 1.3, 1.3, 0.5])
+        _slots_modo = _cm_pads[1:5]
+    else:
+        _cm_pads = st.columns([1, 1.5, 1.5, 1.5, 1])
+        _slots_modo = _cm_pads[1:4]
+    with _slots_modo[0]:
+        if st.button("🧰 " + ("Herramientas" if not _is_en_ui else "Tools"),
                      key="btn_modo_herramientas", use_container_width=True):
             st.session_state["modo_herramientas"] = not st.session_state.get("modo_herramientas", False)
             st.rerun()
-    with _cols_modo[1]:
-        _ap_lock_home = _plan_ui in ("Free", "Starter")
-        if st.button(("⚡ Autopiloto" if not _ap_lock_home else "🔒 Autopiloto (Pro)"),
+    with _slots_modo[1]:
+        if st.button(("⚡ Autopiloto" if not _ap_lock_home else "🔒 Autopiloto"),
                      key="btn_home_autopiloto", use_container_width=True):
             st.session_state.agente_activo = "autopiloto"
             st.rerun()
-    with _cols_modo[2]:
-        if st.button("📂 " + ("Mis Reportes" if not _is_en_ui else "My Reports"),
+    with _slots_modo[2]:
+        if st.button("📂 " + ("Reportes" if not _is_en_ui else "Reports"),
                      key="btn_home_reportes", use_container_width=True):
             st.session_state.agente_activo = "reportes"
             st.rerun()
     if _es_admin_ui:
-        with _cols_modo[3]:
-            if st.button("🛠 Dashboard Admin", key="btn_home_admin_dash", use_container_width=True):
+        with _slots_modo[3]:
+            if st.button("🛠 Admin", key="btn_home_admin_dash", use_container_width=True):
                 st.session_state.agente_activo = "admin_dashboard"
                 st.rerun()
 
@@ -3311,11 +3347,10 @@ else:
 alcance = st.session_state.get("alcance", f"NACIONAL ({pais})")
 producto_servicio = st.session_state.get("producto_servicio", "")
 
-# --- TAB 0: INICIO ---
-if _es_home:
+# --- Cabecera del agente ESTRATEGIA (antes en el home) ---
+if _sec_activa == "inicio":
     st.subheader(t("termometro"))
 
-    # ✅ FIX: cliente_activo_nombre y todo el contenido DENTRO del with
     cliente_activo_nombre = st.session_state.get("cliente_activo_nombre", "").strip()
     if cliente_activo_nombre:
         st.info(f"👤 Cliente activo: {cliente_activo_nombre}")
@@ -3656,7 +3691,8 @@ if _sec_activa == "inicio" and _opcion_activa == "radar":
                             guardar_reporte(_email_r, "tendencia_adaptada", f"Tendencia: {_tnombre}", _adapt_res)
                         consumir(1)
 
-if _es_home:
+# ── RUTAS GUIADAS: solo en el onboarding de usuarios nuevos (perfil vacío) ──
+if _es_home and not st.session_state.get("nicho_guardado") and not st.session_state.get("producto_servicio"):
     # ── RUTA DEL USUARIO ──────────────────────────────────────────────────────
     st.divider()
     _ruta_title = "\U0001f5fa\ufe0f How do you want to use Tentakl today?" if st.session_state.get("lang") == "en" else "\U0001f5fa\ufe0f \u00bfC\u00f3mo quieres usar Tentakl hoy?"
