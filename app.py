@@ -534,6 +534,9 @@ def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
     # ── CONTEXTO_BASE (CAMBIO 3): se antepone a TODOS los prompts ─────────────
     _idioma_cb = st.session_state.get("idioma_preferido", "Español")
     _reglas_cb = st.session_state.get("reglas_marca", "")
+    _colores_cb = (st.session_state.get("colores_marca") or "").strip()
+    if _colores_cb:
+        _reglas_cb = (_reglas_cb + "\n" if _reglas_cb else "") + f"Colores de marca: {_colores_cb}"
     prompt = construir_contexto_base(_pais_ctx or "LATAM", _ctx_pais["moneda"], _idioma_cb, _reglas_cb) + "\n" + prompt
 
     # ── Memoria compartida entre agentes (CAMBIO 8) ───────────────────────────
@@ -604,6 +607,9 @@ def generar_analitico(prompt, max_tokens=6000):
     _ctx_pais_an = get_contexto_pais(_pais_ctx)
     _idioma_an = st.session_state.get("idioma_preferido", "Español")
     _reglas_an = st.session_state.get("reglas_marca", "")
+    _colores_an = (st.session_state.get("colores_marca") or "").strip()
+    if _colores_an:
+        _reglas_an = (_reglas_an + "\n" if _reglas_an else "") + f"Colores de marca: {_colores_an}"
     prompt = construir_contexto_base(_pais_ctx or "LATAM", _ctx_pais_an["moneda"], _idioma_an, _reglas_an) + "\n" + prompt
 
     # FIX truncamiento: piso de 6000 tokens + límite al thinking (igual que generar_texto)
@@ -647,7 +653,7 @@ def generar_analitico(prompt, max_tokens=6000):
 
 def generar_imagen_openai(prompt_descripcion, marca, nicho, pais,
                           formato="1024x1024", calidad="medium",
-                          imagen_referencia_url=None):
+                          imagen_referencia_url=None, imagen_referencia_bytes=None):
     import base64, io
     try:
         _oai_key = st.secrets.get("OPENAI_API_KEY", "")
@@ -655,10 +661,18 @@ def generar_imagen_openai(prompt_descripcion, marca, nicho, pais,
             return None, "sin_api_key"
         _oai_client = OpenAIClient(api_key=_oai_key)
 
-        if imagen_referencia_url:
-            import requests as _req_img
-            _img_resp = _req_img.get(imagen_referencia_url, timeout=10)
-            _img_bytes = _img_resp.content
+        # Colores de marca persistentes (assets de marca) al prompt
+        _colores_bm = (st.session_state.get("colores_marca") or "").strip()
+        if _colores_bm:
+            prompt_descripcion = prompt_descripcion + f"\nBrand color palette to respect in the design: {_colores_bm}."
+
+        if imagen_referencia_bytes or imagen_referencia_url:
+            if imagen_referencia_bytes:
+                _img_bytes = imagen_referencia_bytes
+            else:
+                import requests as _req_img
+                _img_resp = _req_img.get(imagen_referencia_url, timeout=10)
+                _img_bytes = _img_resp.content
             _img_file = io.BytesIO(_img_bytes)
             _img_file.name = "product.png"
             response = _oai_client.images.edit(
@@ -1093,6 +1107,8 @@ def cargar_perfil_desde_db():
         st.session_state.cliente_ideal_guardado = perfil.get("cliente_ideal", "") or ""
         st.session_state.producto_servicio    = perfil.get("oferta_principal", "") or ""
         st.session_state.reglas_marca         = perfil.get("reglas_marca", "") or ""
+        st.session_state.logo_url             = perfil.get("logo_url", "") or ""
+        st.session_state.colores_marca        = perfil.get("colores_marca", "") or ""
         _idioma_db = perfil.get("idioma", "Español") or "Español"
         if _idioma_db not in ("Español", "English", "Português"):
             _idioma_db = "Español"
@@ -1215,11 +1231,11 @@ def db_get_catalogo_todos(user_email: str):
     except Exception as e:
         return []
 
-def db_guardar_producto(user_email: str, nombre: str, precio: str = "", descripcion: str = "", categoria: str = "", fuente: str = "manual"):
+def db_guardar_producto(user_email: str, nombre: str, precio: str = "", descripcion: str = "", categoria: str = "", fuente: str = "manual", imagen_url: str = ""):
     if not supabase or not user_email:
         return False
     try:
-        supabase.table("catalogo_productos").insert({
+        _payload_prod = {
             "user_email": user_email,
             "nombre": nombre,
             "precio": precio,
@@ -1228,9 +1244,58 @@ def db_guardar_producto(user_email: str, nombre: str, precio: str = "", descripc
             "fuente": fuente,
             "activo": True,
             "updated_at": dt.now(timezone.utc).isoformat(),
-        }).execute()
+        }
+        if imagen_url:
+            _payload_prod["imagen_url"] = imagen_url
+        supabase.table("catalogo_productos").insert(_payload_prod).execute()
         return True
     except Exception as e:
+        return False
+
+
+def db_actualizar_imagenes_desde_tienda(email):
+    """Tras sincronizar la tienda, guarda la imagen_url de cada producto del
+    catálogo haciendo match por nombre con los productos de la tienda conectada."""
+    if not supabase or not email:
+        return 0
+    try:
+        _prods_t = obtener_productos_tienda(email) or []
+    except Exception:
+        return 0
+    _mapa_img = {(p.get("nombre") or "").strip().lower(): p.get("foto_url")
+                 for p in _prods_t if p.get("foto_url")}
+    if not _mapa_img:
+        return 0
+    _n_act = 0
+    try:
+        _rows_c = (supabase.table("catalogo_productos")
+                   .select("id,nombre,imagen_url")
+                   .eq("user_email", email).execute().data or [])
+        for _r_c in _rows_c:
+            if not (_r_c.get("imagen_url") or "").strip():
+                _url_c = _mapa_img.get((_r_c.get("nombre") or "").strip().lower())
+                if _url_c:
+                    supabase.table("catalogo_productos").update(
+                        {"imagen_url": _url_c}).eq("id", _r_c["id"]).execute()
+                    _n_act += 1
+    except Exception:
+        pass
+    return _n_act
+
+
+def db_guardar_asset_marca(email, campo, valor):
+    """Guarda logo_url o colores_marca en perfil_negocio (update o insert)."""
+    if not supabase or not email or campo not in ("logo_url", "colores_marca"):
+        return False
+    try:
+        _ex_am = (supabase.table("perfil_negocio").select("id")
+                  .eq("user_email", email).limit(1).execute().data or [])
+        if _ex_am:
+            supabase.table("perfil_negocio").update({campo: valor}).eq("id", _ex_am[0]["id"]).execute()
+        else:
+            supabase.table("perfil_negocio").insert({"user_email": email, campo: valor}).execute()
+        return True
+    except Exception:
         return False
 
 def db_guardar_catalogo_lista(user_email: str, productos: list, fuente: str = "manual"):
@@ -1905,6 +1970,63 @@ with st.sidebar:
     )
     st.session_state.producto_servicio = producto_servicio
 
+    # ── ASSETS DE MARCA: logo + colores (persistentes en perfil_negocio) ──────
+    _is_en_bm = st.session_state.get("lang") == "en"
+    st.markdown("### 🎨 " + ("Tu marca" if not _is_en_bm else "Your brand"))
+    _logo_actual_bm = (st.session_state.get("logo_url") or "").strip()
+    if _logo_actual_bm:
+        st.image(_logo_actual_bm, width=90,
+                 caption="Logo actual" if not _is_en_bm else "Current logo")
+        if st.button("🗑 " + ("Quitar logo" if not _is_en_bm else "Remove logo"), key="btn_quitar_logo"):
+            _em_bm = (st.session_state.get("user_email") or "").strip().lower()
+            if _em_bm:
+                db_guardar_asset_marca(_em_bm, "logo_url", "")
+            st.session_state["logo_url"] = ""
+            st.rerun()
+    _logo_up_bm = st.file_uploader(
+        "Sube tu logo (opcional):" if not _is_en_bm else "Upload your logo (optional):",
+        type=["png", "jpg", "jpeg", "webp"], key="logo_uploader",
+    )
+    if _logo_up_bm is not None:
+        if st.button("💾 " + ("Guardar logo" if not _is_en_bm else "Save logo"), key="btn_guardar_logo"):
+            _em_bm2 = (st.session_state.get("user_email") or "").strip().lower()
+            if not _em_bm2:
+                st.warning("Ingresa tu email primero." if not _is_en_bm else "Enter your email first.")
+            elif _logo_up_bm.size > 10 * 1024 * 1024:
+                st.error("El logo supera los 10MB." if not _is_en_bm else "The logo exceeds 10MB.")
+            elif not supabase:
+                st.warning("Supabase no está conectado.")
+            else:
+                try:
+                    _ext_bm = (_logo_up_bm.name.split(".")[-1] or "png").lower()
+                    _path_bm = f"{_em_bm2}/logo.{_ext_bm}"
+                    supabase.storage.from_("marcas").upload(
+                        _path_bm, _logo_up_bm.getvalue(),
+                        {"content-type": _logo_up_bm.type or "image/png", "upsert": "true"},
+                    )
+                    _url_bm = supabase.storage.from_("marcas").get_public_url(_path_bm)
+                    db_guardar_asset_marca(_em_bm2, "logo_url", _url_bm)
+                    st.session_state["logo_url"] = _url_bm
+                    st.success("✅ Logo guardado" if not _is_en_bm else "✅ Logo saved")
+                    st.rerun()
+                except Exception as _e_bm:
+                    st.error(("No se pudo subir el logo. Verifica que el bucket 'marcas' exista en Supabase Storage. Detalle: "
+                              if not _is_en_bm else
+                              "Could not upload the logo. Check that the 'marcas' bucket exists in Supabase Storage. Detail: ")
+                             + str(_e_bm)[:140])
+    _colores_bm_in = st.text_input(
+        "Colores de tu marca (opcional):" if not _is_en_bm else "Your brand colors (optional):",
+        value=st.session_state.get("colores_marca", ""),
+        placeholder="Ej: #7C3AED, #F59E0B", key="colores_marca_input",
+    )
+    st.session_state["colores_marca"] = _colores_bm_in
+    _hex_bm = [c.strip() for c in _colores_bm_in.split(",") if c.strip().startswith("#") and len(c.strip()) in (4, 7)]
+    if _hex_bm:
+        st.markdown("".join(
+            f'<span style="display:inline-block;width:22px;height:22px;border-radius:5px;'
+            f'background:{_c};margin-right:5px;border:1px solid #ddd;"></span>' for _c in _hex_bm[:6]
+        ), unsafe_allow_html=True)
+
     link_redes = st.text_input(
         t("link_redes_label"),
         value=st.session_state.get("link_redes", ""),
@@ -1973,6 +2095,8 @@ Sé muy específico, como si describieras a una persona real."""
                 st.session_state.ciudad_guardada = ciudad
                 st.session_state.nicho_guardado = nicho
                 st.session_state.cliente_ideal_guardado = cliente_ideal
+                db_guardar_asset_marca(user_email, "colores_marca",
+                                       (st.session_state.get("colores_marca") or "").strip())
                 st.success("✅ Perfil guardado correctamente.")
             except Exception as e:
                 st.error("No se pudo guardar el perfil.")
@@ -2748,13 +2872,42 @@ def _cm_render_confirmacion(_en, _plan_u):
     _n_ag_cm = max(len(_ids_finales), 1)
     st.caption(("💳 Costo: 8 créditos · ⏱ Tiempo aproximado: " if not _en else "💳 Cost: 8 credits · ⏱ Approx time: ")
                + f"{_n_ag_cm * 30}-{_n_ag_cm * 60} seg")
-    # Aviso de imagen real si el agente Imágenes está en la selección
+    # Aviso de imagen real + fuente si el agente Imágenes está en la selección
     if "imagenes" in _ids_finales:
         _img_ok_cm, _img_msg_cm = verificar_limite_imagenes()
         if _img_ok_cm:
             st.caption("🎨 " + ("El agente Imágenes generará 1 imagen real (usa 1 imagen de tu límite mensual, sin créditos extra)."
                                 if not _en else
                                 "The Images agent will generate 1 real image (uses 1 image from your monthly limit, no extra credits)."))
+            _FUENTES_CM = (["✨ Desde cero", "📷 Subir foto", "🛍 De mi catálogo"]
+                           if not _en else ["✨ From scratch", "📷 Upload photo", "🛍 From my catalog"])
+            _cm_fuente_img = st.radio("Fuente de la imagen:" if not _en else "Image source:",
+                                      _FUENTES_CM, horizontal=True, key="cm_img_fuente")
+            st.session_state["cm_img_ref_bytes"] = None
+            st.session_state["cm_img_ref_url"] = None
+            if _cm_fuente_img == _FUENTES_CM[1]:
+                _cm_up = st.file_uploader("Sube tu foto (PNG/JPG/WebP, máx 10MB):" if not _en
+                                          else "Upload your photo (PNG/JPG/WebP, max 10MB):",
+                                          type=["png", "jpg", "jpeg", "webp"], key="cm_img_upload")
+                if _cm_up is not None:
+                    if _cm_up.size > 10 * 1024 * 1024:
+                        st.error("La imagen supera los 10MB." if not _en else "The image exceeds 10MB.")
+                    else:
+                        st.session_state["cm_img_ref_bytes"] = _cm_up.getvalue()
+                        st.image(st.session_state["cm_img_ref_bytes"], width=120)
+            elif _cm_fuente_img == _FUENTES_CM[2]:
+                _em_cmf = (st.session_state.get("user_email") or "").strip().lower()
+                _ops_cmf = [(f"📦 {_p['nombre']}", _p["imagen_url"]) for _p in db_get_catalogo(_em_cmf)
+                            if (_p.get("imagen_url") or "").strip()]
+                if not _ops_cmf:
+                    st.warning("No hay productos con imagen en tu catálogo. Sube una foto o sincroniza tu tienda."
+                               if not _en else "No products with images in your catalog. Upload a photo or sync your store.")
+                else:
+                    _sel_cmf = st.selectbox("Producto:" if not _en else "Product:",
+                                            [_o[0] for _o in _ops_cmf], key="cm_img_cat_sel")
+                    _url_cmf = next(_o[1] for _o in _ops_cmf if _o[0] == _sel_cmf)
+                    st.session_state["cm_img_ref_url"] = _url_cmf
+                    st.image(_url_cmf, width=120)
         else:
             st.warning(f"🎨 {_img_msg_cm} " + ("El agente Imágenes entregará solo el brief visual."
                                                if not _en else "The Images agent will deliver the visual brief only."))
@@ -2864,6 +3017,10 @@ def _cm_render_ejecucion(_en):
                     st.write("🎨 " + ("Generando imagen real de campaña (calidad "
                                       + str(get_plan_config().get("calidad_imagen", "low")) + ")..."
                                       if not _en else "Generating real campaign image..."))
+                    # Referencia elegida en la confirmación (foto subida / catálogo),
+                    # o el logo de marca como composición automática si existe
+                    _ref_bytes_r = st.session_state.get("cm_img_ref_bytes")
+                    _ref_url_r = st.session_state.get("cm_img_ref_url") or ((st.session_state.get("logo_url") or "").strip() or None)
                     try:
                         _img_b64_r, _err_img_r = generar_imagen_openai(
                             (_pedido_cm or "")[:300] + "\n" + _out_r[:500],
@@ -2872,6 +3029,8 @@ def _cm_render_ejecucion(_en):
                             st.session_state.get("pais_guardado", "Perú"),
                             formato="1024x1024",
                             calidad=get_plan_config().get("calidad_imagen", "low"),
+                            imagen_referencia_url=None if _ref_bytes_r else _ref_url_r,
+                            imagen_referencia_bytes=_ref_bytes_r,
                         )
                     except Exception as _ex_img_r:
                         _img_b64_r, _err_img_r = None, str(_ex_img_r)
@@ -2960,7 +3119,7 @@ def _cm_render_done(_en):
             st.divider()
     if st.button("🆕 " + ("Nuevo trabajo" if not _en else "New task"), key="cm_btn_nuevo"):
         for _k4 in ("cm_fase", "cm_plan", "cm_secuencia", "cm_resultado", "cm_imagenes",
-                    "cm_es_reintento", "objetivo_actual"):
+                    "cm_img_ref_bytes", "cm_img_ref_url", "cm_es_reintento", "objetivo_actual"):
             st.session_state.pop(_k4, None)
         st.session_state["agent_states"] = {}
         st.rerun()
@@ -4604,6 +4763,11 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
                 if nombre_p:
                     if db_guardar_producto(user_email_cat, nombre_p, precio_p, fuente=fuente_txt):
                         guardados += 1
+            # Sincronizar imagen_url desde la tienda conectada (fuentes de tienda)
+            if fuente_txt in ("tienda", "woocommerce", "shopify", "tiendanube"):
+                _n_img_sync = db_actualizar_imagenes_desde_tienda(user_email_cat)
+                if _n_img_sync:
+                    st.caption(f"🖼 {_n_img_sync} imagen(es) de producto sincronizadas desde tu tienda")
             # Refrescar cache
             st.session_state["catalogo_guardado"] = db_get_catalogo(user_email_cat)
             st.session_state["catalogo_guardado_email"] = user_email_cat
@@ -4891,6 +5055,22 @@ Completa todas las secciones. No cortes el texto a la mitad."""
             if st.session_state.get("_ed_cat_camp"):
                 st.markdown(st.session_state["_ed_cat_camp"])
                 _panel_edicion(st.session_state["_ed_cat_camp"], "cat_camp", max_tokens=4000)
+                # ── Puente: crear banner real con la imagen de un producto ─────
+                _prods_img_pc = [_p for _p in catalogo_db if (_p.get("imagen_url") or "").strip()]
+                if _prods_img_pc:
+                    st.divider()
+                    _is_en_pc = st.session_state.get("lang") == "en"
+                    st.markdown("🎨 " + ("**¿Quieres el banner real de un producto de esta campaña?**"
+                                         if not _is_en_pc else "**Want the real banner for a product in this campaign?**"))
+                    if st.button("🖼️ " + ("Crear banner con imagen real del producto (5 créditos)"
+                                          if not _is_en_pc else "Create banner with the real product image (5 credits)"),
+                                 key="btn_puente_banner"):
+                        st.session_state.agente_activo = "imagenes"
+                        st.session_state["sub_imagenes"] = ("🎨 Generador de Imágenes Premium"
+                                                            if not _is_en_pc else "🎨 Premium Image Generator")
+                        st.session_state["ig2_fuente"] = ("🛍 De mi catálogo" if not _is_en_pc
+                                                          else "🛍 From my catalog")
+                        st.rerun()
 
         # ══════════════════════════════════════════════════════════════════════
         # SIN CATÁLOGO — AGREGAR PRIMERA VEZ
@@ -5067,49 +5247,83 @@ Completa todas las secciones. No cortes el texto a la mitad."""
         else:
             st.caption(f"Imágenes disponibles: {_ig2_limite - _ig2_usadas}/{_ig2_limite} este mes")
 
-            # PASO 1 — Opción de producto de tienda conectada
+            # PASO 1 — Fuente de la imagen: subir foto / catálogo / desde cero
             _ig2_foto_url = None
+            _ig2_foto_bytes = None
             _ig2_nombre_prod = ""
             _ig2_precio_prod = ""
             _ig2_usar_producto = False
+            _is_en_ig = st.session_state.get("lang") == "en"
 
-            _ig2_config_tienda = obtener_config_tienda(_ig2_email)
-            if _ig2_config_tienda:
-                _ig2_usar_producto = st.checkbox(
-                    "🏪 Usar foto de un producto de mi tienda",
-                    key="ig2_usar_prod"
+            _FUENTES_IMG = (["✨ Generar desde cero", "📷 Subir foto", "🛍 De mi catálogo"]
+                            if not _is_en_ig else
+                            ["✨ Generate from scratch", "📷 Upload photo", "🛍 From my catalog"])
+            _ig2_fuente = st.radio(
+                "Fuente de la imagen:" if not _is_en_ig else "Image source:",
+                _FUENTES_IMG, horizontal=True, key="ig2_fuente",
+            )
+
+            if _ig2_fuente == _FUENTES_IMG[1]:  # 📷 Subir foto
+                _ig2_up = st.file_uploader(
+                    "Sube tu foto (PNG/JPG/WebP, máx 10MB):" if not _is_en_ig
+                    else "Upload your photo (PNG/JPG/WebP, max 10MB):",
+                    type=["png", "jpg", "jpeg", "webp"], key="ig2_upload",
                 )
-                if _ig2_usar_producto:
-                    with st.spinner("Cargando productos de tu tienda..."):
-                        _ig2_productos = obtener_productos_tienda(_ig2_email)
-                    if not _ig2_productos:
-                        st.warning("No se encontraron productos con foto en tu tienda.")
-                        _ig2_usar_producto = False
+                if _ig2_up is not None:
+                    if _ig2_up.size > 10 * 1024 * 1024:
+                        st.error("La imagen supera los 10MB. Comprímela e intenta de nuevo."
+                                 if not _is_en_ig else "The image exceeds 10MB. Compress it and try again.")
                     else:
-                        _ig2_prods_con_foto = [p for p in _ig2_productos if p.get("foto_url")]
-                        if not _ig2_prods_con_foto:
-                            st.warning("Tus productos no tienen fotos cargadas en WooCommerce.")
-                            _ig2_usar_producto = False
-                        else:
-                            _ig2_opciones = {
-                                f"{p['nombre']} - S/{p['precio']}": p
-                                for p in _ig2_prods_con_foto
-                            }
-                            _ig2_prod_elegido = st.selectbox(
-                                "Elige el producto:",
-                                list(_ig2_opciones.keys()),
-                                key="ig2_prod_sel"
-                            )
-                            _ig2_prod_obj = _ig2_opciones[_ig2_prod_elegido]
-                            _ig2_foto_url = _ig2_prod_obj["foto_url"]
-                            _ig2_nombre_prod = _ig2_prod_obj["nombre"]
-                            _ig2_precio_prod = _ig2_prod_obj["precio"]
-                            st.image(
-                                _ig2_foto_url,
-                                width=150,
-                                caption="Foto actual del producto"
-                            )
-                            st.info(f"Generando campaña para: {_ig2_nombre_prod}")
+                        _ig2_foto_bytes = _ig2_up.getvalue()
+                        _ig2_usar_producto = True
+                        st.image(_ig2_foto_bytes, width=150,
+                                 caption="Tu foto de referencia" if not _is_en_ig else "Your reference photo")
+
+            elif _ig2_fuente == _FUENTES_IMG[2]:  # 🛍 De mi catálogo
+                _ig2_opciones_cat = []
+                for _p_cat in db_get_catalogo(_ig2_email):
+                    if (_p_cat.get("imagen_url") or "").strip():
+                        _ig2_opciones_cat.append((
+                            f"📦 {_p_cat['nombre']}" + (f" - {_p_cat.get('precio')}" if _p_cat.get("precio") else ""),
+                            _p_cat["imagen_url"], _p_cat["nombre"], str(_p_cat.get("precio", "")),
+                        ))
+                if obtener_config_tienda(_ig2_email):
+                    with st.spinner("Cargando productos de tu tienda..." if not _is_en_ig
+                                    else "Loading products from your store..."):
+                        _ig2_prods_t = obtener_productos_tienda(_ig2_email) or []
+                    for _p_t in _ig2_prods_t:
+                        if _p_t.get("foto_url"):
+                            _ig2_opciones_cat.append((
+                                f"🏪 {_p_t['nombre']} - {_p_t.get('precio', '')}",
+                                _p_t["foto_url"], _p_t["nombre"], str(_p_t.get("precio", "")),
+                            ))
+                if not _ig2_opciones_cat:
+                    st.warning("No encontré productos con imagen en tu catálogo ni en tu tienda. "
+                               "Sube una foto manualmente (opción 📷) o sincroniza tu tienda desde Gestión → Integraciones."
+                               if not _is_en_ig else
+                               "No products with images found in your catalog or store. "
+                               "Upload a photo manually (📷 option) or sync your store from Management → Integrations.")
+                else:
+                    _ig2_sel_cat = st.selectbox(
+                        "Elige el producto:" if not _is_en_ig else "Choose the product:",
+                        [_o[0] for _o in _ig2_opciones_cat], key="ig2_cat_sel",
+                    )
+                    _ig2_obj_cat = next(_o for _o in _ig2_opciones_cat if _o[0] == _ig2_sel_cat)
+                    _ig2_foto_url = _ig2_obj_cat[1]
+                    _ig2_nombre_prod = _ig2_obj_cat[2]
+                    _ig2_precio_prod = _ig2_obj_cat[3]
+                    _ig2_usar_producto = True
+                    st.image(_ig2_foto_url, width=150,
+                             caption="Imagen del producto" if not _is_en_ig else "Product image")
+                    st.info(("Generando campaña para: " if not _is_en_ig else "Creating campaign for: ") + _ig2_nombre_prod)
+
+            else:  # ✨ Generar desde cero — logo de marca opcional
+                if (st.session_state.get("logo_url") or "").strip():
+                    if st.checkbox("🎨 " + ("Incluir mi logo real en la imagen (composición = edición)"
+                                            if not _is_en_ig else "Include my real logo in the image (composition = edit)"),
+                                   value=True, key="ig2_usar_logo"):
+                        _ig2_foto_url = st.session_state["logo_url"]
+                        _ig2_usar_producto = True
 
             # PASO 2 — Campos de la UI
             _ig2_desc = st.text_area(
@@ -5227,7 +5441,8 @@ Quality: Award-winning commercial photography, Sony A7R IV quality, high convers
                                 _prompt_final, _ig2_marca, _ig2_nicho, _ig2_pais,
                                 formato=_ig2_formatos_map[_ig2_red],
                                 calidad=_ig2_calidad,
-                                imagen_referencia_url=_ig2_foto_url if _ig2_usar_producto else None
+                                imagen_referencia_url=_ig2_foto_url if _ig2_usar_producto else None,
+                                imagen_referencia_bytes=_ig2_foto_bytes if _ig2_usar_producto else None,
                             )
                         except Exception as _ex_gen:
                             _img_b64, _err = None, str(_ex_gen)
@@ -5262,7 +5477,8 @@ Quality: Award-winning commercial photography, Sony A7R IV quality, high convers
                             st.caption("Haz click en el ícono de copiar (esquina superior derecha del bloque):")
                             st.code(_prompt_final, language=None)
 
-                        consumir(_ig2_creditos, tipo_accion="imagen")
+                        consumir(_ig2_creditos,
+                                 tipo_accion="edicion_imagen" if _ig2_usar_producto else "imagen")
                         registrar_uso_imagen()
 
                         if _ig2_email:
