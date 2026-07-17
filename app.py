@@ -2748,6 +2748,16 @@ def _cm_render_confirmacion(_en, _plan_u):
     _n_ag_cm = max(len(_ids_finales), 1)
     st.caption(("💳 Costo: 8 créditos · ⏱ Tiempo aproximado: " if not _en else "💳 Cost: 8 credits · ⏱ Approx time: ")
                + f"{_n_ag_cm * 30}-{_n_ag_cm * 60} seg")
+    # Aviso de imagen real si el agente Imágenes está en la selección
+    if "imagenes" in _ids_finales:
+        _img_ok_cm, _img_msg_cm = verificar_limite_imagenes()
+        if _img_ok_cm:
+            st.caption("🎨 " + ("El agente Imágenes generará 1 imagen real (usa 1 imagen de tu límite mensual, sin créditos extra)."
+                                if not _en else
+                                "The Images agent will generate 1 real image (uses 1 image from your monthly limit, no extra credits)."))
+        else:
+            st.warning(f"🎨 {_img_msg_cm} " + ("El agente Imágenes entregará solo el brief visual."
+                                               if not _en else "The Images agent will deliver the visual brief only."))
     _col_cm1, _col_cm2 = st.columns(2)
     with _col_cm1:
         _btn_conf = st.button("✅ " + ("Confirmar y ejecutar (8 créditos)" if not _en else "Confirm and run (8 credits)"),
@@ -2767,6 +2777,7 @@ def _cm_render_confirmacion(_en, _plan_u):
             st.session_state["cm_secuencia"] = [(_i2, _tareas_plan.get(_i2, _TAREAS_GENERICAS.get(_i2, ""))) for _i2 in _ids_finales]
             st.session_state["agent_states"] = {_i2: "waiting" for _i2 in _ids_finales}
             st.session_state["cm_resultado"] = {}
+            st.session_state["cm_imagenes"] = {}
             st.session_state["cm_es_reintento"] = False
             st.session_state["cm_fase"] = "ejecutar"
             st.rerun()
@@ -2810,7 +2821,70 @@ def _cm_render_ejecucion(_en):
                 "Entrega un resultado accionable, específico y listo para usar. "
                 "No repitas lo que ya hicieron tus colegas."
             )
-            _out_r = generar_texto(_prompt_r, max_out=4000)
+            # ── Plan de Contenido Semanal REAL cuando la tarea lo pide ────────
+            _es_plan_semanal = (_aid_r == "estrategia" and any(
+                _kw in (_tarea_r + " " + _pedido_cm).lower()
+                for _kw in ["plan semanal", "plan de contenido", "calendario de contenido",
+                            "weekly plan", "content plan"]))
+            if _es_plan_semanal:
+                _prompt_r = (
+                    f"Eres estratega de contenidos.\nOBJETIVO DEL USUARIO: {_pedido_cm}\n"
+                    + (f"TRABAJO PREVIO DE TUS COLEGAS:\n{_ctx_cm[-2000:]}\n" if _ctx_cm else "")
+                    + "\nCrea el plan semanal en este formato EXACTO:\n\n"
+                    "## 📅 PLAN DE CONTENIDO — ESTA SEMANA\n\n"
+                    "| Día | Red Social | Tipo | Tema | CTA |\n"
+                    "|---|---|---|---|---|\n"
+                    "| Lunes | | | | |\n| Martes | | | | |\n| Miércoles | | | | |\n"
+                    "| Jueves | | | | |\n| Viernes | | | | |\n\n"
+                    "## 🎯 OBJETIVO DE LA SEMANA\n"
+                    "- Meta principal: [número concreto]\n- Cómo medirlo: [herramienta]\n\n"
+                    "## 🔥 EL POST MÁS IMPORTANTE DE LA SEMANA\n"
+                    "[Copy completo del post con mayor potencial viral]\n\n"
+                    "## ⏰ MEJORES HORARIOS\n"
+                    "Instagram: [mejor día y hora]\nTikTok: [mejor día y hora]\n"
+                    "Facebook: [mejor día y hora]\nWhatsApp: [mejor día y hora]"
+                )
+            _out_r = generar_texto(_prompt_r, max_out=6000 if _es_plan_semanal else 4000)
+            if _out_r and _es_plan_semanal:
+                _email_ps = (st.session_state.get("user_email") or "").strip().lower()
+                if _email_ps:
+                    try:
+                        guardar_plan_semanal(_email_ps, obtener_semana_actual(), _out_r)
+                        st.write("💾 " + ("Plan guardado en tu Plan de Contenido Semanal"
+                                          if not _en else "Plan saved to your Weekly Content Plan"))
+                    except Exception:
+                        pass
+
+            # ── Imagen REAL del agente Imágenes (GPT Image 2) ─────────────────
+            if _aid_r == "imagenes" and _out_r:
+                _img_ok_r, _img_msg_r = verificar_limite_imagenes()
+                if not _img_ok_r:
+                    _out_r += "\n\n---\n🎨 " + _img_msg_r
+                else:
+                    st.write("🎨 " + ("Generando imagen real de campaña (calidad "
+                                      + str(get_plan_config().get("calidad_imagen", "low")) + ")..."
+                                      if not _en else "Generating real campaign image..."))
+                    try:
+                        _img_b64_r, _err_img_r = generar_imagen_openai(
+                            (_pedido_cm or "")[:300] + "\n" + _out_r[:500],
+                            st.session_state.get("marca_guardada", ""),
+                            st.session_state.get("nicho_guardado", ""),
+                            st.session_state.get("pais_guardado", "Perú"),
+                            formato="1024x1024",
+                            calidad=get_plan_config().get("calidad_imagen", "low"),
+                        )
+                    except Exception as _ex_img_r:
+                        _img_b64_r, _err_img_r = None, str(_ex_img_r)
+                    if _img_b64_r:
+                        registrar_uso_imagen()
+                        _imgs_cm = st.session_state.get("cm_imagenes") or {}
+                        _imgs_cm[_aid_r] = _img_b64_r
+                        st.session_state["cm_imagenes"] = _imgs_cm
+                        st.write("✅ " + ("Imagen generada (descuenta 1 de tu límite, sin créditos extra)"
+                                          if not _en else "Image generated (uses 1 from your limit, no extra credits)"))
+                    else:
+                        _out_r += "\n\n---\n🎨 " + ("No se pudo generar la imagen esta vez; el brief visual está listo arriba."
+                                                    if not _en else "The image could not be generated this time; the visual brief is ready above.")
             if _out_r:
                 _exitos_cm += 1
                 _estados_cm[_aid_r] = "completed"
@@ -2862,13 +2936,31 @@ def _cm_render_done(_en):
             st.session_state["cm_es_reintento"] = True
             st.session_state["cm_fase"] = "ejecutar"
             st.rerun()
+    _imgs_done = st.session_state.get("cm_imagenes") or {}
     with st.expander("📋 " + ("Ver resultado completo" if not _en else "See full result"), expanded=bool(_outs_done)):
-        for _nomd, _emod, _outd in _outs_done.values():
+        for _aidd, (_nomd, _emod, _outd) in _outs_done.items():
             st.markdown(f"### {_emod} {_nomd}")
             st.markdown(_outd)
+            _b64d = _imgs_done.get(_aidd)
+            if _b64d:
+                import base64 as _b64cm
+                try:
+                    if not str(_b64d).startswith("http"):
+                        _bytes_d = _b64cm.b64decode(_b64d)
+                        st.image(_bytes_d, use_container_width=True,
+                                 caption="🎨 Imagen de campaña" if not _en else "🎨 Campaign image")
+                        st.download_button("⬇️ " + ("Descargar imagen" if not _en else "Download image"),
+                                           data=_bytes_d, file_name="tentakl_campana.png",
+                                           mime="image/png", key=f"cm_dl_{_aidd}")
+                    else:
+                        st.image(_b64d, use_container_width=True,
+                                 caption="🎨 Imagen de campaña" if not _en else "🎨 Campaign image")
+                except Exception:
+                    pass
             st.divider()
     if st.button("🆕 " + ("Nuevo trabajo" if not _en else "New task"), key="cm_btn_nuevo"):
-        for _k4 in ("cm_fase", "cm_plan", "cm_secuencia", "cm_resultado", "cm_es_reintento", "objetivo_actual"):
+        for _k4 in ("cm_fase", "cm_plan", "cm_secuencia", "cm_resultado", "cm_imagenes",
+                    "cm_es_reintento", "objetivo_actual"):
             st.session_state.pop(_k4, None)
         st.session_state["agent_states"] = {}
         st.rerun()
