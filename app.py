@@ -5340,7 +5340,7 @@ Completa todas las secciones. No cortes el texto a la mitad."""
             )
 
             _ig2_red = st.selectbox(
-                "Red social",
+                "Formato / Red social" if not _is_en_ig else "Format / Social network",
                 ["Instagram Post (1:1)",
                  "Instagram Story / TikTok (9:16)",
                  "Facebook Post (16:9)",
@@ -5348,7 +5348,12 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                  "Pinterest (2:3)",
                  "LinkedIn (1.91:1)",
                  "Twitter / X (16:9)",
-                 "WhatsApp Estado (9:16)"],
+                 "WhatsApp Estado (9:16)",
+                 "Banner web horizontal (16:9) — 1920x1080",
+                 "Banner cabecera web (3:1) — 1500x500",
+                 "Leaderboard display (728x90)",
+                 "Banner rectángulo (300x250)",
+                 "Portada / hero de tienda (2:1) — 1200x600"],
                 key="ig2_red"
             )
 
@@ -5361,6 +5366,21 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 "LinkedIn (1.91:1)":               "1792x1024",
                 "Twitter / X (16:9)":              "1792x1024",
                 "WhatsApp Estado (9:16)":          "1024x1792",
+                # Formatos web / banner → size soportado más cercano (proporción reforzada en el prompt)
+                "Banner web horizontal (16:9) — 1920x1080": "1792x1024",
+                "Banner cabecera web (3:1) — 1500x500":     "1792x1024",
+                "Leaderboard display (728x90)":             "1792x1024",
+                "Banner rectángulo (300x250)":              "1024x1024",
+                "Portada / hero de tienda (2:1) — 1200x600":"1792x1024",
+            }
+
+            # Proporción real a forzar en el prompt para los formatos no cuadrados/no estándar
+            _ig2_ratio_map = {
+                "Banner web horizontal (16:9) — 1920x1080": "a 16:9 wide horizontal web banner (1920x1080)",
+                "Banner cabecera web (3:1) — 1500x500":     "an ultra-wide 3:1 website header banner (1500x500), key elements arranged horizontally with generous side margins",
+                "Leaderboard display (728x90)":             "a very wide ~8:1 leaderboard display banner (728x90), all elements laid out horizontally in a single strip",
+                "Banner rectángulo (300x250)":              "a compact 6:5 medium-rectangle display banner (300x250), tight centered composition",
+                "Portada / hero de tienda (2:1) — 1200x600":"a wide 2:1 store hero cover banner (1200x600)",
             }
 
             # Calidad de imagen según plan (planes_config): Free low, Starter medium, Pro/Agency high
@@ -5435,6 +5455,14 @@ Quality: Award-winning commercial photography, Sony A7R IV quality, high convers
                             typography_rules=_typo_rules,
                         )
 
+                    # Reforzar la proporción exacta para banners web (size API es aproximado)
+                    _ig2_ratio_hint = _ig2_ratio_map.get(_ig2_red)
+                    if _ig2_ratio_hint:
+                        _prompt_final += (
+                            f"\n\nIMPORTANT COMPOSITION: Design this specifically as {_ig2_ratio_hint}. "
+                            f"Arrange every element to fit this aspect ratio with safe margins, no cropping of text or product."
+                        )
+
                     with st.spinner("Generando imagen premium de alta calidad..."):
                         try:
                             _img_b64, _err = generar_imagen_openai(
@@ -5454,22 +5482,33 @@ Quality: Award-winning commercial photography, Sony A7R IV quality, high convers
                     elif _img_b64:
                         import base64 as _b64mod
                         try:
+                            _cap_img = f"Campaña premium: {_ig2_desc[:50]}"
                             if not _img_b64.startswith("http"):
                                 _img_bytes = _b64mod.b64decode(_img_b64)
-                                st.image(_img_bytes,
-                                         caption=f"Campaña premium: {_ig2_desc[:50]}",
-                                         use_container_width=True)
-                                st.download_button(
-                                    "⬇️ Descargar imagen",
-                                    data=_img_bytes,
-                                    file_name=f"tentakl_img_{_ig2_marca}.png",
-                                    mime="image/png",
-                                    key="ig2_dl_0"
-                                )
+                                _img_src = "data:image/png;base64," + _b64mod.b64encode(_img_bytes).decode()
                             else:
-                                st.image(_img_b64,
-                                         caption=f"Campaña premium: {_ig2_desc[:50]}",
-                                         use_container_width=True)
+                                _img_bytes = None
+                                _img_src = _img_b64
+                            # Contenedor centrado, máx ~500px, esquinas redondeadas
+                            st.markdown(
+                                f'<div style="display:flex;flex-direction:column;align-items:center;margin:14px 0;">'
+                                f'<img src="{_img_src}" style="max-width:500px;width:100%;height:auto;'
+                                f'border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.14);" />'
+                                f'<div style="color:#6B6580;font-size:13px;margin-top:6px;">{_cap_img}</div>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+                            if _img_bytes is not None:
+                                _cdl, _cdc, _cdr = st.columns([1, 2, 1])
+                                with _cdc:
+                                    st.download_button(
+                                        "⬇️ Descargar imagen" if not _is_en_ig else "⬇️ Download image",
+                                        data=_img_bytes,
+                                        file_name=f"tentakl_img_{_ig2_marca}.png",
+                                        mime="image/png",
+                                        key="ig2_dl_0",
+                                        use_container_width=True,
+                                    )
                         except Exception as _show_err:
                             st.error(f"Error al mostrar imagen: {_show_err}")
 
