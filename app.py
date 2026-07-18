@@ -1722,8 +1722,45 @@ st.markdown("""
     .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div>div {
         border-radius: 10px; border: 1px solid #ECE9F7; background-color: #FAF9FF;
     }
-    /* Ocultar menú hamburguesa y footer "Made with Streamlit" */
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+    /* Ocultar menú ⋮ y footer, pero MANTENER el header (toggle del sidebar en móvil) */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+
+    /* Botones y textos que no desbordan */
+    .stButton > button, .stDownloadButton > button {
+        white-space: normal !important; height: auto !important; word-break: break-word;
+    }
+    img { max-width: 100%; height: auto; }
+
+    /* Grilla de agentes para MÓVIL (oculta en desktop) */
+    .agentes-movil { display: none; }
+
+    /* ─────────── RESPONSIVE MÓVIL (≤640px) ─────────── */
+    @media (max-width: 640px) {
+        /* Columnas apiladas a ancho completo (caja de objetivo, accesos, métricas) */
+        [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 6px !important; }
+        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+        [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+            flex: 1 1 100% !important; min-width: 100% !important; width: 100% !important;
+        }
+        /* En móvil el pulpo se oculta y se muestra la grilla vertical de agentes */
+        iframe[title="tentakl_pulpo"] { display: none !important; }
+        .block-container { padding-left: 0.8rem !important; padding-right: 0.8rem !important; }
+        /* Asegurar visible el control para abrir el sidebar */
+        [data-testid="collapsedControl"], [data-testid="stSidebarCollapseButton"] {
+            visibility: visible !important; display: flex !important;
+        }
+        /* Mostrar la grilla de agentes móvil */
+        .agentes-movil { display: block !important; margin: 10px 0; }
+        .agentes-movil .am-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .agentes-movil a {
+            display: block; text-decoration: none; color: #15112B !important;
+            border: 1.5px solid #ECE9F7; border-radius: 12px; padding: 12px 8px;
+            text-align: center; background: #fff; word-break: break-word;
+        }
+        .agentes-movil a .am-emoji { font-size: 24px; display: block; }
+        .agentes-movil a .am-name { font-size: 12.5px; display: block; margin-top: 4px; font-weight: 600; }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -3254,6 +3291,27 @@ if _es_home:
                 st.session_state["_subfuncion_activa"] = ""
                 st.session_state["ctx_compartido"] = ""
                 st.rerun()
+
+        # ── Grilla de agentes para móvil (enlaces nativos ?agente=; CSS la muestra
+        #    solo en pantallas ≤640px, donde el pulpo se oculta) ─────────────────
+        _email_links = (st.session_state.get("user_email") or "").strip()
+        _u_q = f"&amp;u={_email_links}" if _email_links else ""
+        _orden_mov = ["estrategia", "contenido", "imagenes", "publicidad",
+                      "ventas", "competencia", "gestion", "metricas"]
+        _cards_mov = "".join(
+            f'<a href="?agente={_aidm}{_u_q}">'
+            f'<span class="am-emoji">{AGENTES[_aidm]["emoji"]}</span>'
+            f'<span class="am-name" style="color:{AGENTES[_aidm]["color"]};">'
+            f'{AGENTES[_aidm]["nombre"][1 if _is_en_ui else 0]}</span></a>'
+            for _aidm in _orden_mov
+        )
+        st.markdown(
+            '<div class="agentes-movil"><div style="text-align:center;font-weight:700;'
+            'margin-bottom:6px;color:#15112B;">🐙 '
+            + ("Toca un agente" if not _is_en_ui else "Tap an agent")
+            + f'</div><div class="am-grid">{_cards_mov}</div></div>',
+            unsafe_allow_html=True,
+        )
 
     # ── Accesos secundarios: fila compacta centrada, estilo ghost ────────────
     _ap_lock_home = _plan_ui in ("Free", "Starter")
