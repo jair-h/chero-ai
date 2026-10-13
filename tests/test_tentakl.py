@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from integrations import analytics as A
 from integrations import stores as S
 from core import agents as AG
+from core import context as CX
 
 _fallos = []
 
@@ -202,9 +203,26 @@ def test_agents():
           "ocultar imágenes deja solo Auditoría Visual")
 
 
+def test_context():
+    print("\n[7] capa de contexto/validación")
+    pe = CX.get_contexto_pais("Perú 🇵🇪")
+    check(pe["moneda"] == "S/" and pe["idioma"] == "es", "Perú -> Soles, español (limpia emoji)")
+    us = CX.get_contexto_pais("USA 🇺🇸")
+    check(us["idioma"] == "en", "USA -> inglés")
+    dflt = CX.get_contexto_pais("Narnia")
+    check(dflt["moneda"] == "$" and dflt["moneda_nombre"] == "USD", "país desconocido -> default USD")
+    base = CX.construir_contexto_base("Perú", "S/", "Español", "Tono formal")
+    check("Perú" in base and "S/" in base and "Tono formal" in base, "contexto_base arma el bloque")
+    txt, err = CX.validar_input("   ")
+    check(txt is None and err == "Campo vacío", "input vacío -> error")
+    txt, err = CX.validar_input("hola <script>alert(1)</script>")
+    check(err is None and "<script" not in txt, "validar_input quita <script")
+    check(CX._sanitizar("a<b>c") == "abc", "_sanitizar quita <>")
+
+
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
-               test_listar_propiedades, test_stores, test_agents):
+               test_listar_propiedades, test_stores, test_agents, test_context):
         _t()
     print("\n" + ("=" * 50))
     if _fallos:
