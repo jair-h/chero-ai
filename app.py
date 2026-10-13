@@ -20,6 +20,10 @@ with warnings.catch_warnings():
     from supabase import create_client, Client
 from openai import OpenAI as OpenAIClient
 
+# Capa de integraciones (tiendas, analytics) — lógica de red fuera del monolito
+from integrations import stores as _stores
+from integrations import analytics as _ganalytics
+
 # ✅ SIEMPRE PRIMERO: configuración de página
 st.set_page_config(page_title="Tentakl.ai", page_icon="🐙", layout="wide")
 
@@ -38,6 +42,35 @@ elif not SUPABASE_URL:
     st.warning("⚠ SUPABASE_URL no configurada en secrets.toml — los datos no se guardarán.")
 elif not SUPABASE_KEY:
     st.warning("⚠ SUPABASE_KEY no configurada en secrets.toml — los datos no se guardarán.")
+
+# ── Callback OAuth de Google Analytics ────────────────────────────────────
+# Google redirige de vuelta con ?code=&state=tentaklga|<email>. Guardamos el
+# bundle de tokens como pendiente (activo=False); la propiedad GA4 se elige
+# luego en Gestión → Integraciones. El email viaja en 'state' porque el
+# redirect crea una sesión nueva de Streamlit (se pierde session_state).
+try:
+    _ga_cb_code = st.query_params.get("code")
+    _ga_cb_state = st.query_params.get("state") or ""
+    if _ga_cb_code and _ga_cb_state.startswith("tentaklga|") and supabase:
+        _ga_cb_email = _ga_cb_state.split("|", 1)[1].strip().lower()
+        _ga_cb_bundle, _ga_cb_err = _ganalytics.exchange_code(st.secrets, _ga_cb_code)
+        if _ga_cb_bundle and not _ga_cb_err and _ga_cb_email:
+            supabase.table("integraciones").upsert({
+                "user_email": _ga_cb_email,
+                "tipo": "google_analytics",
+                "account_id": "",
+                "access_token": _ganalytics.serializar_bundle(_ga_cb_bundle),
+                "activo": False,
+            }, on_conflict="user_email,tipo").execute()
+            st.session_state["ga_oauth_recien"] = True
+        # Limpia solo los params de OAuth, conserva "u" (email persistido)
+        for _k in ("code", "state", "scope", "authuser", "prompt"):
+            try:
+                del st.query_params[_k]
+            except Exception:
+                pass
+except Exception:
+    pass
 
 # --- API KEYS ---
 API_KEY = ""
@@ -4989,19 +5022,12 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
                     sh_key = st.text_input("Access Token:", type="password", key="cat_sh_key_add")
                     if sh_url and sh_key and st.button("Conectar Shopify", key="cat_sh_connect_add"):
                         with st.spinner("Cargando desde Shopify..."):
-                            try:
-                                base = ("https://" + sh_url.rstrip("/")) if not sh_url.startswith("http") else sh_url.rstrip("/")
-                                r = requests.get(f"{base}/admin/api/2024-01/products.json?limit=100",
-                                                 headers={"X-Shopify-Access-Token": sh_key}, timeout=15)
-                                if r.status_code == 200:
-                                    prods_sh = r.json().get("products", [])
-                                    lineas_sh = [f"{p.get('title','')} - {moneda_cat}{p.get('variants',[{}])[0].get('price','')}" for p in prods_sh]
-                                    st.session_state["cat_prods_temp"] = lineas_sh
-                                    st.success(f"{len(lineas_sh)} productos cargados.")
-                                else:
-                                    st.error(f"Error {r.status_code}: {r.text[:200]}")
-                            except Exception as ex:
-                                st.error(f"Error: {ex}")
+                            lineas_sh, _err_sh = _stores.fetch_shopify_products(sh_url, sh_key, moneda_cat)
+                            if _err_sh:
+                                st.error(_err_sh)
+                            else:
+                                st.session_state["cat_prods_temp"] = lineas_sh
+                                st.success(f"{len(lineas_sh)} productos cargados.")
                     if st.session_state.get("cat_prods_temp"):
                         sel_sh = st.multiselect("Selecciona los que quieres guardar:", st.session_state["cat_prods_temp"], key="cat_sh_sel_add")
                         if sel_sh and st.button("💾 Guardar seleccionados", key="cat_sh_save_add"):
@@ -5017,18 +5043,12 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
                     woo_cs = st.text_input("Consumer Secret:", type="password", key="cat_woo_cs_add")
                     if woo_url and woo_ck and woo_cs and st.button("Conectar WooCommerce", key="cat_woo_connect_add"):
                         with st.spinner("Cargando desde WooCommerce..."):
-                            try:
-                                base_woo = ("https://" + woo_url.rstrip("/")) if not woo_url.startswith("http") else woo_url.rstrip("/")
-                                r_woo = requests.get(f"{base_woo}/wp-json/wc/v3/products",
-                                                     params={"per_page": 100}, auth=(woo_ck, woo_cs), timeout=15)
-                                if r_woo.status_code == 200:
-                                    lineas_woo = [f"{p.get('name','')} - {moneda_cat}{p.get('price','')}" for p in r_woo.json()]
-                                    st.session_state["cat_prods_temp"] = lineas_woo
-                                    st.success(f"{len(lineas_woo)} productos cargados.")
-                                else:
-                                    st.error(f"Error {r_woo.status_code}: {r_woo.text[:200]}")
-                            except Exception as ex:
-                                st.error(f"Error: {ex}")
+                            lineas_woo, _err_woo = _stores.fetch_woocommerce_products(woo_url, woo_ck, woo_cs, moneda_cat)
+                            if _err_woo:
+                                st.error(_err_woo)
+                            else:
+                                st.session_state["cat_prods_temp"] = lineas_woo
+                                st.success(f"{len(lineas_woo)} productos cargados.")
                     if st.session_state.get("cat_prods_temp"):
                         sel_woo = st.multiselect("Selecciona los que quieres guardar:", st.session_state["cat_prods_temp"], key="cat_woo_sel_add")
                         if sel_woo and st.button("💾 Guardar seleccionados", key="cat_woo_save_add"):
@@ -5263,19 +5283,12 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 sh_key_n = st.text_input("Access Token:", type="password", key="cat_sh_key_n")
                 if sh_url_n and sh_key_n and st.button("Cargar desde Shopify", key="cat_sh_btn_n"):
                     with st.spinner("Conectando con Shopify..."):
-                        try:
-                            base = ("https://" + sh_url_n.rstrip("/")) if not sh_url_n.startswith("http") else sh_url_n.rstrip("/")
-                            r = requests.get(f"{base}/admin/api/2024-01/products.json?limit=100",
-                                             headers={"X-Shopify-Access-Token": sh_key_n}, timeout=15)
-                            if r.status_code == 200:
-                                prods_sh_n = r.json().get("products", [])
-                                lineas_sh_n = [f"{p.get('title','')} - {moneda_cat}{p.get('variants',[{}])[0].get('price','')}" for p in prods_sh_n]
-                                st.session_state["cat_prods_temp"] = lineas_sh_n
-                                st.success(f"{len(lineas_sh_n)} productos cargados.")
-                            else:
-                                st.error(f"Error {r.status_code}: {r.text[:200]}")
-                        except Exception as ex:
-                            st.error(f"Error: {ex}")
+                        lineas_sh_n, _err_sh_n = _stores.fetch_shopify_products(sh_url_n, sh_key_n, moneda_cat)
+                        if _err_sh_n:
+                            st.error(_err_sh_n)
+                        else:
+                            st.session_state["cat_prods_temp"] = lineas_sh_n
+                            st.success(f"{len(lineas_sh_n)} productos cargados.")
                 if st.session_state.get("cat_prods_temp"):
                     sel_sh_n = st.multiselect("Selecciona los que quieres guardar:", st.session_state["cat_prods_temp"],
                                                default=st.session_state["cat_prods_temp"][:20], key="cat_sh_sel_n")
@@ -5291,18 +5304,12 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 woo_cs_n = st.text_input("Consumer Secret:", type="password", key="cat_woo_cs_n")
                 if woo_url_n and woo_ck_n and woo_cs_n and st.button("Cargar desde WooCommerce", key="cat_woo_btn_n"):
                     with st.spinner("Conectando con WooCommerce..."):
-                        try:
-                            base_woo_n = ("https://" + woo_url_n.rstrip("/")) if not woo_url_n.startswith("http") else woo_url_n.rstrip("/")
-                            r_woo_n = requests.get(f"{base_woo_n}/wp-json/wc/v3/products",
-                                                   params={"per_page": 100}, auth=(woo_ck_n, woo_cs_n), timeout=15)
-                            if r_woo_n.status_code == 200:
-                                lineas_woo_n = [f"{p.get('name','')} - {moneda_cat}{p.get('price','')}" for p in r_woo_n.json()]
-                                st.session_state["cat_prods_temp"] = lineas_woo_n
-                                st.success(f"{len(lineas_woo_n)} productos cargados.")
-                            else:
-                                st.error(f"Error {r_woo_n.status_code}: {r_woo_n.text[:200]}")
-                        except Exception as ex:
-                            st.error(f"Error: {ex}")
+                        lineas_woo_n, _err_woo_n = _stores.fetch_woocommerce_products(woo_url_n, woo_ck_n, woo_cs_n, moneda_cat)
+                        if _err_woo_n:
+                            st.error(_err_woo_n)
+                        else:
+                            st.session_state["cat_prods_temp"] = lineas_woo_n
+                            st.success(f"{len(lineas_woo_n)} productos cargados.")
                 if st.session_state.get("cat_prods_temp"):
                     sel_woo_n = st.multiselect("Selecciona los que quieres guardar:", st.session_state["cat_prods_temp"],
                                                 default=st.session_state["cat_prods_temp"][:20], key="cat_woo_sel_n")
@@ -6085,122 +6092,113 @@ Sé muy específico con los números que ves en la imagen."""
 
                 if _btn_analizar:
                     if verificar_creditos(2):
-                        # ── Try real GA API ─────────────────────────────────────────
-                        _ga_data = None
-                        _usando_demo = False
-                        try:
-                            _url_ga = f"https://analyticsdata.googleapis.com/v1beta/properties/{_ga_pid}:runReport"
-                            _headers_ga = {"X-goog-api-key": _ga_key, "Content-Type": "application/json"}
-                            _body_ga = {
-                                "dateRanges": [{"startDate": _periodo_val, "endDate": "today"}],
-                                "metrics": [
-                                    {"name": "sessions"}, {"name": "activeUsers"},
-                                    {"name": "bounceRate"}, {"name": "averageSessionDuration"},
-                                    {"name": "screenPageViewsPerSession"}, {"name": "newUsers"}
-                                ],
-                                "dimensions": [{"name": "sessionDefaultChannelGroup"}]
-                            }
-                            _resp_ga = requests.post(_url_ga, json=_body_ga, headers=_headers_ga, timeout=15)
-                            if _resp_ga.status_code == 200:
-                                _raw = _resp_ga.json()
-                                _totals = {}
-                                _channels = {}
-                                for _row in _raw.get("rows", []):
-                                    _ch = _row["dimensionValues"][0]["value"]
-                                    _vals = [v["value"] for v in _row["metricValues"]]
-                                    _channels[_ch] = int(float(_vals[0]))
-                                    for _i, _mk in enumerate(["sessions","activeUsers","bounceRate","avgDuration","pagesPerSession","newUsers"]):
-                                        _totals[_mk] = _totals.get(_mk, 0) + float(_vals[_i])
-                                _ga_data = {
-                                    "sessions": int(_totals.get("sessions", 0)),
-                                    "activeUsers": int(_totals.get("activeUsers", 0)),
-                                    "newUsers": int(_totals.get("newUsers", 0)),
-                                    "bounceRate": round(_totals.get("bounceRate", 0) / max(len(_raw.get("rows", [])), 1), 1),
-                                    "avgDuration": int(_totals.get("avgDuration", 0) / max(len(_raw.get("rows", [])), 1)),
-                                    "pagesPerSession": round(_totals.get("pagesPerSession", 0) / max(len(_raw.get("rows", [])), 1), 1),
-                                    "channels": _channels,
-                                }
+                        # Datos REALES de GA4 vía OAuth. Nunca datos inventados:
+                        # si algo falla, mostramos el error y no cobramos.
+                        _ga_bundle = _ganalytics.parsear_token_guardado(_ga_record.get("access_token", ""))
+                        if _ga_bundle.get("api_key_legacy"):
+                            st.error("Esta conexión usa el método viejo (API Key), que no sirve para el Data API de GA4. Desconecta y vuelve a conectar con el botón de Google."
+                                     if not _is_en_int else
+                                     "This connection uses the old API Key method, which doesn't work for the GA4 Data API. Disconnect and reconnect with the Google button.")
+                        else:
+                            _ga_tok, _ga_bundle2, _ga_tok_err = _ganalytics.access_token_valido(st.secrets, _ga_bundle)
+                            if _ga_tok_err or not _ga_tok:
+                                st.error(("No se pudo autenticar con Google: " if not _is_en_int else "Could not authenticate with Google: ") + str(_ga_tok_err or ""))
                             else:
-                                _usando_demo = True
-                        except Exception:
-                            _usando_demo = True
+                                # Persiste el token renovado si cambió
+                                if supabase and _ga_bundle2 and _ga_bundle2 != _ga_bundle:
+                                    try:
+                                        supabase.table("integraciones").update(
+                                            {"access_token": _ganalytics.serializar_bundle(_ga_bundle2)}
+                                        ).eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
+                                    except Exception:
+                                        pass
+                                with st.spinner("Trayendo tus datos reales de GA4..." if not _is_en_int else "Fetching your real GA4 data..."):
+                                    _ga_data, _ga_err = _ganalytics.fetch_ga4_report(_ga_pid, _ga_tok, _periodo_val)
+                                if _ga_err:
+                                    st.error(("GA4: " if not _is_en_int else "GA4: ") + _ga_err)
+                                else:
+                                    st.session_state["ga_data"] = _ga_data
+                                    consumir(2)
 
-                        if _usando_demo or _ga_data is None:
-                            st.warning("⚠ Mostrando datos de ejemplo. Configura tu API key para ver datos reales." if not _is_en_int else "⚠ Showing sample data. Configure your API key to see real data.")
-                            _ga_data = {
-                                "sessions": 1250, "activeUsers": 890, "newUsers": 340,
-                                "bounceRate": 68.5, "avgDuration": 125, "pagesPerSession": 2.3,
-                                "channels": {"Organic Search": 35, "Direct": 28, "Social": 22, "Referral": 15}
-                            }
-
-                        st.session_state["ga_data"] = _ga_data
-                        consumir(2)
-
-                # Show metrics if available
+                # Dashboard de datos REALES (tal cual GA4)
                 _gd = st.session_state.get("ga_data")
-                if _gd:
+                if _gd and _gd.get("totales"):
+                    _tt = _gd["totales"]
                     st.markdown("---")
-                    st.markdown("#### 📊 Métricas" if not _is_en_int else "#### 📊 Metrics")
-                    _gc1, _gc2, _gc3 = st.columns(3)
-                    _gc1.metric("Sesiones" if not _is_en_int else "Sessions", f"{_gd['sessions']:,}")
-                    _gc2.metric("Usuarios activos" if not _is_en_int else "Active users", f"{_gd['activeUsers']:,}")
-                    _gc3.metric("Usuarios nuevos" if not _is_en_int else "New users", f"{_gd['newUsers']:,}")
-                    _gc4, _gc5, _gc6 = st.columns(3)
-                    _gc4.metric("Tasa de rebote" if not _is_en_int else "Bounce rate",
-                                f"{_gd['bounceRate']}%",
-                                delta="-5%" if _gd['bounceRate'] < 70 else "+5%",
-                                delta_color="normal" if _gd['bounceRate'] < 70 else "inverse")
-                    _dur_m = _gd['avgDuration'] // 60
-                    _dur_s = _gd['avgDuration'] % 60
-                    _gc5.metric("Duración prom." if not _is_en_int else "Avg. duration", f"{_dur_m}m {_dur_s}s")
-                    _gc6.metric("Páginas/sesión" if not _is_en_int else "Pages/session", f"{_gd['pagesPerSession']}")
+                    st.markdown("#### 📊 Resumen" if not _is_en_int else "#### 📊 Overview")
+                    _gc1, _gc2, _gc3, _gc4 = st.columns(4)
+                    _gc1.metric("Sesiones" if not _is_en_int else "Sessions", f"{_tt['sessions']:,}")
+                    _gc2.metric("Usuarios activos" if not _is_en_int else "Active users", f"{_tt['activeUsers']:,}")
+                    _gc3.metric("Usuarios nuevos" if not _is_en_int else "New users", f"{_tt['newUsers']:,}")
+                    _gc4.metric("Vistas de página" if not _is_en_int else "Page views", f"{_tt['pageViews']:,}")
+                    _gc5, _gc6, _gc7, _gc8 = st.columns(4)
+                    _gc5.metric("Tasa de rebote" if not _is_en_int else "Bounce rate", f"{_tt['bounceRate']}%")
+                    _dur_m = _tt['avgDuration'] // 60
+                    _dur_s = _tt['avgDuration'] % 60
+                    _gc6.metric("Duración prom." if not _is_en_int else "Avg. duration", f"{_dur_m}m {_dur_s}s")
+                    _gc7.metric("Páginas/sesión" if not _is_en_int else "Pages/session", f"{_tt['pagesPerSession']}")
+                    _gc8.metric("Engagement" if not _is_en_int else "Engagement", f"{_tt['engagementRate']}%")
 
-                    # Pie chart de canales
-                    if _gd.get("channels"):
-                        try:
-                            import plotly.express as px
-                            _df_ch = {"Canal": list(_gd["channels"].keys()), "Sesiones": list(_gd["channels"].values())}
-                            _fig = px.pie(
-                                _df_ch, values="Sesiones", names="Canal",
-                                title="Fuentes de tráfico" if not _is_en_int else "Traffic sources",
-                                color_discrete_sequence=px.colors.qualitative.Set2
-                            )
-                            _fig.update_layout(height=320)
-                            st.plotly_chart(_fig, use_container_width=True)
-                        except ImportError:
-                            st.write(_gd["channels"])
+                    try:
+                        import plotly.express as px
+                        import pandas as _pd
+                        if _gd.get("serie"):
+                            _dfs = _pd.DataFrame(_gd["serie"])
+                            _dfs["fecha"] = _pd.to_datetime(_dfs["fecha"], format="%Y%m%d", errors="coerce")
+                            _figs = px.line(_dfs, x="fecha", y=["sesiones", "usuarios"],
+                                            title="Tendencia diaria" if not _is_en_int else "Daily trend")
+                            _figs.update_layout(height=300, legend_title_text="")
+                            st.plotly_chart(_figs, use_container_width=True)
+                        _cca, _ccb = st.columns(2)
+                        with _cca:
+                            if _gd.get("canales"):
+                                _figc = px.pie(names=list(_gd["canales"].keys()), values=list(_gd["canales"].values()),
+                                               title="Fuentes de tráfico" if not _is_en_int else "Traffic sources",
+                                               color_discrete_sequence=px.colors.qualitative.Set2)
+                                _figc.update_layout(height=320)
+                                st.plotly_chart(_figc, use_container_width=True)
+                        with _ccb:
+                            if _gd.get("dispositivos"):
+                                _figd = px.bar(x=list(_gd["dispositivos"].keys()), y=list(_gd["dispositivos"].values()),
+                                               title="Dispositivos" if not _is_en_int else "Devices",
+                                               labels={"x": "", "y": "Sesiones" if not _is_en_int else "Sessions"})
+                                _figd.update_layout(height=320)
+                                st.plotly_chart(_figd, use_container_width=True)
+                    except Exception:
+                        st.write({"canales": _gd.get("canales"), "dispositivos": _gd.get("dispositivos")})
 
-                    # Gemini analysis
+                    _ccp, _ccq = st.columns(2)
+                    with _ccp:
+                        st.markdown("**📄 Páginas top**" if not _is_en_int else "**📄 Top pages**")
+                        if _gd.get("paginas"):
+                            st.dataframe(_gd["paginas"], use_container_width=True, hide_index=True)
+                    with _ccq:
+                        st.markdown("**🌍 Países**" if not _is_en_int else "**🌍 Countries**")
+                        if _gd.get("paises"):
+                            st.dataframe([{"país": _k, "sesiones": _v} for _k, _v in _gd["paises"].items()],
+                                         use_container_width=True, hide_index=True)
+
+                    # Análisis con IA (sobre los datos reales)
                     if st.button("🧠 Analizar con IA" if not _is_en_int else "🧠 AI Analysis", key="ga_ia_btn"):
-                        _nicho_ga  = st.session_state.get("nicho_guardado", "")
-                        _pais_ga   = st.session_state.get("pais_guardado", "")
+                        _nicho_ga = st.session_state.get("nicho_guardado", "")
+                        _pais_ga = st.session_state.get("pais_guardado", "")
                         _prompt_ga = (
                             f"Eres un analista web experto en marketing digital.\n\n"
-                            f"Analiza estas métricas del sitio web:\n"
-                            f"- Sesiones: {_gd['sessions']}\n"
-                            f"- Usuarios activos: {_gd['activeUsers']}\n"
-                            f"- Usuarios nuevos: {_gd['newUsers']}\n"
-                            f"- Tasa de rebote: {_gd['bounceRate']}%\n"
-                            f"- Duración promedio: {_gd['avgDuration']} segundos\n"
-                            f"- Páginas por sesión: {_gd['pagesPerSession']}\n"
-                            f"- Fuentes de tráfico: {_gd['channels']}\n"
-                            f"- Período: {_sel_periodo}\n"
+                            f"Analiza estas métricas REALES del sitio web (período {_sel_periodo}):\n"
+                            f"- Sesiones: {_tt['sessions']} | Usuarios activos: {_tt['activeUsers']} | Nuevos: {_tt['newUsers']}\n"
+                            f"- Vistas: {_tt['pageViews']} | Rebote: {_tt['bounceRate']}% | Engagement: {_tt['engagementRate']}%\n"
+                            f"- Duración prom.: {_tt['avgDuration']}s | Páginas/sesión: {_tt['pagesPerSession']}\n"
+                            f"- Fuentes de tráfico: {_gd.get('canales')}\n"
+                            f"- Páginas top: {_gd.get('paginas')}\n"
+                            f"- Países: {_gd.get('paises')} | Dispositivos: {_gd.get('dispositivos')}\n"
                             f"- Nicho: {_nicho_ga} en {_pais_ga}\n\n"
                             f"Dame EXACTAMENTE esto sin introducciones:\n\n"
-                            f"## 📊 DIAGNÓSTICO GENERAL\n"
-                            f"[Qué está bien y qué está mal comparado con benchmarks del sector {_nicho_ga}]\n\n"
-                            f"## 🔴 PROBLEMA PRINCIPAL\n"
-                            f"[El problema más urgente con su causa exacta]\n\n"
-                            f"## ✅ SOLUCIÓN CONCRETA\n"
-                            f"[Pasos específicos numerados para arreglarlo]\n\n"
-                            f"## 📈 OPORTUNIDAD DETECTADA\n"
-                            f"[La mayor oportunidad de crecimiento basada en los datos]\n\n"
-                            f"## 🎯 3 ACCIONES PARA ESTA SEMANA\n"
-                            f"1. [acción específica]\n"
-                            f"2. [acción específica]\n"
-                            f"3. [acción específica]\n\n"
-                            f"## 📉 MÉTRICA A MEJORAR PRIMERO\n"
-                            f"[Una sola métrica con objetivo numérico]"
+                            f"## 📊 DIAGNÓSTICO GENERAL\n[Qué está bien y mal vs benchmarks del sector {_nicho_ga}]\n\n"
+                            f"## 🔴 PROBLEMA PRINCIPAL\n[El problema más urgente con su causa exacta]\n\n"
+                            f"## ✅ SOLUCIÓN CONCRETA\n[Pasos numerados para arreglarlo]\n\n"
+                            f"## 📈 OPORTUNIDAD DETECTADA\n[La mayor oportunidad según los datos]\n\n"
+                            f"## 🎯 3 ACCIONES PARA ESTA SEMANA\n1. [acción]\n2. [acción]\n3. [acción]\n\n"
+                            f"## 📉 MÉTRICA A MEJORAR PRIMERO\n[Una sola métrica con objetivo numérico]"
                         )
                         _res_ga = generar_analitico(_prompt_ga, max_tokens=4000)
                         st.session_state["ga_ia_result"] = _res_ga
@@ -6218,59 +6216,111 @@ Sé muy específico con los números que ves en la imagen."""
                             st.success("✅ Guardado en Mis Reportes.")
 
             else:
-                # NOT CONNECTED — show instructions + form
-                st.info(
-                    "📊 **Conecta Google Analytics** para que Tentakl analice el tráfico de tu web:\n\n"
-                    "**Paso 1:** Ve a analytics.google.com\n"
-                    "**Paso 2:** Admin → Configuración de propiedad\n"
-                    "**Paso 3:** Copia tu ID de propiedad (G-XXXXXXXX)\n"
-                    "**Paso 4:** Ve a console.cloud.google.com\n"
-                    "**Paso 5:** Crea un proyecto → Habilita **Google Analytics Data API**\n"
-                    "**Paso 6:** Crea credenciales → API Key\n"
-                    "**Paso 7:** Pega ambos datos abajo" if not _is_en_int else
-                    "📊 **Connect Google Analytics** so Tentakl can analyze your web traffic:\n\n"
-                    "**Step 1:** Go to analytics.google.com\n"
-                    "**Step 2:** Admin → Property settings\n"
-                    "**Step 3:** Copy your property ID (G-XXXXXXXX)\n"
-                    "**Step 4:** Go to console.cloud.google.com\n"
-                    "**Step 5:** Create project → Enable **Google Analytics Data API**\n"
-                    "**Step 6:** Create credentials → API Key\n"
-                    "**Step 7:** Paste both below"
-                )
+                # ¿Hay una conexión OAuth pendiente (token guardado, falta elegir propiedad)?
+                _ga_pend = {}
+                if supabase:
+                    try:
+                        _rp = supabase.table("integraciones").select("*") \
+                            .eq("user_email", _email_int).eq("tipo", "google_analytics") \
+                            .limit(1).execute()
+                        if _rp.data:
+                            _ga_pend = _rp.data[0]
+                    except Exception:
+                        pass
+                _ga_pend_bundle = _ganalytics.parsear_token_guardado(_ga_pend.get("access_token", "")) if _ga_pend else {}
+                _ga_tiene_oauth = bool(_ga_pend_bundle.get("refresh_token") or _ga_pend_bundle.get("access_token"))
 
-                _ga_pid_inp = st.text_input(
-                    "ID de propiedad de Google Analytics" if not _is_en_int else "Google Analytics property ID",
-                    placeholder="G-XXXXXXXXXX",
-                    value=st.session_state.get("ga_property_id", ""),
-                    key="ga_property_id"
-                )
-                _ga_key_inp = st.text_input(
-                    "API Key de Google" if not _is_en_int else "Google API Key",
-                    placeholder="AIzaSy...",
-                    type="password",
-                    key="ga_api_key"
-                )
-
-                if st.button("🔗 Conectar Google Analytics" if not _is_en_int else "🔗 Connect Google Analytics", key="ga_conectar"):
-                    if not _ga_pid_inp.strip():
-                        st.warning("Ingresa el ID de propiedad." if not _is_en_int else "Enter the property ID.")
-                    elif not _ga_key_inp.strip():
-                        st.warning("Ingresa la API Key." if not _is_en_int else "Enter the API Key.")
-                    elif supabase:
-                        try:
-                            supabase.table("integraciones").upsert({
-                                "user_email": _email_int,
-                                "tipo": "google_analytics",
-                                "account_id": _ga_pid_inp.strip(),
-                                "access_token": _ga_key_inp.strip(),
-                                "activo": True,
-                            }, on_conflict="user_email,tipo").execute()
-                            st.success("✅ Google Analytics conectado" if not _is_en_int else "✅ Google Analytics connected")
-                            st.rerun()
-                        except Exception as _e:
-                            st.error(f"Error: {_e}")
+                if _ga_pend and _ga_tiene_oauth and not _ga_pend_bundle.get("api_key_legacy"):
+                    # ── PASO 2 de OAuth: elegir la propiedad GA4 ──────────────────
+                    st.success("✅ Conectado con Google. Elige tu propiedad de Analytics:" if not _is_en_int
+                               else "✅ Connected with Google. Pick your Analytics property:")
+                    _ga_tok_p, _ga_bundle_p, _ga_err_p = _ganalytics.access_token_valido(st.secrets, _ga_pend_bundle)
+                    if _ga_err_p or not _ga_tok_p:
+                        st.error(("No se pudo autenticar: " if not _is_en_int else "Auth failed: ") + str(_ga_err_p or ""))
                     else:
-                        st.warning("Supabase no configurado.")
+                        if supabase and _ga_bundle_p != _ga_pend_bundle:
+                            try:
+                                supabase.table("integraciones").update(
+                                    {"access_token": _ganalytics.serializar_bundle(_ga_bundle_p)}
+                                ).eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
+                            except Exception:
+                                pass
+                        _props, _perr = _ganalytics.listar_propiedades(_ga_tok_p)
+                        if _perr:
+                            st.error(_perr)
+                        elif not _props:
+                            st.warning("No encontramos propiedades GA4 en tu cuenta de Google." if not _is_en_int
+                                       else "No GA4 properties found in your Google account.")
+                        else:
+                            _labels = [f"{_p['nombre']} ({_p['id']})" for _p in _props]
+                            _sel_prop = st.selectbox("Propiedad:" if not _is_en_int else "Property:", _labels, key="ga_prop_pick")
+                            _pid_sel = _props[_labels.index(_sel_prop)]["id"]
+                            if st.button("✅ Usar esta propiedad" if not _is_en_int else "✅ Use this property", key="ga_prop_ok"):
+                                try:
+                                    supabase.table("integraciones").update(
+                                        {"account_id": _pid_sel, "activo": True}
+                                    ).eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
+                                    st.success("✅ Conectado." if not _is_en_int else "✅ Connected.")
+                                    st.rerun()
+                                except Exception as _e:
+                                    st.error(str(_e))
+                    if st.button("🔌 Cancelar conexión" if not _is_en_int else "🔌 Cancel connection", key="ga_pend_cancel"):
+                        if supabase:
+                            try:
+                                supabase.table("integraciones").delete() \
+                                    .eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
+                                st.rerun()
+                            except Exception:
+                                pass
+                else:
+                    # ── NO conectado: botón OAuth de un clic ──────────────────────
+                    st.info("📊 Conecta Google Analytics para que Tentakl lea el tráfico real de tu web y te dé reportes claros."
+                            if not _is_en_int else
+                            "📊 Connect Google Analytics so Tentakl reads your real web traffic and gives you clear reports.")
+                    if _ganalytics.oauth_configurado(st.secrets):
+                        _auth_url = _ganalytics.build_auth_url(st.secrets, state=f"tentaklga|{_email_int}")
+                        st.link_button("🔗 Conectar con Google" if not _is_en_int else "🔗 Connect with Google", _auth_url)
+                        st.caption("Inicia sesión con Google y autoriza el acceso de solo lectura. Luego vuelve aquí y pulsa Actualizar."
+                                   if not _is_en_int else
+                                   "Sign in with Google and grant read-only access. Then come back and press Refresh.")
+                        if st.button("🔄 Ya autoricé — actualizar" if not _is_en_int else "🔄 I authorized — refresh", key="ga_oauth_refresh"):
+                            st.rerun()
+                    else:
+                        st.warning("⚙ El acceso con Google (OAuth) aún no está configurado en esta instancia. "
+                                   "Falta agregar GOOGLE_OAUTH_CLIENT_ID / CLIENT_SECRET / REDIRECT_URI en los secrets."
+                                   if not _is_en_int else
+                                   "⚙ Google sign-in (OAuth) isn't configured yet. Add GOOGLE_OAUTH_CLIENT_ID / CLIENT_SECRET / REDIRECT_URI to secrets.")
+
+                    with st.expander("⚙ Opción avanzada (manual: ID numérico + access token)" if not _is_en_int
+                                     else "⚙ Advanced (manual: numeric ID + access token)"):
+                        st.caption("Solo para pruebas. El ID numérico de propiedad (no el G-XXXX) y un access token OAuth válido.")
+                        _ga_pid_inp = st.text_input(
+                            "ID numérico de propiedad GA4" if not _is_en_int else "GA4 numeric property ID",
+                            placeholder="123456789", key="ga_property_id")
+                        _ga_key_inp = st.text_input(
+                            "Access token OAuth" if not _is_en_int else "OAuth access token",
+                            type="password", key="ga_api_key")
+                        if st.button("🔗 Conectar (manual)" if not _is_en_int else "🔗 Connect (manual)", key="ga_conectar"):
+                            if not _ga_pid_inp.strip() or not _ga_key_inp.strip():
+                                st.warning("Completa ambos campos." if not _is_en_int else "Fill both fields.")
+                            elif supabase:
+                                try:
+                                    import time as _tmod
+                                    _manual_bundle = {"access_token": _ga_key_inp.strip(), "refresh_token": "",
+                                                      "expiry": _tmod.time() + 3600}
+                                    supabase.table("integraciones").upsert({
+                                        "user_email": _email_int,
+                                        "tipo": "google_analytics",
+                                        "account_id": _ga_pid_inp.strip(),
+                                        "access_token": _ganalytics.serializar_bundle(_manual_bundle),
+                                        "activo": True,
+                                    }, on_conflict="user_email,tipo").execute()
+                                    st.success("✅ Conectado (manual)." if not _is_en_int else "✅ Connected (manual).")
+                                    st.rerun()
+                                except Exception as _e:
+                                    st.error(f"Error: {_e}")
+                            else:
+                                st.warning("Supabase no configurado.")
 
             # ── SECCIÓN 2 — Conectar mi Tienda ──────────────────────────────
             st.markdown("---")
