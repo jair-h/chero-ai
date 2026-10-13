@@ -33,6 +33,23 @@ from core.agents import (
     seleccion_agentes_por_reglas as _seleccion_agentes_por_reglas,
 )
 
+# Logging: antes había 29 `except: pass` que escondían errores en silencio.
+# _ignorar_error() registra el fallo (con traceback) sin romper la UI, para
+# que los errores sean visibles en los logs de Streamlit Cloud.
+import logging as _logging
+
+_logging.basicConfig(level=_logging.WARNING)
+_tlog = _logging.getLogger("tentakl")
+
+
+def _ignorar_error(ctx: str = ""):
+    """Registra un error no crítico que se decidió no propagar al usuario.
+    El traceback (exc_info) apunta a la línea exacta donde ocurrió."""
+    try:
+        _tlog.warning("Error ignorado%s", f" [{ctx}]" if ctx else "", exc_info=True)
+    except Exception:
+        pass
+
 # ✅ SIEMPRE PRIMERO: configuración de página
 st.set_page_config(page_title="Tentakl.ai", page_icon="🐙", layout="wide")
 
@@ -77,9 +94,9 @@ try:
             try:
                 del st.query_params[_k]
             except Exception:
-                pass
+                _ignorar_error()
 except Exception:
-    pass
+    _ignorar_error()
 
 # --- API KEYS ---
 API_KEY = ""
@@ -162,7 +179,7 @@ def cargar_planes_config():
         if planes:
             return planes
     except Exception:
-        pass
+        _ignorar_error()
     return _PLANES_FALLBACK
 
 def get_plan_config(plan=None):
@@ -604,7 +621,7 @@ def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
     try:
         _cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
     except Exception:
-        pass
+        _ignorar_error()
 
     st.session_state["_ultima_gen_ok"] = False
     _ultimo_error = None
@@ -674,7 +691,7 @@ def generar_analitico(prompt, max_tokens=6000):
     try:
         _cfg_an["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
     except Exception:
-        pass
+        _ignorar_error()
 
     st.session_state["_ultima_gen_ok"] = False
     _ultimo_error_an = None
@@ -1188,7 +1205,7 @@ def db_guardar_reglas_marca(user_email: str, reglas: str):
         else:
             supabase.table("perfil_negocio").insert({"user_email": user_email, "reglas_marca": reglas}).execute()
     except Exception:
-        pass
+        _ignorar_error()
 
 
 # =========================
@@ -1330,7 +1347,7 @@ def db_actualizar_imagenes_desde_tienda(email):
                         {"imagen_url": _url_c}).eq("id", _r_c["id"]).execute()
                     _n_act += 1
     except Exception:
-        pass
+        _ignorar_error()
     return _n_act
 
 
@@ -1522,7 +1539,7 @@ def obtener_ultimo_reporte_tipo(user_email, tipos, dias=30):
             if _res.data:
                 return _res.data[0]
     except Exception:
-        pass
+        _ignorar_error()
     return None
 
 def obtener_reportes(user_email):
@@ -1921,7 +1938,7 @@ def consumir(costo=1, tipo_accion="funcion_texto"):
         try:
             db_upsert_usuario(email, st.session_state.get("plan", "Free"), st.session_state.usados)
         except Exception:
-            pass
+            _ignorar_error()
         registrar_uso_creditos(email, tipo_accion, costo)
 
 
@@ -1939,7 +1956,7 @@ def registrar_uso_creditos(email, tipo_accion, creditos):
             "fecha": dt.now(timezone.utc).isoformat(),
         }).execute()
     except Exception:
-        pass
+        _ignorar_error()
 
 # =========================
 # BARRA LATERAL
@@ -1985,7 +2002,7 @@ with st.sidebar:
             if st.query_params.get("u") != nuevo_email:
                 st.query_params["u"] = nuevo_email
         except Exception:
-            pass
+            _ignorar_error()
 
         if nuevo_email != st.session_state.get("user_email", ""):
             st.session_state.perfil_cargado = False
@@ -2745,7 +2762,7 @@ def seleccionar_agentes_para_objetivo(objetivo_usuario, perfil_negocio=None):
                     "agentes": _ags[:6],
                 }
     except Exception:
-        pass
+        _ignorar_error()
     return _seleccion_agentes_por_reglas(objetivo_usuario)
 
 
@@ -2956,7 +2973,7 @@ def _cm_render_ejecucion(_en):
                         _pulpo_component(estados=_estados_cm, en=_en,
                                          key=f"pulpo_run_{_n_cm}", default=None)
                     except Exception:
-                        pass
+                        _ignorar_error()
             _prog_total.progress(_n_cm / _total_cm,
                                  text=(f"Paso {_n_cm + 1}/{_total_cm}" if not _en else f"Step {_n_cm + 1}/{_total_cm}"))
             st.write(f"{_agr.get('emoji', '🤖')} **{_nomr}** — {_msgr}")
@@ -3000,7 +3017,7 @@ def _cm_render_ejecucion(_en):
                         st.write("💾 " + ("Plan guardado en tu Plan de Contenido Semanal"
                                           if not _en else "Plan saved to your Weekly Content Plan"))
                     except Exception:
-                        pass
+                        _ignorar_error()
 
             # ── Imagen REAL del agente Imágenes (GPT Image 2) ─────────────────
             if IMAGENES_ACTIVAS and _aid_r == "imagenes" and _out_r:
@@ -3052,7 +3069,7 @@ def _cm_render_ejecucion(_en):
                     _pulpo_component(estados=_estados_cm, en=_en,
                                      key="pulpo_run_final", default=None)
                 except Exception:
-                    pass
+                    _ignorar_error()
         _prog_total.progress(1.0, text=("Completado" if not _en else "Completed"))
         _status_cm.update(label="✅ " + ("Equipo completado" if not _en else "Team finished"),
                           state="complete")
@@ -3109,7 +3126,7 @@ def _cm_render_done(_en):
                         st.image(_b64d, use_container_width=True,
                                  caption="🎨 Imagen de campaña" if not _en else "🎨 Campaign image")
                 except Exception:
-                    pass
+                    _ignorar_error()
             st.divider()
     if st.button("🆕 " + ("Nuevo trabajo" if not _en else "New task"), key="cm_btn_nuevo"):
         for _k4 in ("cm_fase", "cm_plan", "cm_secuencia", "cm_resultado", "cm_imagenes",
@@ -3134,7 +3151,7 @@ if _qp_agente:
     try:
         del st.query_params["agente"]  # solo este param; conservar "u" (email persistido)
     except Exception:
-        pass
+        _ignorar_error()
 
 _agente_activo = st.session_state.get("agente_activo")
 _plan_ui = st.session_state.get("plan", "Free")
@@ -3426,7 +3443,7 @@ if _sec_activa == "inicio" and _opcion_activa == "auditoria":
                     if len(_numeros_am) >= 4:
                         break
                 except Exception:
-                    pass
+                    _ignorar_error()
 
             if len(_numeros_am) >= 4:
                 _s1, _s2, _s3, _s4 = [min(int(n), 100) for n in _numeros_am[:4]]
@@ -5928,7 +5945,7 @@ Sé muy específico con los números que ves en la imagen."""
                         _ga_conectado = True
                         _ga_record = _r.data[0]
                 except Exception:
-                    pass
+                    _ignorar_error()
 
             if _ga_conectado:
                 st.success("✅ Google Analytics conectado" if not _is_en_int else "✅ Google Analytics connected")
@@ -5978,7 +5995,7 @@ Sé muy específico con los números que ves en la imagen."""
                                             {"access_token": _ganalytics.serializar_bundle(_ga_bundle2)}
                                         ).eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
                                     except Exception:
-                                        pass
+                                        _ignorar_error()
                                 with st.spinner("Trayendo tus datos reales de GA4..." if not _is_en_int else "Fetching your real GA4 data..."):
                                     _ga_data, _ga_err = _ganalytics.fetch_ga4_report(_ga_pid, _ga_tok, _periodo_val)
                                 if _ga_err:
@@ -6093,7 +6110,7 @@ Sé muy específico con los números que ves en la imagen."""
                         if _rp.data:
                             _ga_pend = _rp.data[0]
                     except Exception:
-                        pass
+                        _ignorar_error()
                 _ga_pend_bundle = _ganalytics.parsear_token_guardado(_ga_pend.get("access_token", "")) if _ga_pend else {}
                 _ga_tiene_oauth = bool(_ga_pend_bundle.get("refresh_token") or _ga_pend_bundle.get("access_token"))
 
@@ -6111,7 +6128,7 @@ Sé muy específico con los números que ves en la imagen."""
                                     {"access_token": _ganalytics.serializar_bundle(_ga_bundle_p)}
                                 ).eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
                             except Exception:
-                                pass
+                                _ignorar_error()
                         _props, _perr = _ganalytics.listar_propiedades(_ga_tok_p)
                         if _perr:
                             st.error(_perr)
@@ -6138,7 +6155,7 @@ Sé muy específico con los números que ves en la imagen."""
                                     .eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
                                 st.rerun()
                             except Exception:
-                                pass
+                                _ignorar_error()
                 else:
                     # ── NO conectado: botón OAuth de un clic ──────────────────────
                     st.info("📊 Conecta Google Analytics para que Tentakl lea el tráfico real de tu web y te dé reportes claros."
@@ -6820,7 +6837,7 @@ if _sec_activa == "power":
                             _kpi_df = _kpi_df[["semana", "ventas", "seguidores", "alcance", "clics", "leads"]].set_index("semana")
                             st.line_chart(_kpi_df)
                         except Exception:
-                            pass
+                            _ignorar_error()
 
                     _kpi_prefix = "Respond ONLY in English.\n\n" if _is_en_pw else ""
                     _kpi_ant = _kpi_hist[1] if len(_kpi_hist) > 1 else {}
@@ -6857,7 +6874,7 @@ if _sec_activa == "power":
                     _kpi_df2 = _kpi_df2[["semana", "ventas", "seguidores", "alcance", "clics", "leads"]].set_index("semana")
                     st.line_chart(_kpi_df2)
                 except Exception:
-                    pass
+                    _ignorar_error()
 
     # ── 8. OPTIMIZADOR LANDING CRO ────────────────────────────────────────────
     elif opcion_power == "Optimizador Landing CRO":
@@ -7029,7 +7046,7 @@ def crm_update_estado(contacto_id, nuevo_estado):
         supabase.table("crm_contactos").update({"estado": nuevo_estado}) \
             .eq("id", contacto_id).execute()
     except Exception:
-        pass
+        _ignorar_error()
 
 def crm_get_interacciones(contacto_id):
     if not supabase:
@@ -7099,7 +7116,7 @@ def crm_completar_tarea(tarea_id):
         supabase.table("crm_tareas").update({"completada": True}) \
             .eq("id", tarea_id).execute()
     except Exception:
-        pass
+        _ignorar_error()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECCIÓN: CRM (agente Comercial)
@@ -7386,7 +7403,7 @@ if _sec_activa == "crm":
                         try:
                             _vencida = _date_crm.fromisoformat(str(_t_fecha)[:10]) < _hoy
                         except Exception:
-                            pass
+                            _ignorar_error()
 
                     _t_col1, _t_col2 = st.columns([1, 8])
                     with _t_col1:
@@ -7581,7 +7598,7 @@ if _sec_activa == "admin_dashboard":
                 if _cf_rows:
                     st.dataframe(pd.DataFrame(_cf_rows), use_container_width=True)
             except Exception:
-                pass
+                _ignorar_error()
 
 st.markdown("---")
 # ✅ FIX: alcance leído desde session_state para el footer (nunca da NameError)
