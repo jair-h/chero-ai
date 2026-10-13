@@ -24,6 +24,15 @@ from openai import OpenAI as OpenAIClient
 from integrations import stores as _stores
 from integrations import analytics as _ganalytics
 
+# Capa de agentes (definición de los 9 agentes + routing por reglas)
+from core.agents import (
+    AGENT_COLORS, AGENTES,
+    TAREAS_GENERICAS as _TAREAS_GENERICAS,
+    MENSAJES_AGENTE as _MENSAJES_AGENTE,
+    ocultar_generador_imagenes as _ocultar_generador_imagenes,
+    seleccion_agentes_por_reglas as _seleccion_agentes_por_reglas,
+)
+
 # ✅ SIEMPRE PRIMERO: configuración de página
 st.set_page_config(page_title="Tentakl.ai", page_icon="🐙", layout="wide")
 
@@ -106,6 +115,10 @@ MODELO_FUERTE = "gemini-2.5-flash"
 # Por ahora está desactivada: oculta todos los puntos de entrada de imagen
 # en la UI (no borra el código, así re-activar es cambiar esto a True).
 IMAGENES_ACTIVAS = False
+
+# Imágenes off: quita la generación del agente Imágenes (deja la Auditoría Visual)
+if not IMAGENES_ACTIVAS:
+    _ocultar_generador_imagenes(AGENTES)
 
 # =========================
 # COSTOS Y LÍMITES (esquema Tentakl)
@@ -2492,119 +2505,10 @@ def db_incrementar_autopiloto(user_email, mes):
 
 
 # =========================================================
-# TENTAKL — TU EQUIPO DE 9 AGENTES (CAMBIO 2)
+# TENTAKL — TU EQUIPO DE 9 AGENTES
+# Definición de agentes (AGENT_COLORS, AGENTES) + routing por reglas vive en
+# core/agents.py. Se importa arriba; el flag de imágenes se aplicó tras config.
 # =========================================================
-AGENT_COLORS = {
-    "estrategia": "#2563EB", "contenido": "#16A34A", "imagenes": "#F97316",
-    "publicidad": "#7C3AED", "ventas": "#0D9488", "competencia": "#EC4899",
-    "gestion": "#8B5CF6", "metricas": "#D4A017", "autopiloto": "#D4A017",
-}
-
-AGENTES = {
-    "estrategia": {
-        "emoji": "🧠", "color": "#2563EB",
-        "nombre": ("Estrategia y Diagnóstico", "Strategy & Diagnosis"),
-        "desc": ("Analiza tu negocio, mercado y arma tu plan", "Analyzes your business, market and builds your plan"),
-        "subfunciones": [
-            ("⚡ Acciones Inteligentes de Hoy", "⚡ Today's Smart Actions", "inicio", "acciones"),
-            ("🩺 Auditoría Maestra del Negocio", "🩺 Master Business Audit", "inicio", "auditoria"),
-            ("🔥 Radar de Tendencias Virales", "🔥 Viral Trends Radar", "inicio", "radar"),
-            ("🧠 Plan de Contenido Semanal", "🧠 Weekly Content Plan", "inicio", "plan_semanal"),
-            ("🪄 Planificador con Tendencias Reales", "🪄 Real Trends Planner", "calendario", "planificador"),
-        ],
-    },
-    "contenido": {
-        "emoji": "✍️", "color": "#16A34A",
-        "nombre": ("Contenido", "Content"),
-        "desc": ("Reels, copies, blog, emails y storytelling", "Reels, copy, blog, emails and storytelling"),
-        "subfunciones": [
-            ("🎬 Experto TikTok/Reels", "🎬 TikTok/Reels Expert", "marketing", "Experto TikTok/Reels"),
-            ("📖 Storytelling de Marca", "📖 Brand Storytelling", "marketing", "Storytelling de Marca"),
-            ("📝 Artículo de Blog SEO", "📝 SEO Blog Article", "marketing", "Artículo de Blog SEO"),
-            ("🔑 SEO y Palabras Clave", "🔑 SEO & Keywords", "marketing", "SEO y Palabras Clave"),
-            ("📧 Email Marketing", "📧 Email Marketing", "power", "Email Marketing"),
-            ("🚨 Plan de Crisis", "🚨 Crisis Plan", "marketing", "Plan de Crisis"),
-        ],
-    },
-    "imagenes": {
-        "emoji": "🖼️", "color": "#F97316",
-        "nombre": ("Imágenes", "Images"),
-        "desc": ("Creativos premium y auditoría visual", "Premium creatives and visual audit"),
-        "subfunciones": [
-            ("🎨 Generador de Imágenes Premium", "🎨 Premium Image Generator", "marketing", "Generador de Imagenes"),
-            ("🎞 Auditoría Visual (Video/Foto)", "🎞 Visual Audit (Video/Photo)", "marketing", "Auditoría Visual (Video/Foto)"),
-        ],
-    },
-    "publicidad": {
-        "emoji": "📣", "color": "#7C3AED",
-        "nombre": ("Publicidad", "Advertising"),
-        "desc": ("Ads, segmentación, compliance y campañas", "Ads, targeting, compliance and campaigns"),
-        "subfunciones": [
-            ("🎯 Segmentación de Ads", "🎯 Ads Segmentation", "marketing", "Segmentación Ads"),
-            ("🛡 Compliance Checker", "🛡 Compliance Checker", "marketing", "Compliance Checker"),
-            ("🧪 Simulador de Campaña", "🧪 Campaign Simulator", "marketing", "Simulador de Campaña"),
-            ("🛍 Campaña por Catálogo", "🛍 Catalog Campaign", "marketing", "Campaña de Catálogo"),
-            ("🤝 Influencer Marketing", "🤝 Influencer Marketing", "power", "Influencer Marketing"),
-            ("📰 PR Digital", "📰 Digital PR", "power", "PR Digital"),
-        ],
-    },
-    "ventas": {
-        "emoji": "💰", "color": "#0D9488",
-        "nombre": ("Ventas", "Sales"),
-        "desc": ("Embudos, precios, ofertas y cierres", "Funnels, pricing, offers and closing"),
-        "subfunciones": [
-            ("🌀 Embudo de Ventas", "🌀 Sales Funnel", "marketing", "Embudo de Ventas"),
-            ("🧠 Psicólogo de Precios", "🧠 Price Psychology", "ventas", "Psicólogo de Precios"),
-            ("🥊 Mata-Objeciones", "🥊 Objection Buster", "ventas", "Mata-Objeciones"),
-            ("🏷 Calculadora de Descuentos", "🏷 Discount Calculator", "ventas", "Calculadora Descuentos"),
-            ("📄 Cotizaciones", "📄 Quotes", "admin", "Cotizaciones"),
-        ],
-    },
-    "competencia": {
-        "emoji": "🎯", "color": "#EC4899",
-        "nombre": ("Competencia", "Competitors"),
-        "desc": ("Espionaje, gaps y posicionamiento", "Spying, gaps and positioning"),
-        "subfunciones": [
-            ("🕵 Inteligencia Competitiva", "🕵 Competitive Intelligence", "marketing", "🕵 Inteligencia Competitiva"),
-            ("🔍 Auditoría SEO Completa", "🔍 Complete SEO Audit", "power", "Auditoría SEO Completa"),
-        ],
-    },
-    "gestion": {
-        "emoji": "📋", "color": "#8B5CF6",
-        "nombre": ("Gestión", "Management"),
-        "desc": ("CRM, contratos, marca e integraciones", "CRM, contracts, brand and integrations"),
-        "subfunciones": [
-            ("👥 CRM con IA", "👥 AI CRM", "crm", "crm"),
-            ("📜 Contratos", "📜 Contracts", "admin", "Contratos"),
-            ("📏 Reglas de Marca", "📏 Brand Rules", "admin", "Reglas de Marca"),
-            ("🔗 Integraciones (tiendas y GA)", "🔗 Integrations (stores & GA)", "admin", "Integraciones"),
-            ("💬 Gestión de Comunidad", "💬 Community Management", "power", "Gestión de Comunidad"),
-        ],
-    },
-    "metricas": {
-        "emoji": "📊", "color": "#D4A017",
-        "nombre": ("Métricas", "Metrics"),
-        "desc": ("KPIs, ROI, analítica y optimización", "KPIs, ROI, analytics and optimization"),
-        "subfunciones": [
-            ("📈 Analista ROI (CSV)", "📈 ROI Analyst (CSV)", "admin", "Analista ROI (CSV)"),
-            ("📊 Analizador de Métricas", "📊 Metrics Analyzer", "admin", "Analizador de Métricas"),
-            ("🎯 Tracker de KPIs", "🎯 KPI Tracker", "power", "Tracker de KPIs"),
-            ("🎯 Optimizador Landing CRO", "🎯 Landing Page Optimizer (CRO)", "power", "Optimizador Landing CRO"),
-        ],
-    },
-}
-
-# Imágenes desactivadas por ahora: quita la generación de imágenes del agente
-# Imágenes (deja la Auditoría Visual, que solo analiza, no genera).
-if not IMAGENES_ACTIVAS:
-    AGENTES["imagenes"]["subfunciones"] = [
-        _sf for _sf in AGENTES["imagenes"]["subfunciones"]
-        if _sf[3] != "Generador de Imagenes"
-    ]
-    AGENTES["imagenes"]["desc"] = (
-        "Auditoría visual de tus videos y fotos",
-        "Visual audit of your videos and photos",
-    )
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -2779,47 +2683,10 @@ except Exception:
 
 # ══════════════════════════════════════════════════════════════════
 # FASE 2: SELECCIÓN AUTOMÁTICA DE AGENTES SEGÚN EL OBJETIVO
+# _TAREAS_GENERICAS, _MENSAJES_AGENTE y _seleccion_agentes_por_reglas se
+# importan de core.agents (ver arriba). Aquí queda solo la selección con IA,
+# que depende del motor de texto y de session_state.
 # ══════════════════════════════════════════════════════════════════
-_TAREAS_GENERICAS = {
-    "estrategia": "Analiza el negocio, el mercado y define la estrategia para el objetivo",
-    "contenido": "Crea el concepto, los mensajes y las piezas de contenido",
-    "imagenes": "Define la dirección de arte y los briefs visuales de la campaña",
-    "publicidad": "Diseña la campaña de ads con segmentación y presupuesto",
-    "ventas": "Crea la oferta, los CTA y las respuestas a objeciones",
-    "competencia": "Analiza a la competencia y define la diferenciación",
-    "gestion": "Define el plan de seguimiento de clientes y consistencia de marca",
-    "metricas": "Define los KPIs e indicadores de seguimiento del objetivo",
-}
-
-_MENSAJES_AGENTE = {
-    "estrategia": ("Analizando tu negocio, mercado y objetivo...", "Analyzing your business, market and goal..."),
-    "contenido": ("Creando concepto, mensajes y calendario...", "Creating concept, messages and calendar..."),
-    "imagenes": ("Generando propuestas visuales...", "Generating visual proposals..."),
-    "publicidad": ("Preparando campaña, segmentación y variaciones...", "Preparing campaign, targeting and variations..."),
-    "ventas": ("Creando oferta, CTA y respuestas a objeciones...", "Creating offer, CTAs and objection handling..."),
-    "competencia": ("Analizando a tu competencia y sus gaps...", "Analyzing your competitors and their gaps..."),
-    "gestion": ("Organizando seguimiento y gestión...", "Organizing follow-up and management..."),
-    "metricas": ("Preparando indicadores y plan de seguimiento...", "Preparing KPIs and tracking plan..."),
-}
-
-
-def _seleccion_agentes_por_reglas(objetivo):
-    """Respaldo por reglas internas si Gemini falla o devuelve JSON inválido."""
-    _o = (objetivo or "").lower()
-    if any(_k in _o for _k in ["imagen", "foto", "banner", "flyer", "visual", "logo", "creativo"]):
-        _ids = ["contenido", "imagenes"]
-    elif any(_k in _o for _k in ["analiza", "metric", "métric", "roi", "kpi", "resultado", "reporte"]):
-        _ids = ["metricas", "ventas", "estrategia"]
-    elif any(_k in _o for _k in ["venta", "precio", "cotiza", "oferta", "descuento", "cerrar"]):
-        _ids = ["estrategia", "ventas", "metricas"]
-    elif any(_k in _o for _k in ["lanzar", "lanzamiento", "nuevo producto", "abrir", "empezar negocio"]):
-        _ids = ["estrategia", "competencia", "contenido", "publicidad", "ventas", "metricas"]
-    else:
-        _ids = ["estrategia", "contenido", "publicidad", "ventas", "metricas"]
-    return {"objetivo_interpretado": (objetivo or "")[:200],
-            "agentes": [(_i, _TAREAS_GENERICAS[_i]) for _i in _ids]}
-
-
 def seleccionar_agentes_para_objetivo(objetivo_usuario, perfil_negocio=None):
     """FASE 2: Gemini analiza el objetivo y decide qué agentes activar.
     Devuelve {"objetivo_interpretado": str, "agentes": [(id, tarea), ...]} (máx 6).
