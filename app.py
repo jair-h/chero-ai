@@ -69,6 +69,11 @@ except Exception as e:
 MODELO_RAPIDO = "gemini-2.5-flash-lite"
 MODELO_FUERTE = "gemini-2.5-flash"
 
+# Interruptor global de la generación de imágenes.
+# Por ahora está desactivada: oculta todos los puntos de entrada de imagen
+# en la UI (no borra el código, así re-activar es cambiar esto a True).
+IMAGENES_ACTIVAS = False
+
 # =========================
 # COSTOS Y LÍMITES (esquema Tentakl)
 # =========================
@@ -1789,10 +1794,14 @@ def _mostrar_upgrade(mensaje=None):
     for _col, _pl in zip((_c1, _c2, _c3), ("Starter", "Pro", "Agency")):
         _cfgp = _planes_cfg.get(_pl, _PLANES_FALLBACK[_pl])
         with _col:
+            _linea_img = (
+                "\n\n" + f"🎨 {_cfgp['imagenes_limite']} "
+                + ("images/month" if _en else "imágenes/mes") + f" ({_cfgp['calidad_imagen']})"
+            ) if IMAGENES_ACTIVAS else ""
             st.markdown(
                 f"**{_pl}** — ${int(_cfgp['precio'])}/mes\n\n"
-                f"✅ {_cfgp['creditos']} " + ("credits/month" if _en else "créditos/mes") + "\n\n"
-                f"🎨 {_cfgp['imagenes_limite']} " + ("images/month" if _en else "imágenes/mes") + f" ({_cfgp['calidad_imagen']})"
+                f"✅ {_cfgp['creditos']} " + ("credits/month" if _en else "créditos/mes")
+                + _linea_img
             )
     st.caption("👉 tentakl.ai/planes" if not _en else "👉 tentakl.ai/plans")
 
@@ -1948,8 +1957,12 @@ with st.sidebar:
         # ── CAMBIO 10: registro nuevo requiere aceptar T&C ─────────────────────
         if st.session_state.get("_cuenta_pendiente_tc") and re.match(r'^[^@]+@[^@]+\.[^@]+$', nuevo_email):
             _en_tc = st.session_state.get("lang") == "en"
-            st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 50 créditos y 2 imágenes gratis, por única vez." if not _en_tc
-                    else "🐙 Welcome! Create your Free account: 50 credits and 2 free images, one time only.")
+            if IMAGENES_ACTIVAS:
+                st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 50 créditos y 2 imágenes gratis, por única vez." if not _en_tc
+                        else "🐙 Welcome! Create your Free account: 50 credits and 2 free images, one time only.")
+            else:
+                st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 50 créditos gratis, por única vez." if not _en_tc
+                        else "🐙 Welcome! Create your Free account: 50 free credits, one time only.")
             _acepta_tc = st.checkbox(
                 "Acepto los Términos y Condiciones y la Política de Privacidad" if not _en_tc
                 else "I accept the Terms and Conditions and the Privacy Policy",
@@ -2180,9 +2193,10 @@ Sé muy específico, como si describieras a una persona real."""
     st.progress(progreso)
     st.caption(f'{t("creditos_restantes")}: {restantes}')
     st.caption(f'{t("consumo")}: {usados_sidebar} / {limite}')
-    _img_cfg_sb = int(_cfg_sb["imagenes_limite"])
-    _img_usadas_sb = int(st.session_state.get("imagenes_usadas", 0) or 0)
-    st.caption(("🎨 Imágenes: " if st.session_state.get("lang") != "en" else "🎨 Images: ") + f"{max(_img_cfg_sb - _img_usadas_sb, 0)}/{_img_cfg_sb}")
+    if IMAGENES_ACTIVAS:
+        _img_cfg_sb = int(_cfg_sb["imagenes_limite"])
+        _img_usadas_sb = int(st.session_state.get("imagenes_usadas", 0) or 0)
+        st.caption(("🎨 Imágenes: " if st.session_state.get("lang") != "en" else "🎨 Images: ") + f"{max(_img_cfg_sb - _img_usadas_sb, 0)}/{_img_cfg_sb}")
 
     # ── Banner suave cuando quedan pocos créditos (plan Free) ─────────────────
     if plan_actual == "Free" and 0 < restantes <= 10:
@@ -2546,6 +2560,18 @@ AGENTES = {
         ],
     },
 }
+
+# Imágenes desactivadas por ahora: quita la generación de imágenes del agente
+# Imágenes (deja la Auditoría Visual, que solo analiza, no genera).
+if not IMAGENES_ACTIVAS:
+    AGENTES["imagenes"]["subfunciones"] = [
+        _sf for _sf in AGENTES["imagenes"]["subfunciones"]
+        if _sf[3] != "Generador de Imagenes"
+    ]
+    AGENTES["imagenes"]["desc"] = (
+        "Auditoría visual de tus videos y fotos",
+        "Visual audit of your videos and photos",
+    )
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -2941,7 +2967,7 @@ def _cm_render_confirmacion(_en, _plan_u):
     st.caption(("💳 Costo: 8 créditos · ⏱ Tiempo aproximado: " if not _en else "💳 Cost: 8 credits · ⏱ Approx time: ")
                + f"{_n_ag_cm * 30}-{_n_ag_cm * 60} seg")
     # Aviso de imagen real + fuente si el agente Imágenes está en la selección
-    if "imagenes" in _ids_finales:
+    if IMAGENES_ACTIVAS and "imagenes" in _ids_finales:
         _img_ok_cm, _img_msg_cm = verificar_limite_imagenes()
         if _img_ok_cm:
             st.caption("🎨 " + ("El agente Imágenes generará 1 imagen real (usa 1 imagen de tu límite mensual, sin créditos extra)."
@@ -3077,7 +3103,7 @@ def _cm_render_ejecucion(_en):
                         pass
 
             # ── Imagen REAL del agente Imágenes (GPT Image 2) ─────────────────
-            if _aid_r == "imagenes" and _out_r:
+            if IMAGENES_ACTIVAS and _aid_r == "imagenes" and _out_r:
                 _img_ok_r, _img_msg_r = verificar_limite_imagenes()
                 if not _img_ok_r:
                     _out_r += "\n\n---\n🎨 " + _img_msg_r
@@ -5150,7 +5176,7 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 _panel_edicion(st.session_state["_ed_cat_camp"], "cat_camp", max_tokens=4000)
                 # ── Puente: crear banner real con la imagen de un producto ─────
                 _prods_img_pc = [_p for _p in catalogo_db if (_p.get("imagen_url") or "").strip()]
-                if _prods_img_pc:
+                if IMAGENES_ACTIVAS and _prods_img_pc:
                     st.divider()
                     _is_en_pc = st.session_state.get("lang") == "en"
                     st.markdown("🎨 " + ("**¿Quieres el banner real de un producto de esta campaña?**"
@@ -5319,6 +5345,11 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                         st.rerun()
 
     elif opcion_mkt == "Generador de Imagenes":
+        if not IMAGENES_ACTIVAS:
+            st.info("🎨 La generación de imágenes está desactivada por ahora."
+                    if st.session_state.get("lang") != "en"
+                    else "🎨 Image generation is turned off for now.")
+            st.stop()
         st.subheader("🎨 Generador de Imágenes Profesional")
         st.caption("Crea 3 variaciones fotográficas de alta calidad — texto incluido en la imagen")
 
