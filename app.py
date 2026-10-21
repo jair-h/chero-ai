@@ -55,6 +55,9 @@ from core.context import (
     get_contexto_pais, construir_contexto_base, validar_input, _sanitizar,
 )
 
+# Módulo Gemelo Digital (motor matemático + UI propia; no toca el resto)
+from core import gemelo_ui as _gemelo_ui
+
 # ✅ SIEMPRE PRIMERO: configuración de página
 st.set_page_config(page_title="Tentakl.ai", page_icon="🐙", layout="wide")
 
@@ -3220,6 +3223,13 @@ if _es_home:
                 st.session_state.agente_activo = "admin_dashboard"
                 st.rerun()
 
+    # Acceso al Gemelo Digital (módulo nuevo)
+    if st.button("🔮 " + ("Gemelo Digital — simula tus ventas" if not _is_en_ui
+                          else "Digital Twin — simulate your sales"),
+                 key="btn_home_gemelo", use_container_width=True):
+        st.session_state.agente_activo = "gemelo"
+        st.rerun()
+
     # ── Modo Herramientas / fallback: tarjetas por agente ────────────────────
     if st.session_state.get("modo_herramientas") or not _pulpo_ok:
         st.divider()
@@ -3243,7 +3253,7 @@ if _es_home:
                         st.rerun()
                     st.caption(_ag_desc)
 
-elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto"):
+elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto", "gemelo"):
     if st.button("← " + ("Volver a mis agentes" if not _is_en_ui else "Back to my agents"),
                  key="btn_volver_especial"):
         st.session_state.agente_activo = None
@@ -7534,6 +7544,19 @@ if _sec_activa == "admin_dashboard":
                     st.dataframe(pd.DataFrame(_cf_rows), use_container_width=True)
             except Exception:
                 _ignorar_error()
+
+# ── SECCIÓN: GEMELO DIGITAL (módulo nuevo) ──────────────────────────────────
+if _sec_activa == "gemelo":
+    _gemelo_ui.render(
+        supabase=supabase,
+        generar_texto=generar_texto,
+        user_email=(st.session_state.get("user_email") or "").strip().lower(),
+        marca=st.session_state.get("marca_guardada", ""),
+        sector_nicho=st.session_state.get("nicho_guardado", ""),
+        moneda=get_contexto_pais(st.session_state.get("pais_guardado", ""))["moneda"],
+        lang=st.session_state.get("lang", "es"),
+        log=_ignorar_error,
+    )
 
 st.markdown("---")
 # ✅ FIX: alcance leído desde session_state para el footer (nunca da NameError)

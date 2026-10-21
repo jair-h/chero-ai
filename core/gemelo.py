@@ -1,0 +1,287 @@
+"""Gemelo Digital de Tentakl — MOTOR MATEMÁTICO (Python puro, SIN IA).
+
+Separación estricta de capas: AQUÍ se calcula el número; la IA (en la UI) solo
+explica en palabras lo que este motor produce. Nada de este archivo llama a
+Gemini ni a Streamlit; todo es determinista y testeable.
+
+Modelo:
+  • Curva de respuesta por canal (saturación / rendimientos decrecientes):
+        ventas_canal(g) = max_ventas * (1 - e^(-g / b))
+    donde `g` es el gasto, `max_ventas` el techo del canal y `b` la escala de
+    gasto (a mayor b, más lento satura).
+  • Elasticidad de precio:
+        factor = (precio / precio_ref)^(-elasticidad)
+    subir el precio baja la demanda según la elasticidad del sector.
+  • Monte Carlo: N simulaciones variando los parámetros ±15% para entregar un
+    RANGO (p10, p50, p90), nunca un número exacto solo.
+  • Distribución óptima: reparte un presupuesto maximizando ventas, asignando
+    cada sol/dólar al canal con mayor retorno marginal (greedy sobre la
+    derivada de la curva de saturación).
+
+Supuesto honesto de atribución: como las ventas históricas son totales (no por
+canal), repartimos cada semana las ventas entre canales en proporción a su
+gasto. Es una aproximación (no causalidad real) y así se le comunica al usuario.
+"""
+from __future__ import annotations
+
+import math
+
+import numpy as np
+
+CANALES = ["Meta", "Google", "TikTok"]
+
+# ── Benchmarks por sector para ARRANQUE EN FRÍO (sin datos propios) ──────────
+# roas_tope: ventas-tope aproximadas por cada unidad de "escala b" de gasto.
+# elasticidad: sensibilidad de la demanda al precio (1.0 = neutral).
+BENCHMARKS_SECTOR = {
+    "retail_moda":       {"elasticidad": 1.4, "roas_canal": {"Meta": 2.2, "Google": 1.8, "TikTok": 2.0}},
+    "food_beverage":     {"elasticidad": 1.1, "roas_canal": {"Meta": 2.6, "Google": 1.9, "TikTok": 2.4}},
+    "servicios":         {"elasticidad": 0.8, "roas_canal": {"Meta": 1.6, "Google": 2.4, "TikTok": 1.3}},
+    "ecommerce_general": {"elasticidad": 1.2, "roas_canal": {"Meta": 2.4, "Google": 2.2, "TikTok": 2.1}},
+}
+SECTOR_DEFAULT = "ecommerce_general"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# VALIDACIÓN DE DATOS
+# ══════════════════════════════════════════════════════════════════════════
+def validar_semanas(semanas):
+    """Valida la lista de semanas ingresadas. Devuelve (ok, errores).
+
+    Cada semana es un dict: {"gasto": {canal: float}, "ventas": float,
+    "precio": float, "costo": float}. Rechaza negativos e inconsistencias.
+    """
+    errores = []
+    if not isinstance(semanas, list):
+        return False, ["Los datos de semanas no tienen el formato esperado."]
+    for i, s in enumerate(semanas, 1):
+        g = s.get("gasto", {}) or {}
+        for c in CANALES:
+            if float(g.get(c, 0) or 0) < 0:
+                errores.append(f"Semana {i}: el gasto en {c} no puede ser negativo.")
+        if float(s.get("ventas", 0) or 0) < 0:
+            errores.append(f"Semana {i}: las ventas no pueden ser negativas.")
+        _precio = float(s.get("precio", 0) or 0)
+        _costo = float(s.get("costo", 0) or 0)
+        if _precio < 0 or _costo < 0:
+            errores.append(f"Semana {i}: precio y costo no pueden ser negativos.")
+        if _precio > 0 and _costo > _precio:
+            errores.append(f"Semana {i}: el costo unitario ({_costo}) es mayor que el precio ({_precio}).")
+    return (len(errores) == 0), errores
+
+
+def datos_suficientes(semanas, minimo=4):
+    """True si hay al menos `minimo` semanas con algún gasto o venta."""
+    utiles = [s for s in (semanas or [])
+              if float(s.get("ventas", 0) or 0) > 0
+              or sum(float((s.get("gasto", {}) or {}).get(c, 0) or 0) for c in CANALES) > 0]
+    return len(utiles) >= minimo
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# CURVA DE RESPUESTA
+# ══════════════════════════════════════════════════════════════════════════
+def ventas_canal(gasto, max_ventas, b):
+    """Curva de saturación de un canal: ventas = max_ventas*(1 - e^(-gasto/b))."""
+    gasto = max(float(gasto), 0.0)
+    b = max(float(b), 1e-6)
+    return float(max_ventas) * (1.0 - math.exp(-gasto / b))
+
+
+def _retorno_marginal(gasto, max_ventas, b):
+    """Derivada de la curva: cuántas ventas extra da el próximo sol en el canal."""
+    b = max(float(b), 1e-6)
+    return (float(max_ventas) / b) * math.exp(-float(gasto) / b)
+
+
+def elasticidad_factor(precio, precio_ref, elasticidad):
+    """factor = (precio/precio_ref)^(-elasticidad). 1.0 si precio == precio_ref."""
+    precio = float(precio)
+    precio_ref = float(precio_ref)
+    if precio <= 0 or precio_ref <= 0:
+        return 1.0
+    return (precio / precio_ref) ** (-float(elasticidad))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# CALIBRACIÓN CON DATOS REALES
+# ══════════════════════════════════════════════════════════════════════════
+def _atribuir_ventas(semanas):
+    """Reparte las ventas de cada semana entre canales en proporción al gasto.
+    Devuelve dict canal -> lista de pares (gasto, ventas_atribuidas)."""
+    series = {c: [] for c in CANALES}
+    for s in semanas:
+        g = s.get("gasto", {}) or {}
+        gastos = {c: float(g.get(c, 0) or 0) for c in CANALES}
+        total_g = sum(gastos.values())
+        ventas = float(s.get("ventas", 0) or 0)
+        if total_g <= 0:
+            continue
+        for c in CANALES:
+            share = gastos[c] / total_g
+            series[c].append((gastos[c], ventas * share))
+    return series
+
+
+def _calibrar_canal(pares):
+    """Ajusta (max_ventas, b) de un canal por búsqueda en grilla (sin scipy).
+    `pares` = [(gasto, ventas_atribuidas), ...]. Devuelve (max_ventas, b)."""
+    gastos = np.array([p[0] for p in pares], dtype=float)
+    ventas = np.array([p[1] for p in pares], dtype=float)
+    g_pos = gastos[gastos > 0]
+    if len(g_pos) == 0 or ventas.max() <= 0:
+        # Sin señal: canal neutro
+        return float(max(ventas.max(), 1.0)), float(max(gastos.mean(), 1.0))
+    v_max_obs = float(ventas.max())
+    g_med = float(np.mean(g_pos))
+    # Grilla razonable alrededor de lo observado
+    max_grid = np.linspace(v_max_obs * 1.05, v_max_obs * 3.0, 24)
+    b_grid = np.linspace(g_med * 0.2, g_med * 4.0, 24)
+    mejor = (v_max_obs * 1.5, g_med)
+    mejor_sse = float("inf")
+    for mx in max_grid:
+        for b in b_grid:
+            pred = mx * (1.0 - np.exp(-gastos / max(b, 1e-6)))
+            sse = float(np.sum((pred - ventas) ** 2))
+            if sse < mejor_sse:
+                mejor_sse = sse
+                mejor = (float(mx), float(b))
+    return mejor
+
+
+def calibrar(semanas, sector=SECTOR_DEFAULT):
+    """Calibra los parámetros del gemelo con datos reales.
+
+    Devuelve dict: {"canales": {canal: {"max": .., "b": ..}}, "elasticidad": ..,
+    "precio_ref": .., "fuente": "datos"}.
+    """
+    series = _atribuir_ventas(semanas)
+    canales = {}
+    for c in CANALES:
+        if series[c]:
+            mx, b = _calibrar_canal(series[c])
+        else:
+            mx, b = 1.0, 1.0
+        canales[c] = {"max": mx, "b": b}
+    precios = [float(s.get("precio", 0) or 0) for s in semanas if float(s.get("precio", 0) or 0) > 0]
+    precio_ref = float(np.mean(precios)) if precios else 0.0
+    elasticidad = BENCHMARKS_SECTOR.get(sector, BENCHMARKS_SECTOR[SECTOR_DEFAULT])["elasticidad"]
+    return {"canales": canales, "elasticidad": elasticidad,
+            "precio_ref": precio_ref, "fuente": "datos"}
+
+
+def params_benchmark(sector, precio_ref, gasto_tipico_por_canal):
+    """Parámetros de arranque en frío a partir de benchmarks del sector.
+
+    gasto_tipico_por_canal: dict canal -> gasto semanal estimado (para fijar la
+    escala b). roas del sector define el techo de ventas de cada canal.
+    """
+    bench = BENCHMARKS_SECTOR.get(sector, BENCHMARKS_SECTOR[SECTOR_DEFAULT])
+    canales = {}
+    for c in CANALES:
+        g = float((gasto_tipico_por_canal or {}).get(c, 0) or 0)
+        b = max(g, 1.0)  # satura cerca del gasto típico
+        roas = bench["roas_canal"][c]
+        # Techo ≈ ventas que daría ~2*b de gasto a ese ROAS (unidades de venta)
+        max_ventas = (roas * 2.0 * b) / max(float(precio_ref), 1.0) if precio_ref else roas * 2.0
+        canales[c] = {"max": float(max_ventas), "b": float(b)}
+    return {"canales": canales, "elasticidad": bench["elasticidad"],
+            "precio_ref": float(precio_ref or 0), "fuente": "benchmark"}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PREDICCIÓN + MONTE CARLO
+# ══════════════════════════════════════════════════════════════════════════
+def predecir_ventas(params, plan_gasto, precio):
+    """Punto base (sin incertidumbre): ventas totales esperadas para un plan."""
+    factor = elasticidad_factor(precio, params.get("precio_ref") or precio, params["elasticidad"])
+    total = 0.0
+    for c in CANALES:
+        cp = params["canales"][c]
+        total += ventas_canal(plan_gasto.get(c, 0), cp["max"], cp["b"])
+    return max(total * factor, 0.0)
+
+
+def monte_carlo(params, plan_gasto, precio, costo=0.0, n=500, variacion=0.15, seed=None):
+    """N simulaciones variando los parámetros ±`variacion`. Devuelve rangos.
+
+    Salida: {"ventas": {p10,p50,p90}, "ingresos": {...}, "utilidad": {...},
+    "n": n}. ingresos = ventas*precio; utilidad = ventas*(precio-costo) - gasto.
+    """
+    rng = np.random.default_rng(seed)
+    gasto_total = sum(float(plan_gasto.get(c, 0) or 0) for c in CANALES)
+    precio_ref = params.get("precio_ref") or precio
+    ventas_sims = np.zeros(n)
+    for c in CANALES:
+        cp = params["canales"][c]
+        g = float(plan_gasto.get(c, 0) or 0)
+        # Varía max y b de forma independiente por simulación
+        max_s = cp["max"] * (1.0 + rng.uniform(-variacion, variacion, n))
+        b_s = cp["b"] * (1.0 + rng.uniform(-variacion, variacion, n))
+        b_s = np.maximum(b_s, 1e-6)
+        ventas_sims += max_s * (1.0 - np.exp(-g / b_s))
+    # Elasticidad también con algo de ruido
+    elas_s = params["elasticidad"] * (1.0 + rng.uniform(-variacion, variacion, n))
+    if precio > 0 and precio_ref > 0:
+        factor_s = (precio / precio_ref) ** (-elas_s)
+    else:
+        factor_s = np.ones(n)
+    ventas_sims = np.maximum(ventas_sims * factor_s, 0.0)
+    ingresos_sims = ventas_sims * float(precio)
+    utilidad_sims = ventas_sims * (float(precio) - float(costo)) - gasto_total
+
+    def _pcts(arr):
+        return {"p10": float(np.percentile(arr, 10)),
+                "p50": float(np.percentile(arr, 50)),
+                "p90": float(np.percentile(arr, 90))}
+
+    return {"ventas": _pcts(ventas_sims), "ingresos": _pcts(ingresos_sims),
+            "utilidad": _pcts(utilidad_sims), "n": int(n),
+            "gasto_total": gasto_total}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# DISTRIBUCIÓN ÓPTIMA DEL PRESUPUESTO
+# ══════════════════════════════════════════════════════════════════════════
+def distribuir_optimo(params, presupuesto_total, precio, pasos=200):
+    """Reparte `presupuesto_total` maximizando ventas (greedy marginal).
+
+    En cada paso asigna un trozo del presupuesto al canal cuyo PRÓXIMO sol
+    genere más ventas (derivada de la curva). Devuelve {"asignacion": {canal:
+    gasto}, "ventas_estimadas": .., "ingresos_estimados": ..}.
+    """
+    presupuesto_total = max(float(presupuesto_total), 0.0)
+    if presupuesto_total <= 0:
+        return {"asignacion": {c: 0.0 for c in CANALES}, "ventas_estimadas": 0.0,
+                "ingresos_estimados": 0.0}
+    paso = presupuesto_total / max(int(pasos), 1)
+    asignacion = {c: 0.0 for c in CANALES}
+    for _ in range(int(pasos)):
+        # Canal con mayor retorno marginal en su nivel de gasto actual
+        mejor_c = max(
+            CANALES,
+            key=lambda c: _retorno_marginal(asignacion[c], params["canales"][c]["max"],
+                                            params["canales"][c]["b"]),
+        )
+        asignacion[mejor_c] += paso
+    ventas = predecir_ventas(params, asignacion, precio)
+    return {"asignacion": {c: round(asignacion[c], 2) for c in CANALES},
+            "ventas_estimadas": ventas,
+            "ingresos_estimados": ventas * float(precio)}
+
+
+def precision(prediccion_p10, prediccion_p90, venta_real):
+    """% de acierto de una predicción pasada: 100 si la real cayó en el rango
+    [p10, p90]; si no, decae según qué tan lejos quedó del borde más cercano."""
+    try:
+        real = float(venta_real)
+        p10, p90 = float(prediccion_p10), float(prediccion_p90)
+        if p10 <= real <= p90:
+            return 100.0
+        borde = p10 if real < p10 else p90
+        if borde <= 0:
+            return 0.0
+        err = abs(real - borde) / borde
+        return float(max(0.0, 100.0 * (1.0 - err)))
+    except Exception:
+        return 0.0

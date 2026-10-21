@@ -15,6 +15,8 @@ from integrations import analytics as A
 from integrations import stores as S
 from core import agents as AG
 from core import context as CX
+from core import gemelo as GM
+from core import gemelo_card as GMC
 
 _fallos = []
 
@@ -220,9 +222,48 @@ def test_context():
     check(CX._sanitizar("a<b>c") == "abc", "_sanitizar quita <>")
 
 
+def test_gemelo():
+    print("\n[8] Gemelo Digital — motor matemático")
+    # Curva de saturación
+    check(abs(GM.ventas_canal(0, 100, 50)) < 1e-9, "curva: 0 gasto -> 0 ventas")
+    check(GM.ventas_canal(1e9, 100, 50) > 99.9, "curva: gasto alto -> satura al techo")
+    # Elasticidad
+    check(abs(GM.elasticidad_factor(10, 10, 1.2) - 1.0) < 1e-9, "elasticidad: precio=ref -> 1.0")
+    check(GM.elasticidad_factor(12, 10, 1.2) < 1.0, "subir precio baja demanda")
+    check(GM.elasticidad_factor(8, 10, 1.2) > 1.0, "bajar precio sube demanda")
+    # Validación
+    ok, _ = GM.validar_semanas([{"gasto": {"Meta": -5}, "ventas": 10, "precio": 20, "costo": 5}])
+    check(not ok, "rechaza gasto negativo")
+    ok, _ = GM.validar_semanas([{"gasto": {"Meta": 100}, "ventas": 10, "precio": 20, "costo": 25}])
+    check(not ok, "rechaza costo > precio")
+    # Datos suficientes
+    semanas = [{"gasto": {"Meta": 100, "Google": 50, "TikTok": 30}, "ventas": 40, "precio": 20, "costo": 8}
+               for _ in range(5)]
+    check(GM.datos_suficientes(semanas) and not GM.datos_suficientes(semanas[:3]), "umbral de 4 semanas")
+    # Calibración + Monte Carlo determinista
+    params = GM.calibrar(semanas)
+    check(params["fuente"] == "datos" and abs(params["precio_ref"] - 20) < 1e-6, "calibra con datos reales")
+    mc = GM.monte_carlo(params, {"Meta": 100, "Google": 50, "TikTok": 30}, 20, costo=8, n=500, seed=42)
+    check(mc["ventas"]["p10"] <= mc["ventas"]["p50"] <= mc["ventas"]["p90"], "rango p10<=p50<=p90")
+    check(30 <= mc["ventas"]["p50"] <= 50, "p50 cerca de las ventas observadas (~40)")
+    # Reparto óptimo suma el presupuesto
+    dist = GM.distribuir_optimo(params, 300, 20)
+    check(abs(sum(dist["asignacion"].values()) - 300) < 1.0, "reparto óptimo suma el presupuesto")
+    # Benchmark cold start
+    pb = GM.params_benchmark("retail_moda", 20, {"Meta": 100, "Google": 50, "TikTok": 30})
+    check(pb["fuente"] == "benchmark" and pb["elasticidad"] == 1.4, "benchmark de sector")
+    # Precisión
+    check(GM.precision(30, 50, 40) == 100.0, "real dentro del rango -> 100%")
+    check(GM.precision(30, 50, 55) < 100.0, "real fuera del rango -> <100%")
+    # Tarjeta PNG
+    png, err = GMC.generar_tarjeta("Café Chero", 36, 44, "42 (2026)", moneda="S/", ingresos_p50=800)
+    check(err is None and png and png[:8] == b"\x89PNG\r\n\x1a\n", "tarjeta genera PNG válido")
+
+
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
-               test_listar_propiedades, test_stores, test_agents, test_context):
+               test_listar_propiedades, test_stores, test_agents, test_context,
+               test_gemelo):
         _t()
     print("\n" + ("=" * 50))
     if _fallos:
