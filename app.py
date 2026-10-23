@@ -212,6 +212,23 @@ def plan_permite(funcion):
     _rank = PLAN_RANK.get(st.session_state.get("plan", "Free"), 0)
     return _rank >= PLAN_RANK.get(FUNCION_PLAN_MIN.get(funcion, "Free"), 0)
 
+# ── Precios por país / región (PPP: USA más alto, LatAm accesible) ────────────
+# Precios USD para región USA/alto ingreso; LatAm usa el precio base de
+# planes_config. El cobro real (Stripe) debe tener estos mismos price points.
+PRECIOS_USA = {"Starter": 29, "Pro": 59, "Agency": 119}
+_PAISES_ALTO_INGRESO = ("usa", "united states", "estados unidos", "canad", "españa", "espana", "spain")
+
+def es_region_alto_ingreso(pais=None):
+    pais = pais if pais is not None else st.session_state.get("pais_guardado", "")
+    _p = str(pais).lower()
+    return any(k in _p for k in _PAISES_ALTO_INGRESO)
+
+def precio_plan_local(plan, precio_base, pais=None):
+    """Precio a mostrar según la región del usuario."""
+    if es_region_alto_ingreso(pais):
+        return int(PRECIOS_USA.get(plan, round(float(precio_base or 0) * 1.5)))
+    return int(float(precio_base or 0))
+
 # Compatibilidad: PLANES ahora deriva de planes_config (limite = créditos del plan)
 def _planes_compat():
     _p = {}
@@ -1825,11 +1842,14 @@ def _mostrar_upgrade(mensaje=None):
                 + ("images/month" if _en else "imágenes/mes") + f" ({_cfgp['calidad_imagen']})"
             ) if IMAGENES_ACTIVAS else ""
             _feats = "\n\n" + "\n\n".join(f"✅ {_f}" for _f in _features.get(_pl, []))
+            _precio_loc = precio_plan_local(_pl, _cfgp['precio'])
             st.markdown(
-                f"**{_pl}** — ${int(_cfgp['precio'])}/mes\n\n"
+                f"**{_pl}** — ${_precio_loc}/mes\n\n"
                 f"💳 {_cfgp['creditos']} " + ("credits/month" if _en else "créditos/mes")
                 + _linea_img + _feats
             )
+    if es_region_alto_ingreso():
+        st.caption(("💲 Precios en USD para tu región." if not _en else "💲 Prices in USD for your region."))
     st.caption("👉 tentakl.ai/planes" if not _en else "👉 tentakl.ai/plans")
 
 

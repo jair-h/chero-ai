@@ -42,6 +42,12 @@ Hoy el SEO genera keywords "del modelo" (sin datos reales). Para que sea neto SE
 - **Fase 3:** Google Ads Keyword Planner (volumen/CPC/competencia) + armar campañas
   SEM (ad groups, match types, negativas, RSA) y luego publicarlas por API.
 
+## 💲 Precios por país — cobro real (Stripe) — PENDIENTE de Jair
+La app YA muestra precios por región (LatAm base; USA/España en USD más alto:
+Starter $29 / Pro $59 / Agency $119). Falta crear en **Stripe** (o tu pasarela)
+los mismos price points por región para que el COBRO coincida con lo mostrado.
+Ajustar `PRECIOS_USA` y `_PAISES_ALTO_INGRESO` en app.py si cambias la tabla.
+
 ## 🔌 Integraciones pendientes (del mapa VE/HACE)
 - VER: Search Console, Meta/Google/TikTok Ads (gasto/ROAS), Clarity (parcial).
 - HACER: lanzar/ajustar ads, editar web (Shopify/WordPress/VTEX), publicar
