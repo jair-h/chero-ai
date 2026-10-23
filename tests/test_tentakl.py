@@ -295,6 +295,16 @@ def test_gemelo():
     check(set(_ops) == {"comprador", "competidor", "mercado"} and all(_ops.values()), "3 personas responden")
     check(all(m == "gemini-2.5-flash-lite" and t == 0.3 for m, t, _ in _cap), "personas usan flash-lite + temp 0.3")
     check("Veredicto" in _cap[0][2] and "Miraflores" in _cap[0][2], "personas citan números y usan el distrito")
+    # Mapa de efectividad por zona
+    _mapa = GM.mapa_zonas([
+        {"nombre": "Buena", "clientes": 9000, "penetracion": 4, "inversion": 1500},
+        {"nombre": "Mala", "clientes": 500, "penetracion": 1, "inversion": 3000},
+        {"nombre": "x", "clientes": 0, "penetracion": 5, "inversion": 100},  # se descarta
+    ], precio=25, costo=10, seed=3)
+    check(len(_mapa["zonas"]) == 2, "mapa descarta zonas sin clientes")
+    check(_mapa["zonas"][0]["utilidad_p50"] >= _mapa["zonas"][1]["utilidad_p50"], "mapa ordena por utilidad")
+    check(_mapa["mejor"] == "Buena" and _mapa["zonas"][0]["icono"] in ("🟢", "🟡"), "mejor zona identificada")
+    check(_mapa["zonas"][1]["icono"] == "🔴", "zona que pierde -> 🔴")
 
 
 if __name__ == "__main__":

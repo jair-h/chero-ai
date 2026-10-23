@@ -136,6 +136,7 @@ _DECISIONES = {
     "precio":      ("🏷 ¿Subo o bajo el precio?", "🏷 Should I raise or lower the price?"),
     "producto":    ("🚀 ¿Lanzo un producto nuevo?", "🚀 Should I launch a new product?"),
     "zona":        ("📍 ¿Abro en otra zona?", "📍 Should I open in another area?"),
+    "zonas_mapa":  ("🗺 Comparar zonas (mapa de efectividad)", "🗺 Compare areas (effectiveness map)"),
 }
 
 
@@ -218,6 +219,24 @@ def _tab_simular(supabase, generar_texto, user_email, marca, sector_nicho, moned
                                          0.0, 20.0, 3.0, step=0.5, key="g_zona_pen")
         datos["inversion"] = st.number_input(T(f"Inversión para abrir ({moneda}/sem)", f"Opening investment ({moneda}/wk)"),
                                              0.0, value=float(_gasto_hist or 500), step=100.0, key="g_zona_inv")
+    elif _tipo == "zonas_mapa":
+        import pandas as pd
+        st.info(T("Compara varias zonas/distritos. Te las pinto 🟢🟡🔴 por rentabilidad esperada.",
+                  "Compare several areas/districts. I'll color them 🟢🟡🔴 by expected profit."))
+        _c1, _c2 = st.columns(2)
+        datos["precio"] = _c1.number_input(T(f"Precio ({moneda})", f"Price ({moneda})"),
+                                           0.0, value=float(_precio_def or 25.0), step=1.0, key="g_map_precio")
+        datos["costo"] = _c2.number_input(T(f"Costo ({moneda})", f"Cost ({moneda})"),
+                                          0.0, value=float(_costo_def or 10.0), step=1.0, key="g_map_costo")
+        _zkey = "gemelo_zonas_df"
+        if _zkey not in st.session_state:
+            st.session_state[_zkey] = pd.DataFrame([
+                {"Zona": "Zona A", "Clientes potenciales": 9000.0, "Penetración %": 4.0, "Inversión": 1500.0},
+                {"Zona": "Zona B", "Clientes potenciales": 15000.0, "Penetración %": 1.5, "Inversión": 1200.0},
+                {"Zona": "Zona C", "Clientes potenciales": 7000.0, "Penetración %": 5.0, "Inversión": 1800.0},
+            ])
+        datos["zonas_df"] = st.data_editor(st.session_state[_zkey], num_rows="dynamic",
+                                           use_container_width=True, key="gemelo_zonas_editor")
 
     if st.button("🔮 " + T("Simular", "Simulate"), key="gemelo_simular_btn", use_container_width=True):
         _ejecutar_simulacion(_tipo, datos, semanas, hay_datos, _sector, moneda, ciudad, distrito,
@@ -235,6 +254,29 @@ def _ejecutar_simulacion(tipo, datos, semanas, hay_datos, sector, moneda, ciudad
     costo = float(datos.get("costo", 0) or 0)
     if tipo in ("presupuesto", "precio") and precio <= 0:
         st.error(T("Ingresa un precio mayor que 0.", "Enter a price greater than 0."))
+        return
+
+    # Mapa de efectividad por zona: formato propio (no pasa por _empacar)
+    if tipo == "zonas_mapa":
+        _zonas = []
+        _df = datos.get("zonas_df")
+        if _df is not None:
+            for _, _row in _df.iterrows():
+                _zonas.append({"nombre": _row.get("Zona", ""),
+                               "clientes": _row.get("Clientes potenciales", 0),
+                               "penetracion": _row.get("Penetración %", 0),
+                               "inversion": _row.get("Inversión", 0)})
+        _mapa = G.mapa_zonas(_zonas, precio, costo)
+        if not _mapa["zonas"]:
+            st.error(T("Agrega al menos una zona con clientes potenciales > 0.",
+                       "Add at least one area with potential customers > 0."))
+            return
+        _mapa.update({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                      "semana": datetime.now().strftime("%W (%Y)"),
+                      "moneda": moneda, "sector": sector, "ciudad": ciudad})
+        st.session_state["gemelo_resultado"] = _mapa
+        st.session_state.pop("gemelo_personas", None)
+        st.success(T("Listo. Mira la pestaña 📊 Resultado.", "Done. See the 📊 Result tab."))
         return
 
     # Parámetros (curvas) solo para presupuesto y precio
@@ -271,11 +313,53 @@ def _ejecutar_simulacion(tipo, datos, semanas, hay_datos, sector, moneda, ciudad
     st.success(T("Listo. Mira la pestaña 📊 Resultado.", "Done. See the 📊 Result tab."))
 
 
+def _render_mapa_zonas(r, moneda, T):
+    """Mapa de efectividad por zona: ranking 🟢🟡🔴 + gráfico de utilidad."""
+    zs = r.get("zonas", [])
+    st.markdown("### 🗺 " + T("Mapa de efectividad por zona", "Area effectiveness map"))
+    if r.get("mejor"):
+        st.success(T(f"🏆 Mejor zona para empezar: **{r['mejor']}**",
+                     f"🏆 Best area to start: **{r['mejor']}**"))
+    st.caption("⚠ " + T("Estimación por supuestos (clientes × penetración) — rango amplio a propósito.",
+                        "Assumption-based estimate (customers × penetration) — wide range on purpose."))
+
+    for z in zs:
+        with st.container(border=True):
+            _c1, _c2, _c3 = st.columns([3, 2, 2])
+            _c1.markdown(f"### {z['icono']} {z['nombre']}")
+            _c2.metric(T("Utilidad est.", "Est. profit"), f"{moneda}{z['utilidad_p50']:,.0f}")
+            _c3.metric("ROI", "—" if z.get("roi") is None else f"{z['roi']}x")
+            st.caption(f"{T('Ventas', 'Sales')} ≈ {z['ventas_p50']:.0f} · "
+                       f"{T('Clientes', 'Customers')} {z['clientes']:.0f} · "
+                       f"{T('Penetración', 'Penetration')} {z['penetracion']}% · "
+                       f"{T('Inversión', 'Investment')} {moneda}{z['inversion']:.0f}")
+
+    try:
+        import plotly.graph_objects as go
+        fig = go.Figure(go.Bar(
+            x=[z["nombre"] for z in zs], y=[z["utilidad_p50"] for z in zs],
+            marker_color=[z["color"] for z in zs],
+            text=[f"{moneda}{z['utilidad_p50']:,.0f}" for z in zs], textposition="outside",
+        ))
+        fig.update_layout(height=320, yaxis_title=T("Utilidad estimada", "Estimated profit"),
+                          showlegend=False, margin=dict(t=20, b=20))
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception:
+        pass
+    st.caption(T("🟢 conviene · 🟡 con cuidado · 🔴 pierde", "🟢 go · 🟡 careful · 🔴 loses"))
+
+
 def _tab_resultado(marca, moneda, T, generar_texto=None):
     r = st.session_state.get("gemelo_resultado")
     if not r:
         st.info(T("Aún no has simulado. Ve a la pestaña 🎛 Simular.", "No simulation yet. Go to the 🎛 Simulate tab."))
         return
+
+    # ── Mapa de efectividad por zona (formato propio) ───────────────────────
+    if r.get("tipo") == "zonas_mapa":
+        _render_mapa_zonas(r, moneda, T)
+        return
+
     v = r["ventas"]
 
     # ── Veredicto del árbitro (se deriva de los números → nunca contradice) ──

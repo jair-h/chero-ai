@@ -429,3 +429,39 @@ def sim_zona(precio, costo, inversion, clientes_potenciales, penetracion_pct,
     return _empacar(mc, "zona", {"fuente": "supuestos", "incertidumbre": incertidumbre,
                                  "clientes_potenciales": clientes_potenciales,
                                  "penetracion_pct": penetracion_pct})
+
+
+# Colores del mapa de efectividad por zona (🟢/🟡/🔴 según el veredicto)
+_COLOR_NIVEL = {"hazlo": ("🟢", "#16A34A"), "cuidado": ("🟡", "#D97706"), "no": ("🔴", "#DC2626")}
+
+
+def mapa_zonas(zonas, precio, costo, incertidumbre=0.35, n=400, seed=None):
+    """Compara varias zonas y las pinta 🟢/🟡/🔴 por efectividad (fase 2 del doc).
+
+    zonas: [{"nombre","clientes","penetracion","inversion"}].
+    Devuelve {"zonas": [...orden por utilidad...], "mejor": nombre, "tipo":"zonas_mapa"}.
+    Produce también los datos listos (JSON) para un mapa geográfico futuro.
+    """
+    filas = []
+    for z in (zonas or []):
+        nombre = str(z.get("nombre", "") or "").strip()
+        clientes = float(z.get("clientes", 0) or 0)
+        pen = float(z.get("penetracion", 0) or 0)
+        inv = float(z.get("inversion", 0) or 0)
+        if not nombre or clientes <= 0:
+            continue
+        r = sim_zona(precio, costo, inv, clientes, pen, incertidumbre=incertidumbre, n=n, seed=seed)
+        nivel = r["veredicto"]["nivel"]
+        icono, color = _COLOR_NIVEL.get(nivel, ("⚪", "#9890ad"))
+        util = r["utilidad"]["p50"]
+        roi = (util / inv) if inv > 0 else None
+        filas.append({
+            "nombre": nombre, "nivel": nivel, "icono": icono, "color": color,
+            "ventas_p50": round(r["ventas"]["p50"], 1),
+            "utilidad_p50": round(util, 1),
+            "roi": (round(roi, 2) if roi is not None else None),
+            "clientes": clientes, "penetracion": pen, "inversion": inv,
+        })
+    filas.sort(key=lambda f: f["utilidad_p50"], reverse=True)
+    return {"tipo": "zonas_mapa", "zonas": filas,
+            "mejor": (filas[0]["nombre"] if filas else "")}
