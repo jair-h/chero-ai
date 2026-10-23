@@ -3459,6 +3459,9 @@ Entrega la auditoría completa en este formato:
         _c2.metric("🛍 Demanda", f"{_s2}%")
         _c3.metric("⚔ Competencia", f"{_s3}%")
         _c4.metric("🏆 Éxito Global", f"{_s4}/100")
+        st.caption("ℹ️ Estimación de la IA según tu nicho y país — no es un dato medido."
+                   if st.session_state.get("lang") != "en" else
+                   "ℹ️ AI estimate based on your niche and country — not a measured figure.")
 
     if st.session_state.get("_ed_auditoria_maestra"):
         st.markdown(st.session_state["_ed_auditoria_maestra"])
@@ -3899,6 +3902,15 @@ if _sec_activa == "calendario":
                 tendencias_txt = "\n".join([f"- {t}" for t in trends["daily"]]) if trends["daily"] else "- (No disponible hoy)"
                 related_top_txt = "\n".join([f"- {t}" for t in trends["related_top"]]) if trends["related_top"] else "- (No disponible)"
                 tendencias_youtube_txt = obtener_trending_youtube(pais)
+                # Fallback claro: si Google Trends y YouTube no respondieron, avisar
+                _trends_vacio = (not trends["daily"]) and (not trends["related_top"])
+                _yt_vacio = (not tendencias_youtube_txt) or str(tendencias_youtube_txt).startswith("⚠")
+                if _trends_vacio and _yt_vacio:
+                    st.warning("⚠ Google Trends/YouTube no están disponibles ahora (se bloquean seguido en la nube). "
+                               "Armo el plan con tu perfil de negocio; vuelve a intentar más tarde para incluir tendencias en vivo."
+                               if st.session_state.get("lang") != "en" else
+                               "⚠ Google Trends/YouTube aren't available right now (they get blocked often in the cloud). "
+                               "I'll build the plan from your business profile; try again later to include live trends.")
                 prompt = f"""
 Actúa como estratega de contenidos senior.
 País: {pais}. Fecha: {trends['fecha']}.
@@ -3925,8 +3937,9 @@ FORMATO: Tabla Markdown profesional y detallada.
 TONO: Experto, accionable y adaptado a la moneda {PAISES_MONEDA.get(pais, '$')}.
 """
                 texto = generar_texto(prompt, max_out=8000)
-                st.markdown(texto)
-                consumir(costo=costo)
+                if texto:
+                    st.markdown(texto)
+                    consumir(costo=costo)   # cobra solo si se generó
 
 # --- SECCIÓN: HERRAMIENTAS DE MARKETING (varios agentes) ---
 if _sec_activa == "marketing":
@@ -4405,6 +4418,11 @@ Completa todas las secciones. No cortes el texto a la mitad."""
 
     elif opcion_mkt == "SEO y Palabras Clave":
         st.write("Genera palabras clave, meta tags y copies para Google Ads optimizados para tu negocio.")
+        st.caption("ℹ️ El volumen y la dificultad son **sugerencias de la IA**, no datos medidos de búsqueda. "
+                   "Para volumen real usa Google Keyword Planner."
+                   if st.session_state.get("lang") != "en" else
+                   "ℹ️ Volume and difficulty are **AI suggestions**, not measured search data. "
+                   "For real volume use Google Keyword Planner.")
         producto_seo = st.text_input("¿Qué producto o servicio quieres posicionar?", placeholder="Ej: clases de yoga online para mujeres")
         if producto_seo and st.button("Generar SEO Completo (2 Créditos)"):
             if verificar_creditos(2):
