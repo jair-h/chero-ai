@@ -3787,7 +3787,6 @@ if _sec_activa == "inicio" and _opcion_activa == "plan_semanal":
             _panel_edicion(plan_guardado["contenido"], "plan_guardado", max_tokens=6000)
             if st.button(t("btn_regenerar_plan")):
                 if verificar_creditos(1):
-                    consumir(1)
                     with st.spinner("Regenerando estrategia semanal..."):
                         nicho_plan = st.session_state.get("nicho_guardado", "")
                         cliente_plan = st.session_state.get("cliente_ideal_guardado", "")
@@ -3824,11 +3823,13 @@ TikTok: [mejor día y hora]
 Facebook: [mejor día y hora]
 WhatsApp: [mejor día y hora]"""
                         nuevo_resultado = generar_texto(_prompt_plan_regen, max_out=6000)
-                        guardar_plan_semanal(email_tab, semana, nuevo_resultado)
-                        guardar_reporte(email_tab, "plan_semanal", f"Plan semanal regenerado {semana}", nuevo_resultado)
-                        st.success("🔁 Nuevo plan generado")
-                        st.session_state["_ed_plan_regen"] = nuevo_resultado
-                        st.session_state["_ed_prompt_plan_regen"] = _prompt_plan_regen
+                        if nuevo_resultado:
+                            consumir(1)   # cobra SOLO si se generó (antes cobraba aunque fallara)
+                            guardar_plan_semanal(email_tab, semana, nuevo_resultado)
+                            guardar_reporte(email_tab, "plan_semanal", f"Plan semanal regenerado {semana}", nuevo_resultado)
+                            st.success("🔁 Nuevo plan generado")
+                            st.session_state["_ed_plan_regen"] = nuevo_resultado
+                            st.session_state["_ed_prompt_plan_regen"] = _prompt_plan_regen
             if st.session_state.get("_ed_plan_regen"):
                 st.markdown(st.session_state["_ed_plan_regen"])
                 _panel_edicion(st.session_state["_ed_plan_regen"], "plan_regen", max_tokens=6000)
