@@ -16,6 +16,7 @@ import streamlit as st
 
 from core import gemelo as G
 from core import gemelo_card as GC
+from core import gemelo_personas as GP
 
 _SECTORES_LBL = {
     "retail_moda": "Retail / Moda",
@@ -64,7 +65,7 @@ def render(*, supabase=None, generar_texto=None, user_email="", marca="",
 
     # ── TAB 3 — RESULTADO ───────────────────────────────────────────────────
     with tabs[2]:
-        _tab_resultado(marca, moneda, T)
+        _tab_resultado(marca, moneda, T, generar_texto)
 
     # ── TAB 4 — HISTORIAL ───────────────────────────────────────────────────
     with tabs[3]:
@@ -260,16 +261,17 @@ def _ejecutar_simulacion(tipo, datos, semanas, hay_datos, sector, moneda, ciudad
     res.update({
         "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "semana": datetime.now().strftime("%W (%Y)"),
-        "moneda": moneda, "ciudad": ciudad, "distrito": distrito,
+        "moneda": moneda, "ciudad": ciudad, "distrito": distrito, "sector": sector,
         "precio": precio or datos.get("precio_nuevo", 0), "costo": costo,
     })
     res["explicacion"] = _explicar_ia(generar_texto, res, marca, moneda, T) if generar_texto else ""
     st.session_state["gemelo_resultado"] = res
+    st.session_state.pop("gemelo_personas", None)  # opiniones viejas no aplican a esta sim
     _guardar_simulacion(supabase, user_email, res, log)
     st.success(T("Listo. Mira la pestaña 📊 Resultado.", "Done. See the 📊 Result tab."))
 
 
-def _tab_resultado(marca, moneda, T):
+def _tab_resultado(marca, moneda, T, generar_texto=None):
     r = st.session_state.get("gemelo_resultado")
     if not r:
         st.info(T("Aún no has simulado. Ve a la pestaña 🎛 Simular.", "No simulation yet. Go to the 🎛 Simulate tab."))
@@ -355,6 +357,29 @@ def _tab_resultado(marca, moneda, T):
     if r.get("explicacion"):
         st.markdown("#### 🧠 " + T("Qué significa", "What it means"))
         st.markdown(r["explicacion"])
+
+    # 👥 Opinión del equipo (agentes-persona, a pedido para no gastar en cada sim)
+    if generar_texto:
+        st.divider()
+        st.markdown("#### 👥 " + T("Qué opina tu equipo", "What your team thinks"))
+        _ops = st.session_state.get("gemelo_personas")
+        if st.button("🗣 " + T("Pedir opinión (comprador · competidor · mercado)",
+                               "Ask the team (buyer · competitor · market)"),
+                     key="gemelo_personas_btn", use_container_width=True):
+            with st.spinner(T("Consultando a tu equipo...", "Asking your team...")):
+                _ops = GP.opiniones_equipo(generar_texto, r, marca, r.get("sector", ""),
+                                           moneda, r.get("ciudad", ""), r.get("distrito", ""))
+                st.session_state["gemelo_personas"] = _ops
+        if _ops:
+            _personas_meta = [("comprador", "🛒", T("Comprador", "Buyer")),
+                              ("competidor", "⚔️", T("Competidor", "Competitor")),
+                              ("mercado", "📊", T("Mercado", "Market"))]
+            for _k, _emoji, _lbl in _personas_meta:
+                _op = (_ops or {}).get(_k, "")
+                if _op:
+                    with st.container(border=True):
+                        st.markdown(f"**{_emoji} {_lbl}**")
+                        st.write(_op)
 
     # Tarjeta compartible
     st.divider()

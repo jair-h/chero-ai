@@ -17,6 +17,7 @@ from core import agents as AG
 from core import context as CX
 from core import gemelo as GM
 from core import gemelo_card as GMC
+from core import gemelo_personas as GMP
 
 _fallos = []
 
@@ -284,6 +285,16 @@ def test_gemelo():
     check(_decs[0]["tipo"] == "presupuesto" and "asignacion" in _decs[0], "presupuesto trae asignación")
     check(_decs[1]["tipo"] == "precio" and "comparacion" in _decs[1], "precio trae comparación actual vs nuevo")
     check(_decs[2]["fuente"] == "supuestos" and _decs[3]["fuente"] == "supuestos", "producto/zona por supuestos")
+    # Agentes-persona (comprador/competidor/mercado) — no inventan, citan números
+    _cap = []
+
+    def _fake_gt(prompt, max_out=900, modelo=None, temperatura=None):
+        _cap.append((modelo, temperatura, prompt))
+        return "opinión"
+    _ops = GMP.opiniones_equipo(_fake_gt, _decs[1], "Café", "food_beverage", "S/", "Lima", "Miraflores")
+    check(set(_ops) == {"comprador", "competidor", "mercado"} and all(_ops.values()), "3 personas responden")
+    check(all(m == "gemini-2.5-flash-lite" and t == 0.3 for m, t, _ in _cap), "personas usan flash-lite + temp 0.3")
+    check("Veredicto" in _cap[0][2] and "Miraflores" in _cap[0][2], "personas citan números y usan el distrito")
 
 
 if __name__ == "__main__":
