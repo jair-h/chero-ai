@@ -269,6 +269,21 @@ def test_gemelo():
     check(set(esc) == {"pesimista", "base", "optimista"}, "escenarios: 3 niveles")
     proy = GM.proyeccion(mc)
     check("6m" in proy and "12m" in proy and proy["12m"]["ingresos"] > proy["6m"]["ingresos"], "proyección 6m/12m")
+    # Simulador de decisiones: 4 tipos, mismo formato
+    _pp = GM.calibrar(params if False else semanas, "food_beverage")  # usa semanas
+    _pp["precio_ref"] = 20
+    _plan = {"Meta": 120, "Google": 60, "TikTok": 40}
+    _decs = [
+        GM.sim_presupuesto(_pp, 300, 20, 8, seed=1),
+        GM.sim_precio(_pp, 20, 24, _plan, 8, seed=1),
+        GM.sim_producto_nuevo(30, 12, 400, 50, seed=1),
+        GM.sim_zona(25, 10, 2000, 8000, 3, seed=1),
+    ]
+    _campos = ("tipo", "ventas", "ingresos", "utilidad", "veredicto", "escenarios", "proyeccion", "fuente")
+    check(all(all(k in d for k in _campos) for d in _decs), "4 decisiones devuelven formato uniforme")
+    check(_decs[0]["tipo"] == "presupuesto" and "asignacion" in _decs[0], "presupuesto trae asignación")
+    check(_decs[1]["tipo"] == "precio" and "comparacion" in _decs[1], "precio trae comparación actual vs nuevo")
+    check(_decs[2]["fuente"] == "supuestos" and _decs[3]["fuente"] == "supuestos", "producto/zona por supuestos")
 
 
 if __name__ == "__main__":

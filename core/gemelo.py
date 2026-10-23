@@ -349,3 +349,83 @@ def proyeccion(mc_resultado, semanas_por_mes=4.3, meses=(6, 12), crecimiento_men
         out[f"{m}m"] = {"ingresos": round(ing_mes * factor, 2),
                         "utilidad": round(util_mes * factor, 2)}
     return out
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SIMULADOR DE DECISIONES — 4 tipos, mismo formato de salida
+# Todos devuelven: ventas/ingresos/utilidad (p10/p50/p90) + veredicto +
+# escenarios + proyeccion + tipo + fuente. Presupuesto y precio usan las curvas
+# calibradas (sólidos); producto y zona son por SUPUESTOS explícitos (se marca
+# fuente="supuestos" y se usa más incertidumbre, para no caer en fantasía).
+# ══════════════════════════════════════════════════════════════════════════
+TIPOS_DECISION = ("presupuesto", "precio", "producto", "zona")
+
+
+def _empacar(mc, tipo, extra=None):
+    """Toma un resultado Monte Carlo y le agrega veredicto/escenarios/proyección."""
+    out = {
+        "tipo": tipo,
+        "ventas": mc["ventas"], "ingresos": mc["ingresos"], "utilidad": mc["utilidad"],
+        "gasto_total": mc.get("gasto_total", 0.0),
+        "veredicto": veredicto(mc), "escenarios": escenarios(mc), "proyeccion": proyeccion(mc),
+    }
+    if extra:
+        out.update(extra)
+    return out
+
+
+def _mc_alrededor(ventas_media, precio, costo, gasto_total, incertidumbre=0.35, n=500, seed=None):
+    """Monte Carlo alrededor de una venta media estimada (para decisiones sin
+    curva histórica: producto nuevo, zona). Mayor incertidumbre a propósito."""
+    rng = np.random.default_rng(seed)
+    ventas = np.maximum(float(ventas_media) * (1.0 + rng.uniform(-incertidumbre, incertidumbre, n)), 0.0)
+    ingresos = ventas * float(precio)
+    utilidad = ventas * (float(precio) - float(costo)) - float(gasto_total)
+
+    def _p(a):
+        return {"p10": float(np.percentile(a, 10)), "p50": float(np.percentile(a, 50)),
+                "p90": float(np.percentile(a, 90))}
+
+    return {"ventas": _p(ventas), "ingresos": _p(ingresos), "utilidad": _p(utilidad),
+            "n": int(n), "gasto_total": float(gasto_total)}
+
+
+def sim_presupuesto(params, presupuesto, precio, costo=0.0, n=500, seed=None):
+    """¿Cuánto invertir en ads y cómo repartir? Usa curvas calibradas."""
+    dist = distribuir_optimo(params, presupuesto, precio)
+    mc = monte_carlo(params, dist["asignacion"], precio, costo=costo, n=n, seed=seed)
+    return _empacar(mc, "presupuesto",
+                    {"asignacion": dist["asignacion"], "fuente": params.get("fuente", "datos")})
+
+
+def sim_precio(params, precio_actual, precio_nuevo, plan_gasto, costo=0.0, n=500, seed=None):
+    """¿Subo o bajo el precio? Compara utilidad al precio actual vs el nuevo."""
+    mc_act = monte_carlo(params, plan_gasto, precio_actual, costo=costo, n=n, seed=seed)
+    mc_new = monte_carlo(params, plan_gasto, precio_nuevo, costo=costo, n=n, seed=seed)
+    comp = {
+        "utilidad_actual": mc_act["utilidad"]["p50"], "utilidad_nueva": mc_new["utilidad"]["p50"],
+        "ventas_actual": mc_act["ventas"]["p50"], "ventas_nueva": mc_new["ventas"]["p50"],
+        "mejora": mc_new["utilidad"]["p50"] - mc_act["utilidad"]["p50"],
+    }
+    return _empacar(mc_new, "precio",
+                    {"fuente": params.get("fuente", "datos"), "comparacion": comp,
+                     "precio_actual": precio_actual, "precio_nuevo": precio_nuevo})
+
+
+def sim_producto_nuevo(precio, costo, gasto_marketing, demanda_esperada,
+                       incertidumbre=0.35, n=500, seed=None):
+    """¿Lanzo un producto nuevo? Sin historial → por supuestos (demanda esperada
+    semanal) con alta incertidumbre. fuente='supuestos'."""
+    mc = _mc_alrededor(demanda_esperada, precio, costo, gasto_marketing, incertidumbre, n, seed)
+    return _empacar(mc, "producto", {"fuente": "supuestos", "incertidumbre": incertidumbre})
+
+
+def sim_zona(precio, costo, inversion, clientes_potenciales, penetracion_pct,
+             incertidumbre=0.35, n=500, seed=None):
+    """¿Abro en otra zona/distrito? Por supuestos: clientes potenciales ×
+    penetración esperada. fuente='supuestos'."""
+    ventas_media = float(clientes_potenciales) * max(float(penetracion_pct), 0.0) / 100.0
+    mc = _mc_alrededor(ventas_media, precio, costo, inversion, incertidumbre, n, seed)
+    return _empacar(mc, "zona", {"fuente": "supuestos", "incertidumbre": incertidumbre,
+                                 "clientes_potenciales": clientes_potenciales,
+                                 "penetracion_pct": penetracion_pct})
