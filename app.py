@@ -196,6 +196,22 @@ def get_plan_config(plan=None):
     planes = cargar_planes_config()
     return planes.get(plan, planes.get("Free", _PLANES_FALLBACK["Free"]))
 
+# ── Gating de funciones por plan (C) ─────────────────────────────────────────
+# Jerarquía de planes. Cada función premium exige un plan mínimo.
+PLAN_RANK = {"Free": 0, "Starter": 1, "Pro": 2, "Agency": 3, "Admin": 9}
+# Qué plan mínimo desbloquea cada función premium:
+FUNCION_PLAN_MIN = {
+    "integraciones": "Pro",       # conectar Analytics / tiendas
+    "autopiloto": "Pro",          # equipo completo trabajando solo
+    "gemelo_historial": "Pro",    # guardar historial + precisión del Gemelo
+    "multi_cliente": "Agency",    # gestionar varios negocios/clientes
+}
+
+def plan_permite(funcion):
+    """True si el plan actual desbloquea esa función premium."""
+    _rank = PLAN_RANK.get(st.session_state.get("plan", "Free"), 0)
+    return _rank >= PLAN_RANK.get(FUNCION_PLAN_MIN.get(funcion, "Free"), 0)
+
 # Compatibilidad: PLANES ahora deriva de planes_config (limite = créditos del plan)
 def _planes_compat():
     _p = {}
@@ -1790,6 +1806,15 @@ def _mostrar_upgrade(mensaje=None):
     _en = st.session_state.get("lang") == "en"
     if mensaje:
         st.warning(mensaje)
+    # Qué desbloquea cada plan (además de más créditos)
+    _features = {
+        "Starter": (["Todo el contenido con IA", "Créditos que se renuevan cada mes"]
+                    if not _en else ["All AI content", "Credits renew every month"]),
+        "Pro": (["🔗 Integraciones (Analytics, tienda)", "⚡ Autopiloto", "🔮 Gemelo completo (historial + precisión)"]
+                if not _en else ["🔗 Integrations (Analytics, store)", "⚡ Autopilot", "🔮 Full Twin (history + accuracy)"]),
+        "Agency": (["Todo lo de Pro", "👥 Varios negocios / clientes"]
+                   if not _en else ["Everything in Pro", "👥 Multiple businesses / clients"]),
+    }
     _planes_cfg = cargar_planes_config()
     _c1, _c2, _c3 = st.columns(3)
     for _col, _pl in zip((_c1, _c2, _c3), ("Starter", "Pro", "Agency")):
@@ -1799,10 +1824,11 @@ def _mostrar_upgrade(mensaje=None):
                 "\n\n" + f"🎨 {_cfgp['imagenes_limite']} "
                 + ("images/month" if _en else "imágenes/mes") + f" ({_cfgp['calidad_imagen']})"
             ) if IMAGENES_ACTIVAS else ""
+            _feats = "\n\n" + "\n\n".join(f"✅ {_f}" for _f in _features.get(_pl, []))
             st.markdown(
                 f"**{_pl}** — ${int(_cfgp['precio'])}/mes\n\n"
-                f"✅ {_cfgp['creditos']} " + ("credits/month" if _en else "créditos/mes")
-                + _linea_img
+                f"💳 {_cfgp['creditos']} " + ("credits/month" if _en else "créditos/mes")
+                + _linea_img + _feats
             )
     st.caption("👉 tentakl.ai/planes" if not _en else "👉 tentakl.ai/plans")
 
@@ -5889,7 +5915,14 @@ Sé muy específico con los números que ves en la imagen."""
         _is_en_int = st.session_state.get("lang") == "en"
         _email_int = (st.session_state.get("user_email") or "").strip().lower()
 
-        if not _email_int:
+        if not plan_permite("integraciones"):
+            st.markdown("### 🔗 " + ("Integraciones" if not _is_en_int else "Integrations"))
+            _mostrar_upgrade("🔒 " + ("Conectar Google Analytics y tu tienda está disponible desde el plan Pro ($39/mes). "
+                                      "Así Tentakl lee tus datos reales por ti:"
+                                      if not _is_en_int else
+                                      "Connecting Google Analytics and your store is available from the Pro plan ($39/mo). "
+                                      "So Tentakl reads your real data for you:"))
+        elif not _email_int:
             st.warning("Ingresa tu email para usar integraciones." if not _is_en_int else "Enter your email to use integrations.")
         else:
             # ── SECCIÓN 1 — Estado Google Analytics ─────────────────────────────
@@ -7575,6 +7608,7 @@ if _sec_activa == "gemelo":
         moneda=get_contexto_pais(st.session_state.get("pais_guardado", ""))["moneda"],
         lang=st.session_state.get("lang", "es"),
         log=_ignorar_error,
+        historial_activo=plan_permite("gemelo_historial"),   # el "completo" (Pro+)
     )
 
 st.markdown("---")

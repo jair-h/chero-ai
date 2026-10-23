@@ -31,7 +31,7 @@ def _noop(*_a, **_k):
 
 
 def render(*, supabase=None, generar_texto=None, user_email="", marca="",
-           sector_nicho="", moneda="S/", lang="es", log=None):
+           sector_nicho="", moneda="S/", lang="es", log=None, historial_activo=True):
     """Dibuja el Gemelo Digital. Dependencias inyectadas (ver docstring)."""
     log = log or _noop
     _en = (lang == "en")
@@ -67,9 +67,18 @@ def render(*, supabase=None, generar_texto=None, user_email="", marca="",
     with tabs[2]:
         _tab_resultado(marca, moneda, T, generar_texto)
 
-    # ── TAB 4 — HISTORIAL ───────────────────────────────────────────────────
+    # ── TAB 4 — HISTORIAL (completo: Pro+) ──────────────────────────────────
     with tabs[3]:
-        _tab_historial(supabase, user_email, moneda, T, log)
+        if historial_activo:
+            _tab_historial(supabase, user_email, moneda, T, log)
+        else:
+            st.info("🔒 " + T("El historial y la precisión acumulada del Gemelo están en el plan Pro. "
+                              "Con tu plan actual puedes simular todas las veces que quieras; "
+                              "guardar el historial para medir la precisión semana a semana es Pro.",
+                              "The Twin's history and cumulative accuracy are in the Pro plan. "
+                              "On your current plan you can simulate as much as you want; "
+                              "saving the history to track weekly accuracy is Pro."))
+            st.caption("👉 tentakl.ai/planes")
 
 
 # ──────────────────────────────────────────────────────────────────────────
