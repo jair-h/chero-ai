@@ -305,6 +305,16 @@ def test_gemelo():
     check(_mapa["zonas"][0]["utilidad_p50"] >= _mapa["zonas"][1]["utilidad_p50"], "mapa ordena por utilidad")
     check(_mapa["mejor"] == "Buena" and _mapa["zonas"][0]["icono"] in ("🟢", "🟡"), "mejor zona identificada")
     check(_mapa["zonas"][1]["icono"] == "🔴", "zona que pierde -> 🔴")
+    # Piso de ventas base (negocio establecido vs nuevo)
+    _sem_est = [{"gasto": {"Meta": 5.6, "Google": 7, "TikTok": 1.4}, "ventas": 148, "precio": 1, "costo": 0.6},
+                {"gasto": {"Meta": 5.6, "Google": 7, "TikTok": 1.4}, "ventas": 181, "precio": 1, "costo": 0.6}]
+    _p_base = GM.calibrar(_sem_est, "ecommerce_general", ventas_base=130)
+    _p_nobase = GM.calibrar(_sem_est, "ecommerce_general", ventas_base=0)
+    check(_p_base["base"] == 130 and _p_nobase["base"] == 0.0, "la base se guarda en params")
+    # A 0 de ads: con base vende ~130; sin base vende ~0 (el punto del arreglo)
+    check(GM.predecir_ventas(_p_base, {"Meta": 0, "Google": 0, "TikTok": 0}, 1) >= 120, "con base: vende sin ads")
+    check(GM.predecir_ventas(_p_nobase, {"Meta": 0, "Google": 0, "TikTok": 0}, 1) < 5, "sin base: 0 ventas sin ads")
+    check(GM.calibrar(semanas, "food_beverage")["base"] == 0.0, "base por defecto = 0 (negocio nuevo)")
 
 
 if __name__ == "__main__":

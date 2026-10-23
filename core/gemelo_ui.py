@@ -188,6 +188,21 @@ def _tab_simular(supabase, generar_texto, user_email, marca, sector_nicho, moned
 
     # ── Inputs según el tipo de decisión ────────────────────────────────────
     datos = {"precio": _precio_def, "costo": _costo_def}
+
+    # Piso de ventas base: lo que vendes aunque NO hagas ads (negocio establecido).
+    # Para negocio nuevo, dejar en 0 → los ads mueven todo.
+    if _tipo in ("presupuesto", "precio"):
+        _base_def = 0.0
+        if semanas:
+            _vv = [s["ventas"] for s in semanas if s["ventas"] > 0]
+            _base_def = round(min(_vv) * 0.5, 0) if _vv else 0.0
+        datos["ventas_base"] = st.number_input(
+            T(f"¿Cuánto vendes por semana SIN hacer publicidad? (piso base, en {moneda} o unidades)",
+              f"How much do you sell per week WITHOUT ads? (baseline)"),
+            min_value=0.0, value=float(_base_def), step=10.0, key="g_ventas_base",
+            help=T("Negocio nuevo: déjalo en 0. Negocio con marca/tráfico propio: pon lo que vendes igual.",
+                   "New business: leave 0. Established brand/traffic: put what you sell anyway."))
+
     if _tipo == "presupuesto":
         _tope = max(int(_gasto_hist * 3), 1000)
         datos["presupuesto"] = st.slider(T(f"Presupuesto semanal ({moneda})", f"Weekly budget ({moneda})"),
@@ -289,15 +304,17 @@ def _ejecutar_simulacion(tipo, datos, semanas, hay_datos, sector, moneda, ciudad
         return
 
     # Parámetros (curvas) solo para presupuesto y precio
+    _ventas_base = float(datos.get("ventas_base", 0) or 0)
+
     def _params():
         if hay_datos:
-            p = G.calibrar(semanas, sector)
+            p = G.calibrar(semanas, sector, ventas_base=_ventas_base)
             if not p.get("precio_ref"):
                 p["precio_ref"] = precio or datos.get("precio_actual", 0)
             return p
-        _base = datos.get("presupuesto") or datos.get("gasto") or 300
+        _g = datos.get("presupuesto") or datos.get("gasto") or 300
         return G.params_benchmark(sector, precio or datos.get("precio_actual", 20),
-                                  {c: _base / 3.0 for c in G.CANALES})
+                                  {c: _g / 3.0 for c in G.CANALES}, ventas_base=_ventas_base)
 
     if tipo == "presupuesto":
         res = G.sim_presupuesto(_params(), datos["presupuesto"], precio, costo=costo)

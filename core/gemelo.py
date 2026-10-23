@@ -106,15 +106,18 @@ def elasticidad_factor(precio, precio_ref, elasticidad):
 # ══════════════════════════════════════════════════════════════════════════
 # CALIBRACIÓN CON DATOS REALES
 # ══════════════════════════════════════════════════════════════════════════
-def _atribuir_ventas(semanas):
-    """Reparte las ventas de cada semana entre canales en proporción al gasto.
+def _atribuir_ventas(semanas, ventas_base=0.0):
+    """Reparte el EMPUJÓN de ads (ventas por encima del piso base) entre canales
+    en proporción al gasto. Así las curvas modelan solo el lift de la pauta, no
+    las ventas que ocurren igual sin ads.
     Devuelve dict canal -> lista de pares (gasto, ventas_atribuidas)."""
     series = {c: [] for c in CANALES}
     for s in semanas:
         g = s.get("gasto", {}) or {}
         gastos = {c: float(g.get(c, 0) or 0) for c in CANALES}
         total_g = sum(gastos.values())
-        ventas = float(s.get("ventas", 0) or 0)
+        # Solo el excedente sobre la base viene de los ads
+        ventas = max(float(s.get("ventas", 0) or 0) - float(ventas_base or 0), 0.0)
         if total_g <= 0:
             continue
         for c in CANALES:
@@ -149,13 +152,17 @@ def _calibrar_canal(pares):
     return mejor
 
 
-def calibrar(semanas, sector=SECTOR_DEFAULT):
+def calibrar(semanas, sector=SECTOR_DEFAULT, ventas_base=0.0):
     """Calibra los parámetros del gemelo con datos reales.
 
+    ventas_base: ventas que ocurren igual SIN publicidad (piso). Si no se da,
+    las curvas modelan todas las ventas como ad-driven (negocio nuevo/chico).
+
     Devuelve dict: {"canales": {canal: {"max": .., "b": ..}}, "elasticidad": ..,
-    "precio_ref": .., "fuente": "datos"}.
+    "precio_ref": .., "base": .., "fuente": "datos"}.
     """
-    series = _atribuir_ventas(semanas)
+    ventas_base = float(ventas_base or 0)
+    series = _atribuir_ventas(semanas, ventas_base)
     canales = {}
     for c in CANALES:
         if series[c]:
@@ -167,14 +174,15 @@ def calibrar(semanas, sector=SECTOR_DEFAULT):
     precio_ref = float(np.mean(precios)) if precios else 0.0
     elasticidad = BENCHMARKS_SECTOR.get(sector, BENCHMARKS_SECTOR[SECTOR_DEFAULT])["elasticidad"]
     return {"canales": canales, "elasticidad": elasticidad,
-            "precio_ref": precio_ref, "fuente": "datos"}
+            "precio_ref": precio_ref, "base": ventas_base, "fuente": "datos"}
 
 
-def params_benchmark(sector, precio_ref, gasto_tipico_por_canal):
+def params_benchmark(sector, precio_ref, gasto_tipico_por_canal, ventas_base=0.0):
     """Parámetros de arranque en frío a partir de benchmarks del sector.
 
     gasto_tipico_por_canal: dict canal -> gasto semanal estimado (para fijar la
     escala b). roas del sector define el techo de ventas de cada canal.
+    ventas_base: piso de ventas sin publicidad (0 para negocio nuevo).
     """
     bench = BENCHMARKS_SECTOR.get(sector, BENCHMARKS_SECTOR[SECTOR_DEFAULT])
     canales = {}
@@ -186,16 +194,17 @@ def params_benchmark(sector, precio_ref, gasto_tipico_por_canal):
         max_ventas = (roas * 2.0 * b) / max(float(precio_ref), 1.0) if precio_ref else roas * 2.0
         canales[c] = {"max": float(max_ventas), "b": float(b)}
     return {"canales": canales, "elasticidad": bench["elasticidad"],
-            "precio_ref": float(precio_ref or 0), "fuente": "benchmark"}
+            "precio_ref": float(precio_ref or 0), "base": float(ventas_base or 0),
+            "fuente": "benchmark"}
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # PREDICCIÓN + MONTE CARLO
 # ══════════════════════════════════════════════════════════════════════════
 def predecir_ventas(params, plan_gasto, precio):
-    """Punto base (sin incertidumbre): ventas totales esperadas para un plan."""
+    """Punto base (sin incertidumbre): ventas totales = piso base + empujón de ads."""
     factor = elasticidad_factor(precio, params.get("precio_ref") or precio, params["elasticidad"])
-    total = 0.0
+    total = float(params.get("base", 0.0) or 0.0)   # piso que ocurre sin ads
     for c in CANALES:
         cp = params["canales"][c]
         total += ventas_canal(plan_gasto.get(c, 0), cp["max"], cp["b"])
@@ -211,7 +220,9 @@ def monte_carlo(params, plan_gasto, precio, costo=0.0, n=500, variacion=0.15, se
     rng = np.random.default_rng(seed)
     gasto_total = sum(float(plan_gasto.get(c, 0) or 0) for c in CANALES)
     precio_ref = params.get("precio_ref") or precio
-    ventas_sims = np.zeros(n)
+    # Piso de ventas base (lo que ocurre sin ads), con algo de ruido
+    _base = float(params.get("base", 0.0) or 0.0)
+    ventas_sims = _base * (1.0 + rng.uniform(-variacion, variacion, n)) if _base > 0 else np.zeros(n)
     for c in CANALES:
         cp = params["canales"][c]
         g = float(plan_gasto.get(c, 0) or 0)
