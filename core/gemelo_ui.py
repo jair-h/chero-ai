@@ -191,6 +191,8 @@ def _tab_simular(supabase, generar_texto, user_email, marca, sector_nicho, moned
             "presupuesto": presupuesto, "precio": precio, "costo": costo, "moneda": moneda,
             "asignacion": dist["asignacion"],
             "ventas": mc["ventas"], "ingresos": mc["ingresos"], "utilidad": mc["utilidad"],
+            "veredicto": G.veredicto(mc),          # árbitro: ✅/⚠️/❌ derivado de los números
+            "proyeccion": G.proyeccion(mc),        # 6m / 12m "si mantienes el ritmo"
         }
         # Explicación con IA (opcional)
         resultado["explicacion"] = _explicar_ia(generar_texto, resultado, marca, moneda, T) if generar_texto else ""
@@ -205,6 +207,20 @@ def _tab_resultado(marca, moneda, T):
         st.info(T("Aún no has simulado. Ve a la pestaña 🎛 Simular.", "No simulation yet. Go to the 🎛 Simulate tab."))
         return
     v = r["ventas"]
+
+    # ── Veredicto del árbitro (se deriva de los números → nunca contradice) ──
+    _ver = r.get("veredicto")
+    if _ver:
+        _colores = {"hazlo": "#16A34A", "cuidado": "#D97706", "no": "#DC2626"}
+        _col = _colores.get(_ver["nivel"], "#7C3AED")
+        _roas_txt = (f" · ROAS {_ver['roas']}x" if _ver.get("roas") else "")
+        st.markdown(
+            f"""<div style="border:2px solid {_col};border-radius:14px;padding:14px 16px;margin-bottom:14px;">
+            <div style="font-size:1.35rem;font-weight:800;color:{_col};">{_ver['icono']} {_ver['titulo']}{_roas_txt}</div>
+            <div style="color:inherit;opacity:.85;margin-top:2px;">{_ver['razon']}</div></div>""",
+            unsafe_allow_html=True,
+        )
+
     st.markdown(f"### {T('Predicción de esta semana', 'This week prediction')}")
     _c1, _c2, _c3 = st.columns(3)
     _c1.metric(T("Pesimista", "Pessimistic"), f"{v['p10']:.0f}")
@@ -236,6 +252,16 @@ def _tab_resultado(marca, moneda, T):
     _cols = st.columns(len(r["asignacion"]))
     for _col, (canal, g) in zip(_cols, r["asignacion"].items()):
         _col.metric(canal, f"{moneda}{g:.0f}")
+
+    # Proyección 6/12 meses (si mantiene el ritmo)
+    _proy = r.get("proyeccion")
+    if _proy:
+        st.markdown(f"#### 📆 {T('Proyección si mantienes el ritmo', 'Projection if you keep this pace')}")
+        _pc1, _pc2 = st.columns(2)
+        _pc1.metric(T("Ingresos 6 meses", "Revenue 6 months"), f"{moneda}{_proy['6m']['ingresos']:,.0f}")
+        _pc2.metric(T("Ingresos 12 meses", "Revenue 12 months"), f"{moneda}{_proy['12m']['ingresos']:,.0f}")
+        st.caption(T("Estimación lineal del caso probable — no es una promesa.",
+                     "Linear estimate of the likely case — not a promise."))
 
     # Explicación IA
     if r.get("explicacion"):
@@ -311,7 +337,7 @@ def _explicar_ia(generar_texto, r, marca, moneda, T):
         "Sin markdown de encabezados, directo y motivador."
     )
     try:
-        out = generar_texto(prompt, max_out=1200, temperatura=0.4)
+        out = generar_texto(prompt, max_out=1200, temperatura=0.3)
         return out or ""
     except Exception:
         return ""
