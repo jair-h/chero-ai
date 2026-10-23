@@ -285,3 +285,67 @@ def precision(prediccion_p10, prediccion_p90, venta_real):
         return float(max(0.0, 100.0 * (1.0 - err)))
     except Exception:
         return 0.0
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ÁRBITRO + VEREDICTO (bug #1 de Decisia: el veredicto NUNCA contradice el ROI)
+# El veredicto se DERIVA de los números, así que es imposible que diga "NO" con
+# un ROI de 525%. Una sola función produce veredicto + números juntos; la IA
+# solo lo explica, jamás decide el veredicto.
+# ══════════════════════════════════════════════════════════════════════════
+def veredicto(mc_resultado):
+    """Decide ✅/⚠️/❌ a partir de la utilidad simulada (p10/p50).
+
+    Lógica (el "árbitro"):
+      ✅ HAZLO      → hasta en el peor caso (p10) ganas o empatas.
+      ⚠️ CON CUIDADO → el caso probable (p50) gana, pero el peor caso pierde.
+      ❌ NO          → ni el caso probable (p50) es rentable.
+    Devuelve dict con icono, nivel, titulo, roas y la razón numérica.
+    """
+    util = mc_resultado.get("utilidad", {})
+    ing = mc_resultado.get("ingresos", {})
+    gasto = float(mc_resultado.get("gasto_total", 0) or 0)
+    u_p10 = float(util.get("p10", 0))
+    u_p50 = float(util.get("p50", 0))
+    roas = (float(ing.get("p50", 0)) / gasto) if gasto > 0 else None
+
+    if u_p50 <= 0:
+        nivel, icono, titulo = "no", "❌", "No conviene"
+        razon = f"Ni en el caso probable es rentable (utilidad p50 ≈ {u_p50:.0f})."
+    elif u_p10 >= 0:
+        nivel, icono, titulo = "hazlo", "✅", "Conviene"
+        razon = f"Hasta en el peor caso ganas (utilidad p10 ≈ {u_p10:.0f}, probable ≈ {u_p50:.0f})."
+    else:
+        nivel, icono, titulo = "cuidado", "⚠️", "Con cuidado"
+        razon = (f"El caso probable gana (≈ {u_p50:.0f}) pero el pesimista pierde "
+                 f"(≈ {u_p10:.0f}). Riesgo real.")
+    return {"icono": icono, "nivel": nivel, "titulo": titulo, "razon": razon,
+            "roas": (round(roas, 2) if roas is not None else None)}
+
+
+def escenarios(mc_resultado):
+    """Empaqueta los 3 escenarios para la UI: pesimista(p10)/base(p50)/optimista(p90)."""
+    def _s(p):
+        return {"ventas": mc_resultado["ventas"][p], "ingresos": mc_resultado["ingresos"][p],
+                "utilidad": mc_resultado["utilidad"][p]}
+    return {"pesimista": _s("p10"), "base": _s("p50"), "optimista": _s("p90")}
+
+
+def proyeccion(mc_resultado, semanas_por_mes=4.3, meses=(6, 12), crecimiento_mensual=0.0):
+    """Proyecta ingresos y utilidad a 6 y 12 meses a partir del ritmo semanal base.
+
+    Honesto: es una extrapolación lineal del caso probable (p50) "si mantienes
+    este ritmo", con un crecimiento mensual opcional. No es una promesa.
+    """
+    ing_sem = float(mc_resultado["ingresos"]["p50"])
+    util_sem = float(mc_resultado["utilidad"]["p50"])
+    g = max(float(crecimiento_mensual), 0.0)
+    out = {}
+    for m in meses:
+        # Suma de m meses con crecimiento compuesto mensual (factor sobre el mensual)
+        factor = sum((1.0 + g) ** k for k in range(int(m)))
+        ing_mes = ing_sem * semanas_por_mes
+        util_mes = util_sem * semanas_por_mes
+        out[f"{m}m"] = {"ingresos": round(ing_mes * factor, 2),
+                        "utilidad": round(util_mes * factor, 2)}
+    return out

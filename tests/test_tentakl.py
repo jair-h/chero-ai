@@ -258,6 +258,17 @@ def test_gemelo():
     # Tarjeta PNG
     png, err = GMC.generar_tarjeta("Café Chero", 36, 44, "42 (2026)", moneda="S/", ingresos_p50=800)
     check(err is None and png and png[:8] == b"\x89PNG\r\n\x1a\n", "tarjeta genera PNG válido")
+    # Árbitro + veredicto (nunca contradice los números)
+    mc = GM.monte_carlo(params, {"Meta": 100, "Google": 50, "TikTok": 30}, 20, costo=8, n=400, seed=7)
+    ver = GM.veredicto(mc)
+    check(ver["icono"] in ("✅", "⚠️", "❌") and ver["roas"] is not None, "veredicto da icono + ROAS")
+    check((ver["icono"] == "✅") == (mc["utilidad"]["p10"] >= 0), "✅ sólo si hasta el peor caso gana (coherente)")
+    mc_malo = GM.monte_carlo(params, {"Meta": 5000, "Google": 0, "TikTok": 0}, 20, costo=18, n=200, seed=1)
+    check(GM.veredicto(mc_malo)["icono"] == "❌", "gasto enorme sin retorno -> ❌")
+    esc = GM.escenarios(mc)
+    check(set(esc) == {"pesimista", "base", "optimista"}, "escenarios: 3 niveles")
+    proy = GM.proyeccion(mc)
+    check("6m" in proy and "12m" in proy and proy["12m"]["ingresos"] > proy["6m"]["ingresos"], "proyección 6m/12m")
 
 
 if __name__ == "__main__":
