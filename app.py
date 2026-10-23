@@ -213,9 +213,10 @@ def plan_permite(funcion):
     return _rank >= PLAN_RANK.get(FUNCION_PLAN_MIN.get(funcion, "Free"), 0)
 
 # ── Precios por país / región (PPP: USA más alto, LatAm accesible) ────────────
-# Precios USD para región USA/alto ingreso; LatAm usa el precio base de
-# planes_config. El cobro real (Stripe) debe tener estos mismos price points.
-PRECIOS_USA = {"Starter": 29, "Pro": 59, "Agency": 119}
+# Tablas de precio por región. El cobro real (Stripe) debe tener estos mismos
+# price points. Estos valores mandan sobre el precio de planes_config al mostrar.
+PRECIOS_LATAM = {"Starter": 20, "Pro": 40, "Agency": 80}
+PRECIOS_USA = {"Starter": 29, "Pro": 59, "Agency": 119}  # USA/Canadá/España (cambiarán luego)
 _PAISES_ALTO_INGRESO = ("usa", "united states", "estados unidos", "canad", "españa", "espana", "spain")
 
 def es_region_alto_ingreso(pais=None):
@@ -223,11 +224,11 @@ def es_region_alto_ingreso(pais=None):
     _p = str(pais).lower()
     return any(k in _p for k in _PAISES_ALTO_INGRESO)
 
-def precio_plan_local(plan, precio_base, pais=None):
-    """Precio a mostrar según la región del usuario."""
+def precio_plan_local(plan, precio_base=None, pais=None):
+    """Precio a mostrar según la región del usuario (tabla por región)."""
     if es_region_alto_ingreso(pais):
         return int(PRECIOS_USA.get(plan, round(float(precio_base or 0) * 1.5)))
-    return int(float(precio_base or 0))
+    return int(PRECIOS_LATAM.get(plan, int(float(precio_base or 0))))
 
 # Compatibilidad: PLANES ahora deriva de planes_config (limite = créditos del plan)
 def _planes_compat():
@@ -2919,8 +2920,8 @@ def _cm_render_confirmacion(_en, _plan_u):
         if not _ids_finales:
             st.warning("Selecciona al menos un agente." if not _en else "Select at least one agent.")
         elif _plan_u not in ("Pro", "Agency", "Admin"):
-            _mostrar_upgrade("🔒 " + ("El Centro de Mando coordinado está disponible desde el plan Pro ($39/mes):"
-                                      if not _en else "The coordinated Command Center is available from the Pro plan ($39/mo):"))
+            _mostrar_upgrade("🔒 " + ("El Centro de Mando coordinado está disponible desde el plan Pro:"
+                                      if not _en else "The coordinated Command Center is available from the Pro plan:"))
         elif verificar_creditos(COSTO_CREDITOS["autopiloto"]):
             st.session_state["cm_secuencia"] = [(_i2, _tareas_plan.get(_i2, _TAREAS_GENERICAS.get(_i2, ""))) for _i2 in _ids_finales]
             st.session_state["agent_states"] = {_i2: "waiting" for _i2 in _ids_finales}
@@ -5943,10 +5944,10 @@ Sé muy específico con los números que ves en la imagen."""
 
         if not plan_permite("integraciones"):
             st.markdown("### 🔗 " + ("Integraciones" if not _is_en_int else "Integrations"))
-            _mostrar_upgrade("🔒 " + ("Conectar Google Analytics y tu tienda está disponible desde el plan Pro ($39/mes). "
+            _mostrar_upgrade("🔒 " + ("Conectar Google Analytics y tu tienda está disponible desde el plan Pro. "
                                       "Así Tentakl lee tus datos reales por ti:"
                                       if not _is_en_int else
-                                      "Connecting Google Analytics and your store is available from the Pro plan ($39/mo). "
+                                      "Connecting Google Analytics and your store is available from the Pro plan. "
                                       "So Tentakl reads your real data for you:"))
         elif not _email_int:
             st.warning("Ingresa tu email para usar integraciones." if not _is_en_int else "Enter your email to use integrations.")
@@ -6988,9 +6989,9 @@ if _sec_activa == "autopiloto":
         st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección."
                    if not _is_en_ap else "⚠ Enter your email in the sidebar to access this section.")
     elif _plan_ap not in ("Pro", "Agency", "Admin"):
-        _mostrar_upgrade("🔒 " + ("El Autopiloto está disponible desde el plan Pro ($39/mes). Deja que tu equipo completo trabaje por ti:"
+        _mostrar_upgrade("🔒 " + ("El Autopiloto está disponible desde el plan Pro. Deja que tu equipo completo trabaje por ti:"
                                   if not _is_en_ap else
-                                  "Autopilot is available from the Pro plan ($39/mo). Let your whole team work for you:"))
+                                  "Autopilot is available from the Pro plan. Let your whole team work for you:"))
     else:
         _usos_ap = db_get_autopiloto_usos(_email_ap, _mes_ap)
         st.caption(f"Corridas este mes: {_usos_ap}" if not _is_en_ap else f"Runs this month: {_usos_ap}")
