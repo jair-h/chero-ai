@@ -173,8 +173,15 @@ def calibrar(semanas, sector=SECTOR_DEFAULT, ventas_base=0.0):
     precios = [float(s.get("precio", 0) or 0) for s in semanas if float(s.get("precio", 0) or 0) > 0]
     precio_ref = float(np.mean(precios)) if precios else 0.0
     elasticidad = BENCHMARKS_SECTOR.get(sector, BENCHMARKS_SECTOR[SECTOR_DEFAULT])["elasticidad"]
-    return {"canales": canales, "elasticidad": elasticidad,
-            "precio_ref": precio_ref, "base": ventas_base, "fuente": "datos"}
+    # Volatilidad REAL: cuánto varían tus ventas mes a mes por cosas que los ads
+    # no explican (temporada, promos, marca). El rango del Gemelo la refleja.
+    _vts = [float(s.get("ventas", 0) or 0) for s in semanas if float(s.get("ventas", 0) or 0) > 0]
+    if len(_vts) >= 2 and np.mean(_vts) > 0:
+        volatilidad = float(np.clip(np.std(_vts) / np.mean(_vts), 0.08, 0.40))
+    else:
+        volatilidad = 0.15
+    return {"canales": canales, "elasticidad": elasticidad, "precio_ref": precio_ref,
+            "base": ventas_base, "volatilidad": volatilidad, "fuente": "datos"}
 
 
 def params_benchmark(sector, precio_ref, gasto_tipico_por_canal, ventas_base=0.0):
@@ -195,7 +202,7 @@ def params_benchmark(sector, precio_ref, gasto_tipico_por_canal, ventas_base=0.0
         canales[c] = {"max": float(max_ventas), "b": float(b)}
     return {"canales": canales, "elasticidad": bench["elasticidad"],
             "precio_ref": float(precio_ref or 0), "base": float(ventas_base or 0),
-            "fuente": "benchmark"}
+            "volatilidad": 0.15, "fuente": "benchmark"}
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -237,7 +244,13 @@ def monte_carlo(params, plan_gasto, precio, costo=0.0, n=500, variacion=0.15, se
         factor_s = (precio / precio_ref) ** (-elas_s)
     else:
         factor_s = np.ones(n)
-    ventas_sims = np.maximum(ventas_sims * factor_s, 0.0)
+    ventas_sims = ventas_sims * factor_s
+    # Ruido de volatilidad real (variación que los ads no explican: temporada,
+    # promos, marca). Ensancha el rango para que sea honesto, no falsamente fino.
+    _vol = float(params.get("volatilidad", 0.0) or 0.0)
+    if _vol > 0:
+        ventas_sims = ventas_sims * (1.0 + rng.normal(0.0, _vol, n))
+    ventas_sims = np.maximum(ventas_sims, 0.0)
     ingresos_sims = ventas_sims * float(precio)
     utilidad_sims = ventas_sims * (float(precio) - float(costo)) - gasto_total
 

@@ -315,6 +315,14 @@ def test_gemelo():
     check(GM.predecir_ventas(_p_base, {"Meta": 0, "Google": 0, "TikTok": 0}, 1) >= 120, "con base: vende sin ads")
     check(GM.predecir_ventas(_p_nobase, {"Meta": 0, "Google": 0, "TikTok": 0}, 1) < 5, "sin base: 0 ventas sin ads")
     check(GM.calibrar(semanas, "food_beverage")["base"] == 0.0, "base por defecto = 0 (negocio nuevo)")
+    # Volatilidad adaptativa: el rango se ensancha según la variación real de ventas
+    _sem_volatil = [{"gasto": {"Meta": 6, "Google": 7, "TikTok": 1.4}, "ventas": 148, "precio": 1, "costo": 0.78},
+                    {"gasto": {"Meta": 6, "Google": 7, "TikTok": 1.4}, "ventas": 181, "precio": 1, "costo": 0.78}]
+    _pv = GM.calibrar(_sem_volatil, "ecommerce_general", ventas_base=120)
+    check(0.08 <= _pv["volatilidad"] <= 0.40, "calcula volatilidad real de las ventas")
+    _rng = GM.monte_carlo(_pv, {"Meta": 6, "Google": 7, "TikTok": 1.4}, 1, costo=0.78, n=2000, seed=11)["ventas"]
+    check(_rng["p10"] <= 148 <= _rng["p90"] and _rng["p10"] <= 181 <= _rng["p90"],
+          "el rango honesto contiene ambos meses reales")
 
 
 if __name__ == "__main__":
