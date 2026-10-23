@@ -55,7 +55,6 @@ AGENTES = {
         "subfunciones": [
             ("🎯 Segmentación de Ads", "🎯 Ads Segmentation", "marketing", "Segmentación Ads"),
             ("🛡 Compliance Checker", "🛡 Compliance Checker", "marketing", "Compliance Checker"),
-            ("🧪 Simulador de Campaña", "🧪 Campaign Simulator", "marketing", "Simulador de Campaña"),
             ("🛍 Campaña por Catálogo", "🛍 Catalog Campaign", "marketing", "Campaña de Catálogo"),
             ("🤝 Influencer Marketing", "🤝 Influencer Marketing", "power", "Influencer Marketing"),
             ("📰 PR Digital", "📰 Digital PR", "power", "PR Digital"),

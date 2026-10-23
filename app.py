@@ -5540,6 +5540,12 @@ Quality: Award-winning commercial photography, Sony A7R IV quality, high convers
     elif opcion_mkt == "Simulador de Campaña":
         _is_en_sim = st.session_state.get("lang") == "en"
 
+        # Función retirada: el Gemelo Digital la reemplaza (mejor y con datos reales).
+        st.info("🔮 " + ("El Simulador se movió al **Gemelo Digital** (en el inicio), que simula mejor y con tus datos reales."
+                         if not _is_en_sim else
+                         "The Simulator moved to the **Digital Twin** (on the home), which simulates better and with your real data."))
+        st.stop()
+
         if _is_en_sim:
             st.subheader("🧪 Campaign Simulator")
             _sim_camp_lbl  = "Your complete campaign:"
