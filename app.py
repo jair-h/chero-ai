@@ -20,6 +20,44 @@ with warnings.catch_warnings():
     from supabase import create_client, Client
 from openai import OpenAI as OpenAIClient
 
+# Capa de integraciones (tiendas, analytics) — lógica de red fuera del monolito
+from integrations import stores as _stores
+from integrations import analytics as _ganalytics
+
+# Capa de agentes (definición de los 9 agentes + routing por reglas)
+from core.agents import (
+    AGENT_COLORS, AGENTES,
+    TAREAS_GENERICAS as _TAREAS_GENERICAS,
+    MENSAJES_AGENTE as _MENSAJES_AGENTE,
+    ocultar_generador_imagenes as _ocultar_generador_imagenes,
+    seleccion_agentes_por_reglas as _seleccion_agentes_por_reglas,
+)
+
+# Logging: antes había 29 `except: pass` que escondían errores en silencio.
+# _ignorar_error() registra el fallo (con traceback) sin romper la UI, para
+# que los errores sean visibles en los logs de Streamlit Cloud.
+import logging as _logging
+
+_logging.basicConfig(level=_logging.WARNING)
+_tlog = _logging.getLogger("tentakl")
+
+
+def _ignorar_error(ctx: str = ""):
+    """Registra un error no crítico que se decidió no propagar al usuario.
+    El traceback (exc_info) apunta a la línea exacta donde ocurrió."""
+    try:
+        _tlog.warning("Error ignorado%s", f" [{ctx}]" if ctx else "", exc_info=True)
+    except Exception:
+        pass
+
+# Capa de contexto/validación del motor de texto (funciones puras)
+from core.context import (
+    get_contexto_pais, construir_contexto_base, validar_input, _sanitizar,
+)
+
+# Módulo Gemelo Digital (motor matemático + UI propia; no toca el resto)
+from core import gemelo_ui as _gemelo_ui
+
 # ✅ SIEMPRE PRIMERO: configuración de página
 st.set_page_config(page_title="Tentakl.ai", page_icon="🐙", layout="wide")
 
@@ -38,6 +76,35 @@ elif not SUPABASE_URL:
     st.warning("⚠ SUPABASE_URL no configurada en secrets.toml — los datos no se guardarán.")
 elif not SUPABASE_KEY:
     st.warning("⚠ SUPABASE_KEY no configurada en secrets.toml — los datos no se guardarán.")
+
+# ── Callback OAuth de Google Analytics ────────────────────────────────────
+# Google redirige de vuelta con ?code=&state=tentaklga|<email>. Guardamos el
+# bundle de tokens como pendiente (activo=False); la propiedad GA4 se elige
+# luego en Gestión → Integraciones. El email viaja en 'state' porque el
+# redirect crea una sesión nueva de Streamlit (se pierde session_state).
+try:
+    _ga_cb_code = st.query_params.get("code")
+    _ga_cb_state = st.query_params.get("state") or ""
+    if _ga_cb_code and _ga_cb_state.startswith("tentaklga|") and supabase:
+        _ga_cb_email = _ga_cb_state.split("|", 1)[1].strip().lower()
+        _ga_cb_bundle, _ga_cb_err = _ganalytics.exchange_code(st.secrets, _ga_cb_code)
+        if _ga_cb_bundle and not _ga_cb_err and _ga_cb_email:
+            supabase.table("integraciones").upsert({
+                "user_email": _ga_cb_email,
+                "tipo": "google_analytics",
+                "account_id": "",
+                "access_token": _ganalytics.serializar_bundle(_ga_cb_bundle),
+                "activo": False,
+            }, on_conflict="user_email,tipo").execute()
+            st.session_state["ga_oauth_recien"] = True
+        # Limpia solo los params de OAuth, conserva "u" (email persistido)
+        for _k in ("code", "state", "scope", "authuser", "prompt"):
+            try:
+                del st.query_params[_k]
+            except Exception:
+                _ignorar_error()
+except Exception:
+    _ignorar_error()
 
 # --- API KEYS ---
 API_KEY = ""
@@ -68,6 +135,15 @@ except Exception as e:
 # =========================
 MODELO_RAPIDO = "gemini-2.5-flash-lite"
 MODELO_FUERTE = "gemini-2.5-flash"
+
+# Interruptor global de la generación de imágenes.
+# Por ahora está desactivada: oculta todos los puntos de entrada de imagen
+# en la UI (no borra el código, así re-activar es cambiar esto a True).
+IMAGENES_ACTIVAS = False
+
+# Imágenes off: quita la generación del agente Imágenes (deja la Auditoría Visual)
+if not IMAGENES_ACTIVAS:
+    _ocultar_generador_imagenes(AGENTES)
 
 # =========================
 # COSTOS Y LÍMITES (esquema Tentakl)
@@ -111,7 +187,7 @@ def cargar_planes_config():
         if planes:
             return planes
     except Exception:
-        pass
+        _ignorar_error()
     return _PLANES_FALLBACK
 
 def get_plan_config(plan=None):
@@ -119,6 +195,40 @@ def get_plan_config(plan=None):
         plan = st.session_state.get("plan", "Free")
     planes = cargar_planes_config()
     return planes.get(plan, planes.get("Free", _PLANES_FALLBACK["Free"]))
+
+# ── Gating de funciones por plan (C) ─────────────────────────────────────────
+# Jerarquía de planes. Cada función premium exige un plan mínimo.
+PLAN_RANK = {"Free": 0, "Starter": 1, "Pro": 2, "Agency": 3, "Admin": 9}
+# Qué plan mínimo desbloquea cada función premium:
+FUNCION_PLAN_MIN = {
+    "integraciones": "Pro",       # conectar Analytics / tiendas
+    "autopiloto": "Pro",          # equipo completo trabajando solo
+    "gemelo_historial": "Pro",    # guardar historial + precisión del Gemelo
+    "multi_cliente": "Agency",    # gestionar varios negocios/clientes
+}
+
+def plan_permite(funcion):
+    """True si el plan actual desbloquea esa función premium."""
+    _rank = PLAN_RANK.get(st.session_state.get("plan", "Free"), 0)
+    return _rank >= PLAN_RANK.get(FUNCION_PLAN_MIN.get(funcion, "Free"), 0)
+
+# ── Precios por país / región (PPP: USA más alto, LatAm accesible) ────────────
+# Tablas de precio por región. El cobro real (Stripe) debe tener estos mismos
+# price points. Estos valores mandan sobre el precio de planes_config al mostrar.
+PRECIOS_LATAM = {"Starter": 20, "Pro": 40, "Agency": 80}
+PRECIOS_USA = {"Starter": 29, "Pro": 59, "Agency": 119}  # USA/Canadá/España (cambiarán luego)
+_PAISES_ALTO_INGRESO = ("usa", "united states", "estados unidos", "canad", "españa", "espana", "spain")
+
+def es_region_alto_ingreso(pais=None):
+    pais = pais if pais is not None else st.session_state.get("pais_guardado", "")
+    _p = str(pais).lower()
+    return any(k in _p for k in _PAISES_ALTO_INGRESO)
+
+def precio_plan_local(plan, precio_base=None, pais=None):
+    """Precio a mostrar según la región del usuario (tabla por región)."""
+    if es_region_alto_ingreso(pais):
+        return int(PRECIOS_USA.get(plan, round(float(precio_base or 0) * 1.5)))
+    return int(PRECIOS_LATAM.get(plan, int(float(precio_base or 0))))
 
 # Compatibilidad: PLANES ahora deriva de planes_config (limite = créditos del plan)
 def _planes_compat():
@@ -313,65 +423,9 @@ def t(key):
 # =========================
 # FUNCIONES DE IA
 # =========================
-# CONTEXTO LOCAL POR PAÍS
+# get_contexto_pais y construir_contexto_base viven en core/context.py
+# (importados arriba). Son funciones puras de contexto de mercado.
 # =========================
-def get_contexto_pais(pais):
-    _p = str(pais)
-    for _em in ["🇵🇪","🇨🇴","🇲🇽",
-                "🇦🇷","🇨🇱","🇧🇷",
-                "🇺🇸","🇪🇸","🇨🇦",
-                "🇪🇨","🇧🇴","🇵🇾",
-                "🇺🇾","🇻🇪","🇨🇷",
-                "🇵🇦","🇬🇹","🇭🇳",
-                "🇸🇻","🇳🇮","🇩🇴",
-                "🇵🇷","🇨🇺","🌍"]:
-        _p = _p.replace(_em, "").strip()
-    _ctx = {
-        "Perú":     {"moneda":"S/","moneda_nombre":"Soles peruanos","plataformas_top":"Instagram, TikTok, Facebook, WhatsApp","pagos_locales":"Yape, Plin, tarjetas Visa/MC, PagoEfectivo","timezone":"GMT-5","idioma":"es","fechas_clave":"CyberWow (mayo), Fiestas Patrias (julio), Black Friday (nov), Navidad"},
-        "Colombia":  {"moneda":"COP $","moneda_nombre":"Pesos colombianos","plataformas_top":"Instagram, TikTok, Facebook, WhatsApp","pagos_locales":"Nequi, Daviplata, PSE, tarjetas","timezone":"GMT-5","idioma":"es","fechas_clave":"Día sin IVA (jun/nov), Amor y Amistad (sep), Navidad"},
-        "México":  {"moneda":"MXN $","moneda_nombre":"Pesos mexicanos","plataformas_top":"Instagram, TikTok, Facebook, YouTube, WhatsApp","pagos_locales":"OXXO, SPEI, tarjetas, Mercado Pago, CoDi","timezone":"GMT-6","idioma":"es","fechas_clave":"Buen Fin (nov), Día de Muertos (nov), Hot Sale (may)"},
-        "Argentina": {"moneda":"ARS $","moneda_nombre":"Pesos argentinos","plataformas_top":"Instagram, WhatsApp, TikTok, Facebook","pagos_locales":"MercadoPago, transferencia bancaria, tarjetas","timezone":"GMT-3","idioma":"es","fechas_clave":"Hot Sale (may), CyberMonday (oct), Navidad"},
-        "Chile":     {"moneda":"CLP $","moneda_nombre":"Pesos chilenos","plataformas_top":"Instagram, TikTok, Facebook, WhatsApp","pagos_locales":"Webpay, Khipu, tarjetas, Mercado Pago","timezone":"GMT-3","idioma":"es","fechas_clave":"CyberDay (may), Fiestas Patrias (sep), Black Friday"},
-        "Brasil":    {"moneda":"R$","moneda_nombre":"Reais brasileiros","plataformas_top":"WhatsApp, Instagram, TikTok, YouTube","pagos_locales":"PIX, boleto bancário, cartões","timezone":"GMT-3","idioma":"pt","fechas_clave":"Black Friday (nov), Carnaval (fev), Natal (dez), Dia das Mães (mai)"},
-        "España":  {"moneda":"€","moneda_nombre":"Euros","plataformas_top":"Instagram, TikTok, LinkedIn, Facebook, YouTube","pagos_locales":"Bizum, tarjetas, PayPal, transferencia","timezone":"GMT+1","idioma":"es","fechas_clave":"Black Friday, Reyes Magos (ene), Navidad, verano"},
-        "USA":       {"moneda":"$","moneda_nombre":"US Dollars","plataformas_top":"Instagram, TikTok, Facebook, YouTube, LinkedIn, X/Twitter","pagos_locales":"PayPal, Venmo, tarjetas, Apple Pay, Zelle","timezone":"GMT-5 to GMT-8","idioma":"en","fechas_clave":"Black Friday, Cyber Monday, Super Bowl, 4th of July"},
-        "Canadá": {"moneda":"CAD $","moneda_nombre":"Canadian Dollars","plataformas_top":"Instagram, TikTok, Facebook, YouTube, LinkedIn","pagos_locales":"Interac, tarjetas, PayPal","timezone":"GMT-5 to GMT-8","idioma":"en","fechas_clave":"Black Friday, Boxing Day (dic), Canada Day (jul)"},
-        "Ecuador":   {"moneda":"$","moneda_nombre":"Dólares (moneda oficial)","plataformas_top":"WhatsApp, Instagram, Facebook, TikTok","pagos_locales":"tarjetas, transferencias, DeUna","timezone":"GMT-5","idioma":"es","fechas_clave":"Black Friday, Navidad, Fiestas de Quito (dic)"},
-        "Bolivia":   {"moneda":"Bs.","moneda_nombre":"Bolivianos","plataformas_top":"WhatsApp, Facebook, Instagram, TikTok","pagos_locales":"Tigo Money, tarjetas, transferencias","timezone":"GMT-4","idioma":"es","fechas_clave":"Black Friday, Navidad, Carnaval de Oruro (feb)"},
-        "Paraguay":  {"moneda":"₲","moneda_nombre":"Guaraníes","plataformas_top":"WhatsApp, Facebook, Instagram, TikTok","pagos_locales":"Tigo Money, tarjetas, transferencias","timezone":"GMT-4","idioma":"es","fechas_clave":"Black Friday, Navidad, Carnaval"},
-        "Uruguay":   {"moneda":"$","moneda_nombre":"Pesos uruguayos","plataformas_top":"Instagram, WhatsApp, Facebook, TikTok","pagos_locales":"MercadoPago, tarjetas, transferencias","timezone":"GMT-3","idioma":"es","fechas_clave":"Black Friday, Navidad, Carnaval"},
-        "Venezuela": {"moneda":"$","moneda_nombre":"USD (uso común) / Bolívares","plataformas_top":"Instagram, TikTok, WhatsApp, Facebook","pagos_locales":"Pago móvil, Zelle, tarjetas, efectivo USD","timezone":"GMT-4","idioma":"es","fechas_clave":"Black Friday, Navidad, Carnaval"},
-        "Costa Rica":{"moneda":"₡","moneda_nombre":"Colones","plataformas_top":"WhatsApp, Instagram, Facebook, TikTok","pagos_locales":"SINPE Móvil, tarjetas, transferencias","timezone":"GMT-6","idioma":"es","fechas_clave":"Black Friday, Navidad, 15 de Septiembre"},
-        "Panamá": {"moneda":"$","moneda_nombre":"Dólares (moneda oficial)","plataformas_top":"WhatsApp, Instagram, Facebook, TikTok","pagos_locales":"tarjetas, transferencias, Yappy","timezone":"GMT-5","idioma":"es","fechas_clave":"Black Friday, Navidad, Carnaval"},
-        "Guatemala": {"moneda":"Q","moneda_nombre":"Quetzales","plataformas_top":"WhatsApp, Facebook, Instagram, TikTok","pagos_locales":"tarjetas, transferencias, Tigo Money","timezone":"GMT-6","idioma":"es","fechas_clave":"Black Friday, Navidad, 15 de Septiembre"},
-        "Honduras":  {"moneda":"L","moneda_nombre":"Lempiras","plataformas_top":"WhatsApp, Facebook, Instagram, TikTok","pagos_locales":"tarjetas, transferencias, Tigo Money","timezone":"GMT-6","idioma":"es","fechas_clave":"Black Friday, Navidad, 15 de Septiembre"},
-        "El Salvador":{"moneda":"$","moneda_nombre":"Dólares (moneda oficial)","plataformas_top":"WhatsApp, Facebook, Instagram, TikTok","pagos_locales":"tarjetas, transferencias, Bitcoin (legal)","timezone":"GMT-6","idioma":"es","fechas_clave":"Black Friday, Navidad, 15 de Septiembre"},
-        "Nicaragua": {"moneda":"C$","moneda_nombre":"Córdobas","plataformas_top":"WhatsApp, Facebook, Instagram, TikTok","pagos_locales":"tarjetas, transferencias","timezone":"GMT-6","idioma":"es","fechas_clave":"Black Friday, Navidad, 19 de Julio"},
-        "República Dominicana":{"moneda":"RD$","moneda_nombre":"Pesos dominicanos","plataformas_top":"WhatsApp, Instagram, Facebook, TikTok","pagos_locales":"tarjetas, transferencias bancarias","timezone":"GMT-4","idioma":"es","fechas_clave":"Black Friday, Navidad, 27 de Febrero"},
-        "Puerto Rico":{"moneda":"$","moneda_nombre":"US Dollars","plataformas_top":"Instagram, TikTok, Facebook, WhatsApp","pagos_locales":"PayPal, tarjetas, Venmo","timezone":"GMT-4","idioma":"es","fechas_clave":"Black Friday, Navidad, Fiestas San Sebastián (ene)"},
-        "Cuba":      {"moneda":"CUP $","moneda_nombre":"Pesos cubanos","plataformas_top":"WhatsApp, Facebook, Instagram","pagos_locales":"efectivo, transferencias","timezone":"GMT-5","idioma":"es","fechas_clave":"Navidad, Año Nuevo, 26 de Julio"},
-    }
-    for _k in _ctx:
-        if _k.lower() in _p.lower():
-            return _ctx[_k]
-    return {"moneda":"$","moneda_nombre":"USD","plataformas_top":"Instagram, TikTok, Facebook, WhatsApp, YouTube","pagos_locales":"tarjetas internacionales Visa/Mastercard, PayPal","timezone":"GMT-5","idioma":"es","fechas_clave":"Black Friday (nov), Navidad (dic), fin de año"}
-
-
-# =========================
-def construir_contexto_base(pais, moneda, idioma, reglas_marca):
-    """CONTEXTO_BASE que se inyecta al inicio de todos los prompts (CAMBIO 3)."""
-    return f"""
-Adapta tu respuesta al mercado de {pais}.
-Usa expresiones naturales de {pais}.
-Precios y ejemplos en {moneda}.
-Referencias culturales locales de {pais}.
-Horarios y fechas relevantes.
-Responde en el idioma del usuario: {idioma}.
-Sé específico y accionable. No des respuestas genéricas.
-{"Reglas de marca: " + reglas_marca if reglas_marca else ""}
-"""
-
-
 def scrapear_url(url):
     """CAMBIO 5: scraping real de una URL con requests + BeautifulSoup.
     Retorna dict con title, meta, headings, texto y productos, o {'error': msg}."""
@@ -553,7 +607,7 @@ def generar_texto(prompt, max_out=8000, modelo=None, temperatura=None):
     try:
         _cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
     except Exception:
-        pass
+        _ignorar_error()
 
     st.session_state["_ultima_gen_ok"] = False
     _ultimo_error = None
@@ -623,7 +677,7 @@ def generar_analitico(prompt, max_tokens=6000):
     try:
         _cfg_an["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
     except Exception:
-        pass
+        _ignorar_error()
 
     st.session_state["_ultima_gen_ok"] = False
     _ultimo_error_an = None
@@ -846,21 +900,7 @@ TYPOGRAPHY RULES:
 OUTPUT: Generate ONE premium advertising campaign image that feels cinematic, emotionally powerful, commercially optimized, visually premium, globally competitive."""
 
 
-def _sanitizar(texto, max_chars=3000):
-    texto = (texto or "").strip()[:max_chars]
-    texto = texto.replace('<', '').replace('>', '')
-    return texto
-
-def validar_input(texto, max_chars=3000):
-    """Valida y sanitiza input antes de enviar a Gemini. Retorna (texto_limpio, error|None)."""
-    if not texto or not str(texto).strip():
-        return None, "Campo vacío"
-    texto = str(texto).strip()[:max_chars]
-    texto = texto.replace('<script', '')
-    texto = texto.replace('</script', '')
-    texto = texto.replace('javascript:', '')
-    texto = texto.replace('<iframe', '')
-    return texto, None
+# validar_input y _sanitizar viven en core/context.py (importados arriba).
 
 def generar_multimodal(prompt, mime_type, file_bytes, temperatura=None, max_out=None):
     try:
@@ -1137,7 +1177,7 @@ def db_guardar_reglas_marca(user_email: str, reglas: str):
         else:
             supabase.table("perfil_negocio").insert({"user_email": user_email, "reglas_marca": reglas}).execute()
     except Exception:
-        pass
+        _ignorar_error()
 
 
 # =========================
@@ -1279,7 +1319,7 @@ def db_actualizar_imagenes_desde_tienda(email):
                         {"imagen_url": _url_c}).eq("id", _r_c["id"]).execute()
                     _n_act += 1
     except Exception:
-        pass
+        _ignorar_error()
     return _n_act
 
 
@@ -1471,7 +1511,7 @@ def obtener_ultimo_reporte_tipo(user_email, tipos, dias=30):
             if _res.data:
                 return _res.data[0]
     except Exception:
-        pass
+        _ignorar_error()
     return None
 
 def obtener_reportes(user_email):
@@ -1784,16 +1824,33 @@ def _mostrar_upgrade(mensaje=None):
     _en = st.session_state.get("lang") == "en"
     if mensaje:
         st.warning(mensaje)
+    # Qué desbloquea cada plan (además de más créditos)
+    _features = {
+        "Starter": (["Todo el contenido con IA", "Créditos que se renuevan cada mes"]
+                    if not _en else ["All AI content", "Credits renew every month"]),
+        "Pro": (["🔗 Integraciones (Analytics, tienda)", "⚡ Autopiloto", "🔮 Gemelo completo (historial + precisión)"]
+                if not _en else ["🔗 Integrations (Analytics, store)", "⚡ Autopilot", "🔮 Full Twin (history + accuracy)"]),
+        "Agency": (["Todo lo de Pro", "👥 Varios negocios / clientes"]
+                   if not _en else ["Everything in Pro", "👥 Multiple businesses / clients"]),
+    }
     _planes_cfg = cargar_planes_config()
     _c1, _c2, _c3 = st.columns(3)
     for _col, _pl in zip((_c1, _c2, _c3), ("Starter", "Pro", "Agency")):
         _cfgp = _planes_cfg.get(_pl, _PLANES_FALLBACK[_pl])
         with _col:
+            _linea_img = (
+                "\n\n" + f"🎨 {_cfgp['imagenes_limite']} "
+                + ("images/month" if _en else "imágenes/mes") + f" ({_cfgp['calidad_imagen']})"
+            ) if IMAGENES_ACTIVAS else ""
+            _feats = "\n\n" + "\n\n".join(f"✅ {_f}" for _f in _features.get(_pl, []))
+            _precio_loc = precio_plan_local(_pl, _cfgp['precio'])
             st.markdown(
-                f"**{_pl}** — ${int(_cfgp['precio'])}/mes\n\n"
-                f"✅ {_cfgp['creditos']} " + ("credits/month" if _en else "créditos/mes") + "\n\n"
-                f"🎨 {_cfgp['imagenes_limite']} " + ("images/month" if _en else "imágenes/mes") + f" ({_cfgp['calidad_imagen']})"
+                f"**{_pl}** — ${_precio_loc}/mes\n\n"
+                f"💳 {_cfgp['creditos']} " + ("credits/month" if _en else "créditos/mes")
+                + _linea_img + _feats
             )
+    if es_region_alto_ingreso():
+        st.caption(("💲 Precios en USD para tu región." if not _en else "💲 Prices in USD for your region."))
     st.caption("👉 tentakl.ai/planes" if not _en else "👉 tentakl.ai/plans")
 
 
@@ -1866,7 +1923,7 @@ def consumir(costo=1, tipo_accion="funcion_texto"):
         try:
             db_upsert_usuario(email, st.session_state.get("plan", "Free"), st.session_state.usados)
         except Exception:
-            pass
+            _ignorar_error()
         registrar_uso_creditos(email, tipo_accion, costo)
 
 
@@ -1884,7 +1941,7 @@ def registrar_uso_creditos(email, tipo_accion, creditos):
             "fecha": dt.now(timezone.utc).isoformat(),
         }).execute()
     except Exception:
-        pass
+        _ignorar_error()
 
 # =========================
 # BARRA LATERAL
@@ -1930,7 +1987,7 @@ with st.sidebar:
             if st.query_params.get("u") != nuevo_email:
                 st.query_params["u"] = nuevo_email
         except Exception:
-            pass
+            _ignorar_error()
 
         if nuevo_email != st.session_state.get("user_email", ""):
             st.session_state.perfil_cargado = False
@@ -1948,8 +2005,12 @@ with st.sidebar:
         # ── CAMBIO 10: registro nuevo requiere aceptar T&C ─────────────────────
         if st.session_state.get("_cuenta_pendiente_tc") and re.match(r'^[^@]+@[^@]+\.[^@]+$', nuevo_email):
             _en_tc = st.session_state.get("lang") == "en"
-            st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 50 créditos y 2 imágenes gratis, por única vez." if not _en_tc
-                    else "🐙 Welcome! Create your Free account: 50 credits and 2 free images, one time only.")
+            if IMAGENES_ACTIVAS:
+                st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 50 créditos y 2 imágenes gratis, por única vez." if not _en_tc
+                        else "🐙 Welcome! Create your Free account: 50 credits and 2 free images, one time only.")
+            else:
+                st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 50 créditos gratis, por única vez." if not _en_tc
+                        else "🐙 Welcome! Create your Free account: 50 free credits, one time only.")
             _acepta_tc = st.checkbox(
                 "Acepto los Términos y Condiciones y la Política de Privacidad" if not _en_tc
                 else "I accept the Terms and Conditions and the Privacy Policy",
@@ -2180,9 +2241,10 @@ Sé muy específico, como si describieras a una persona real."""
     st.progress(progreso)
     st.caption(f'{t("creditos_restantes")}: {restantes}')
     st.caption(f'{t("consumo")}: {usados_sidebar} / {limite}')
-    _img_cfg_sb = int(_cfg_sb["imagenes_limite"])
-    _img_usadas_sb = int(st.session_state.get("imagenes_usadas", 0) or 0)
-    st.caption(("🎨 Imágenes: " if st.session_state.get("lang") != "en" else "🎨 Images: ") + f"{max(_img_cfg_sb - _img_usadas_sb, 0)}/{_img_cfg_sb}")
+    if IMAGENES_ACTIVAS:
+        _img_cfg_sb = int(_cfg_sb["imagenes_limite"])
+        _img_usadas_sb = int(st.session_state.get("imagenes_usadas", 0) or 0)
+        st.caption(("🎨 Imágenes: " if st.session_state.get("lang") != "en" else "🎨 Images: ") + f"{max(_img_cfg_sb - _img_usadas_sb, 0)}/{_img_cfg_sb}")
 
     # ── Banner suave cuando quedan pocos créditos (plan Free) ─────────────────
     if plan_actual == "Free" and 0 < restantes <= 10:
@@ -2445,107 +2507,10 @@ def db_incrementar_autopiloto(user_email, mes):
 
 
 # =========================================================
-# TENTAKL — TU EQUIPO DE 9 AGENTES (CAMBIO 2)
+# TENTAKL — TU EQUIPO DE 9 AGENTES
+# Definición de agentes (AGENT_COLORS, AGENTES) + routing por reglas vive en
+# core/agents.py. Se importa arriba; el flag de imágenes se aplicó tras config.
 # =========================================================
-AGENT_COLORS = {
-    "estrategia": "#2563EB", "contenido": "#16A34A", "imagenes": "#F97316",
-    "publicidad": "#7C3AED", "ventas": "#0D9488", "competencia": "#EC4899",
-    "gestion": "#8B5CF6", "metricas": "#D4A017", "autopiloto": "#D4A017",
-}
-
-AGENTES = {
-    "estrategia": {
-        "emoji": "🧠", "color": "#2563EB",
-        "nombre": ("Estrategia y Diagnóstico", "Strategy & Diagnosis"),
-        "desc": ("Analiza tu negocio, mercado y arma tu plan", "Analyzes your business, market and builds your plan"),
-        "subfunciones": [
-            ("⚡ Acciones Inteligentes de Hoy", "⚡ Today's Smart Actions", "inicio", "acciones"),
-            ("🩺 Auditoría Maestra del Negocio", "🩺 Master Business Audit", "inicio", "auditoria"),
-            ("🔥 Radar de Tendencias Virales", "🔥 Viral Trends Radar", "inicio", "radar"),
-            ("🧠 Plan de Contenido Semanal", "🧠 Weekly Content Plan", "inicio", "plan_semanal"),
-            ("🪄 Planificador con Tendencias Reales", "🪄 Real Trends Planner", "calendario", "planificador"),
-        ],
-    },
-    "contenido": {
-        "emoji": "✍️", "color": "#16A34A",
-        "nombre": ("Contenido", "Content"),
-        "desc": ("Reels, copies, blog, emails y storytelling", "Reels, copy, blog, emails and storytelling"),
-        "subfunciones": [
-            ("🎬 Experto TikTok/Reels", "🎬 TikTok/Reels Expert", "marketing", "Experto TikTok/Reels"),
-            ("📖 Storytelling de Marca", "📖 Brand Storytelling", "marketing", "Storytelling de Marca"),
-            ("📝 Artículo de Blog SEO", "📝 SEO Blog Article", "marketing", "Artículo de Blog SEO"),
-            ("🔑 SEO y Palabras Clave", "🔑 SEO & Keywords", "marketing", "SEO y Palabras Clave"),
-            ("📧 Email Marketing", "📧 Email Marketing", "power", "Email Marketing"),
-            ("🚨 Plan de Crisis", "🚨 Crisis Plan", "marketing", "Plan de Crisis"),
-        ],
-    },
-    "imagenes": {
-        "emoji": "🖼️", "color": "#F97316",
-        "nombre": ("Imágenes", "Images"),
-        "desc": ("Creativos premium y auditoría visual", "Premium creatives and visual audit"),
-        "subfunciones": [
-            ("🎨 Generador de Imágenes Premium", "🎨 Premium Image Generator", "marketing", "Generador de Imagenes"),
-            ("🎞 Auditoría Visual (Video/Foto)", "🎞 Visual Audit (Video/Photo)", "marketing", "Auditoría Visual (Video/Foto)"),
-        ],
-    },
-    "publicidad": {
-        "emoji": "📣", "color": "#7C3AED",
-        "nombre": ("Publicidad", "Advertising"),
-        "desc": ("Ads, segmentación, compliance y campañas", "Ads, targeting, compliance and campaigns"),
-        "subfunciones": [
-            ("🎯 Segmentación de Ads", "🎯 Ads Segmentation", "marketing", "Segmentación Ads"),
-            ("🛡 Compliance Checker", "🛡 Compliance Checker", "marketing", "Compliance Checker"),
-            ("🧪 Simulador de Campaña", "🧪 Campaign Simulator", "marketing", "Simulador de Campaña"),
-            ("🛍 Campaña por Catálogo", "🛍 Catalog Campaign", "marketing", "Campaña de Catálogo"),
-            ("🤝 Influencer Marketing", "🤝 Influencer Marketing", "power", "Influencer Marketing"),
-            ("📰 PR Digital", "📰 Digital PR", "power", "PR Digital"),
-        ],
-    },
-    "ventas": {
-        "emoji": "💰", "color": "#0D9488",
-        "nombre": ("Ventas", "Sales"),
-        "desc": ("Embudos, precios, ofertas y cierres", "Funnels, pricing, offers and closing"),
-        "subfunciones": [
-            ("🌀 Embudo de Ventas", "🌀 Sales Funnel", "marketing", "Embudo de Ventas"),
-            ("🧠 Psicólogo de Precios", "🧠 Price Psychology", "ventas", "Psicólogo de Precios"),
-            ("🥊 Mata-Objeciones", "🥊 Objection Buster", "ventas", "Mata-Objeciones"),
-            ("🏷 Calculadora de Descuentos", "🏷 Discount Calculator", "ventas", "Calculadora Descuentos"),
-            ("📄 Cotizaciones", "📄 Quotes", "admin", "Cotizaciones"),
-        ],
-    },
-    "competencia": {
-        "emoji": "🎯", "color": "#EC4899",
-        "nombre": ("Competencia", "Competitors"),
-        "desc": ("Espionaje, gaps y posicionamiento", "Spying, gaps and positioning"),
-        "subfunciones": [
-            ("🕵 Inteligencia Competitiva", "🕵 Competitive Intelligence", "marketing", "🕵 Inteligencia Competitiva"),
-            ("🔍 Auditoría SEO Completa", "🔍 Complete SEO Audit", "power", "Auditoría SEO Completa"),
-        ],
-    },
-    "gestion": {
-        "emoji": "📋", "color": "#8B5CF6",
-        "nombre": ("Gestión", "Management"),
-        "desc": ("CRM, contratos, marca e integraciones", "CRM, contracts, brand and integrations"),
-        "subfunciones": [
-            ("👥 CRM con IA", "👥 AI CRM", "crm", "crm"),
-            ("📜 Contratos", "📜 Contracts", "admin", "Contratos"),
-            ("📏 Reglas de Marca", "📏 Brand Rules", "admin", "Reglas de Marca"),
-            ("🔗 Integraciones (tiendas y GA)", "🔗 Integrations (stores & GA)", "admin", "Integraciones"),
-            ("💬 Gestión de Comunidad", "💬 Community Management", "power", "Gestión de Comunidad"),
-        ],
-    },
-    "metricas": {
-        "emoji": "📊", "color": "#D4A017",
-        "nombre": ("Métricas", "Metrics"),
-        "desc": ("KPIs, ROI, analítica y optimización", "KPIs, ROI, analytics and optimization"),
-        "subfunciones": [
-            ("📈 Analista ROI (CSV)", "📈 ROI Analyst (CSV)", "admin", "Analista ROI (CSV)"),
-            ("📊 Analizador de Métricas", "📊 Metrics Analyzer", "admin", "Analizador de Métricas"),
-            ("🎯 Tracker de KPIs", "🎯 KPI Tracker", "power", "Tracker de KPIs"),
-            ("🎯 Optimizador Landing CRO", "🎯 Landing Page Optimizer (CRO)", "power", "Optimizador Landing CRO"),
-        ],
-    },
-}
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -2720,47 +2685,10 @@ except Exception:
 
 # ══════════════════════════════════════════════════════════════════
 # FASE 2: SELECCIÓN AUTOMÁTICA DE AGENTES SEGÚN EL OBJETIVO
+# _TAREAS_GENERICAS, _MENSAJES_AGENTE y _seleccion_agentes_por_reglas se
+# importan de core.agents (ver arriba). Aquí queda solo la selección con IA,
+# que depende del motor de texto y de session_state.
 # ══════════════════════════════════════════════════════════════════
-_TAREAS_GENERICAS = {
-    "estrategia": "Analiza el negocio, el mercado y define la estrategia para el objetivo",
-    "contenido": "Crea el concepto, los mensajes y las piezas de contenido",
-    "imagenes": "Define la dirección de arte y los briefs visuales de la campaña",
-    "publicidad": "Diseña la campaña de ads con segmentación y presupuesto",
-    "ventas": "Crea la oferta, los CTA y las respuestas a objeciones",
-    "competencia": "Analiza a la competencia y define la diferenciación",
-    "gestion": "Define el plan de seguimiento de clientes y consistencia de marca",
-    "metricas": "Define los KPIs e indicadores de seguimiento del objetivo",
-}
-
-_MENSAJES_AGENTE = {
-    "estrategia": ("Analizando tu negocio, mercado y objetivo...", "Analyzing your business, market and goal..."),
-    "contenido": ("Creando concepto, mensajes y calendario...", "Creating concept, messages and calendar..."),
-    "imagenes": ("Generando propuestas visuales...", "Generating visual proposals..."),
-    "publicidad": ("Preparando campaña, segmentación y variaciones...", "Preparing campaign, targeting and variations..."),
-    "ventas": ("Creando oferta, CTA y respuestas a objeciones...", "Creating offer, CTAs and objection handling..."),
-    "competencia": ("Analizando a tu competencia y sus gaps...", "Analyzing your competitors and their gaps..."),
-    "gestion": ("Organizando seguimiento y gestión...", "Organizing follow-up and management..."),
-    "metricas": ("Preparando indicadores y plan de seguimiento...", "Preparing KPIs and tracking plan..."),
-}
-
-
-def _seleccion_agentes_por_reglas(objetivo):
-    """Respaldo por reglas internas si Gemini falla o devuelve JSON inválido."""
-    _o = (objetivo or "").lower()
-    if any(_k in _o for _k in ["imagen", "foto", "banner", "flyer", "visual", "logo", "creativo"]):
-        _ids = ["contenido", "imagenes"]
-    elif any(_k in _o for _k in ["analiza", "metric", "métric", "roi", "kpi", "resultado", "reporte"]):
-        _ids = ["metricas", "ventas", "estrategia"]
-    elif any(_k in _o for _k in ["venta", "precio", "cotiza", "oferta", "descuento", "cerrar"]):
-        _ids = ["estrategia", "ventas", "metricas"]
-    elif any(_k in _o for _k in ["lanzar", "lanzamiento", "nuevo producto", "abrir", "empezar negocio"]):
-        _ids = ["estrategia", "competencia", "contenido", "publicidad", "ventas", "metricas"]
-    else:
-        _ids = ["estrategia", "contenido", "publicidad", "ventas", "metricas"]
-    return {"objetivo_interpretado": (objetivo or "")[:200],
-            "agentes": [(_i, _TAREAS_GENERICAS[_i]) for _i in _ids]}
-
-
 def seleccionar_agentes_para_objetivo(objetivo_usuario, perfil_negocio=None):
     """FASE 2: Gemini analiza el objetivo y decide qué agentes activar.
     Devuelve {"objetivo_interpretado": str, "agentes": [(id, tarea), ...]} (máx 6).
@@ -2819,7 +2747,7 @@ def seleccionar_agentes_para_objetivo(objetivo_usuario, perfil_negocio=None):
                     "agentes": _ags[:6],
                 }
     except Exception:
-        pass
+        _ignorar_error()
     return _seleccion_agentes_por_reglas(objetivo_usuario)
 
 
@@ -2941,7 +2869,7 @@ def _cm_render_confirmacion(_en, _plan_u):
     st.caption(("💳 Costo: 8 créditos · ⏱ Tiempo aproximado: " if not _en else "💳 Cost: 8 credits · ⏱ Approx time: ")
                + f"{_n_ag_cm * 30}-{_n_ag_cm * 60} seg")
     # Aviso de imagen real + fuente si el agente Imágenes está en la selección
-    if "imagenes" in _ids_finales:
+    if IMAGENES_ACTIVAS and "imagenes" in _ids_finales:
         _img_ok_cm, _img_msg_cm = verificar_limite_imagenes()
         if _img_ok_cm:
             st.caption("🎨 " + ("El agente Imágenes generará 1 imagen real (usa 1 imagen de tu límite mensual, sin créditos extra)."
@@ -2992,8 +2920,8 @@ def _cm_render_confirmacion(_en, _plan_u):
         if not _ids_finales:
             st.warning("Selecciona al menos un agente." if not _en else "Select at least one agent.")
         elif _plan_u not in ("Pro", "Agency", "Admin"):
-            _mostrar_upgrade("🔒 " + ("El Centro de Mando coordinado está disponible desde el plan Pro ($39/mes):"
-                                      if not _en else "The coordinated Command Center is available from the Pro plan ($39/mo):"))
+            _mostrar_upgrade("🔒 " + ("El Centro de Mando coordinado está disponible desde el plan Pro:"
+                                      if not _en else "The coordinated Command Center is available from the Pro plan:"))
         elif verificar_creditos(COSTO_CREDITOS["autopiloto"]):
             st.session_state["cm_secuencia"] = [(_i2, _tareas_plan.get(_i2, _TAREAS_GENERICAS.get(_i2, ""))) for _i2 in _ids_finales]
             st.session_state["agent_states"] = {_i2: "waiting" for _i2 in _ids_finales}
@@ -3030,7 +2958,7 @@ def _cm_render_ejecucion(_en):
                         _pulpo_component(estados=_estados_cm, en=_en,
                                          key=f"pulpo_run_{_n_cm}", default=None)
                     except Exception:
-                        pass
+                        _ignorar_error()
             _prog_total.progress(_n_cm / _total_cm,
                                  text=(f"Paso {_n_cm + 1}/{_total_cm}" if not _en else f"Step {_n_cm + 1}/{_total_cm}"))
             st.write(f"{_agr.get('emoji', '🤖')} **{_nomr}** — {_msgr}")
@@ -3074,10 +3002,10 @@ def _cm_render_ejecucion(_en):
                         st.write("💾 " + ("Plan guardado en tu Plan de Contenido Semanal"
                                           if not _en else "Plan saved to your Weekly Content Plan"))
                     except Exception:
-                        pass
+                        _ignorar_error()
 
             # ── Imagen REAL del agente Imágenes (GPT Image 2) ─────────────────
-            if _aid_r == "imagenes" and _out_r:
+            if IMAGENES_ACTIVAS and _aid_r == "imagenes" and _out_r:
                 _img_ok_r, _img_msg_r = verificar_limite_imagenes()
                 if not _img_ok_r:
                     _out_r += "\n\n---\n🎨 " + _img_msg_r
@@ -3126,7 +3054,7 @@ def _cm_render_ejecucion(_en):
                     _pulpo_component(estados=_estados_cm, en=_en,
                                      key="pulpo_run_final", default=None)
                 except Exception:
-                    pass
+                    _ignorar_error()
         _prog_total.progress(1.0, text=("Completado" if not _en else "Completed"))
         _status_cm.update(label="✅ " + ("Equipo completado" if not _en else "Team finished"),
                           state="complete")
@@ -3183,7 +3111,7 @@ def _cm_render_done(_en):
                         st.image(_b64d, use_container_width=True,
                                  caption="🎨 Imagen de campaña" if not _en else "🎨 Campaign image")
                 except Exception:
-                    pass
+                    _ignorar_error()
             st.divider()
     if st.button("🆕 " + ("Nuevo trabajo" if not _en else "New task"), key="cm_btn_nuevo"):
         for _k4 in ("cm_fase", "cm_plan", "cm_secuencia", "cm_resultado", "cm_imagenes",
@@ -3208,7 +3136,7 @@ if _qp_agente:
     try:
         del st.query_params["agente"]  # solo este param; conservar "u" (email persistido)
     except Exception:
-        pass
+        _ignorar_error()
 
 _agente_activo = st.session_state.get("agente_activo")
 _plan_ui = st.session_state.get("plan", "Free")
@@ -3342,6 +3270,13 @@ if _es_home:
                 st.session_state.agente_activo = "admin_dashboard"
                 st.rerun()
 
+    # Acceso al Gemelo Digital (módulo nuevo)
+    if st.button("🔮 " + ("Gemelo Digital — simula tus ventas" if not _is_en_ui
+                          else "Digital Twin — simulate your sales"),
+                 key="btn_home_gemelo", use_container_width=True):
+        st.session_state.agente_activo = "gemelo"
+        st.rerun()
+
     # ── Modo Herramientas / fallback: tarjetas por agente ────────────────────
     if st.session_state.get("modo_herramientas") or not _pulpo_ok:
         st.divider()
@@ -3365,7 +3300,7 @@ if _es_home:
                         st.rerun()
                     st.caption(_ag_desc)
 
-elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto"):
+elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto", "gemelo"):
     if st.button("← " + ("Volver a mis agentes" if not _is_en_ui else "Back to my agents"),
                  key="btn_volver_especial"):
         st.session_state.agente_activo = None
@@ -3500,7 +3435,7 @@ if _sec_activa == "inicio" and _opcion_activa == "auditoria":
                     if len(_numeros_am) >= 4:
                         break
                 except Exception:
-                    pass
+                    _ignorar_error()
 
             if len(_numeros_am) >= 4:
                 _s1, _s2, _s3, _s4 = [min(int(n), 100) for n in _numeros_am[:4]]
@@ -3571,6 +3506,9 @@ Entrega la auditoría completa en este formato:
         _c2.metric("🛍 Demanda", f"{_s2}%")
         _c3.metric("⚔ Competencia", f"{_s3}%")
         _c4.metric("🏆 Éxito Global", f"{_s4}/100")
+        st.caption("ℹ️ Estimación de la IA según tu nicho y país — no es un dato medido."
+                   if st.session_state.get("lang") != "en" else
+                   "ℹ️ AI estimate based on your niche and country — not a measured figure.")
 
     if st.session_state.get("_ed_auditoria_maestra"):
         st.markdown(st.session_state["_ed_auditoria_maestra"])
@@ -3899,7 +3837,6 @@ if _sec_activa == "inicio" and _opcion_activa == "plan_semanal":
             _panel_edicion(plan_guardado["contenido"], "plan_guardado", max_tokens=6000)
             if st.button(t("btn_regenerar_plan")):
                 if verificar_creditos(1):
-                    consumir(1)
                     with st.spinner("Regenerando estrategia semanal..."):
                         nicho_plan = st.session_state.get("nicho_guardado", "")
                         cliente_plan = st.session_state.get("cliente_ideal_guardado", "")
@@ -3936,11 +3873,13 @@ TikTok: [mejor día y hora]
 Facebook: [mejor día y hora]
 WhatsApp: [mejor día y hora]"""
                         nuevo_resultado = generar_texto(_prompt_plan_regen, max_out=6000)
-                        guardar_plan_semanal(email_tab, semana, nuevo_resultado)
-                        guardar_reporte(email_tab, "plan_semanal", f"Plan semanal regenerado {semana}", nuevo_resultado)
-                        st.success("🔁 Nuevo plan generado")
-                        st.session_state["_ed_plan_regen"] = nuevo_resultado
-                        st.session_state["_ed_prompt_plan_regen"] = _prompt_plan_regen
+                        if nuevo_resultado:
+                            consumir(1)   # cobra SOLO si se generó (antes cobraba aunque fallara)
+                            guardar_plan_semanal(email_tab, semana, nuevo_resultado)
+                            guardar_reporte(email_tab, "plan_semanal", f"Plan semanal regenerado {semana}", nuevo_resultado)
+                            st.success("🔁 Nuevo plan generado")
+                            st.session_state["_ed_plan_regen"] = nuevo_resultado
+                            st.session_state["_ed_prompt_plan_regen"] = _prompt_plan_regen
             if st.session_state.get("_ed_plan_regen"):
                 st.markdown(st.session_state["_ed_plan_regen"])
                 _panel_edicion(st.session_state["_ed_plan_regen"], "plan_regen", max_tokens=6000)
@@ -4010,6 +3949,15 @@ if _sec_activa == "calendario":
                 tendencias_txt = "\n".join([f"- {t}" for t in trends["daily"]]) if trends["daily"] else "- (No disponible hoy)"
                 related_top_txt = "\n".join([f"- {t}" for t in trends["related_top"]]) if trends["related_top"] else "- (No disponible)"
                 tendencias_youtube_txt = obtener_trending_youtube(pais)
+                # Fallback claro: si Google Trends y YouTube no respondieron, avisar
+                _trends_vacio = (not trends["daily"]) and (not trends["related_top"])
+                _yt_vacio = (not tendencias_youtube_txt) or str(tendencias_youtube_txt).startswith("⚠")
+                if _trends_vacio and _yt_vacio:
+                    st.warning("⚠ Google Trends/YouTube no están disponibles ahora (se bloquean seguido en la nube). "
+                               "Armo el plan con tu perfil de negocio; vuelve a intentar más tarde para incluir tendencias en vivo."
+                               if st.session_state.get("lang") != "en" else
+                               "⚠ Google Trends/YouTube aren't available right now (they get blocked often in the cloud). "
+                               "I'll build the plan from your business profile; try again later to include live trends.")
                 prompt = f"""
 Actúa como estratega de contenidos senior.
 País: {pais}. Fecha: {trends['fecha']}.
@@ -4036,8 +3984,9 @@ FORMATO: Tabla Markdown profesional y detallada.
 TONO: Experto, accionable y adaptado a la moneda {PAISES_MONEDA.get(pais, '$')}.
 """
                 texto = generar_texto(prompt, max_out=8000)
-                st.markdown(texto)
-                consumir(costo=costo)
+                if texto:
+                    st.markdown(texto)
+                    consumir(costo=costo)   # cobra solo si se generó
 
 # --- SECCIÓN: HERRAMIENTAS DE MARKETING (varios agentes) ---
 if _sec_activa == "marketing":
@@ -4516,6 +4465,11 @@ Completa todas las secciones. No cortes el texto a la mitad."""
 
     elif opcion_mkt == "SEO y Palabras Clave":
         st.write("Genera palabras clave, meta tags y copies para Google Ads optimizados para tu negocio.")
+        st.caption("ℹ️ El volumen y la dificultad son **sugerencias de la IA**, no datos medidos de búsqueda. "
+                   "Para volumen real usa Google Keyword Planner."
+                   if st.session_state.get("lang") != "en" else
+                   "ℹ️ Volume and difficulty are **AI suggestions**, not measured search data. "
+                   "For real volume use Google Keyword Planner.")
         producto_seo = st.text_input("¿Qué producto o servicio quieres posicionar?", placeholder="Ej: clases de yoga online para mujeres")
         if producto_seo and st.button("Generar SEO Completo (2 Créditos)"):
             if verificar_creditos(2):
@@ -4963,19 +4917,12 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
                     sh_key = st.text_input("Access Token:", type="password", key="cat_sh_key_add")
                     if sh_url and sh_key and st.button("Conectar Shopify", key="cat_sh_connect_add"):
                         with st.spinner("Cargando desde Shopify..."):
-                            try:
-                                base = ("https://" + sh_url.rstrip("/")) if not sh_url.startswith("http") else sh_url.rstrip("/")
-                                r = requests.get(f"{base}/admin/api/2024-01/products.json?limit=100",
-                                                 headers={"X-Shopify-Access-Token": sh_key}, timeout=15)
-                                if r.status_code == 200:
-                                    prods_sh = r.json().get("products", [])
-                                    lineas_sh = [f"{p.get('title','')} - {moneda_cat}{p.get('variants',[{}])[0].get('price','')}" for p in prods_sh]
-                                    st.session_state["cat_prods_temp"] = lineas_sh
-                                    st.success(f"{len(lineas_sh)} productos cargados.")
-                                else:
-                                    st.error(f"Error {r.status_code}: {r.text[:200]}")
-                            except Exception as ex:
-                                st.error(f"Error: {ex}")
+                            lineas_sh, _err_sh = _stores.fetch_shopify_products(sh_url, sh_key, moneda_cat)
+                            if _err_sh:
+                                st.error(_err_sh)
+                            else:
+                                st.session_state["cat_prods_temp"] = lineas_sh
+                                st.success(f"{len(lineas_sh)} productos cargados.")
                     if st.session_state.get("cat_prods_temp"):
                         sel_sh = st.multiselect("Selecciona los que quieres guardar:", st.session_state["cat_prods_temp"], key="cat_sh_sel_add")
                         if sel_sh and st.button("💾 Guardar seleccionados", key="cat_sh_save_add"):
@@ -4991,18 +4938,12 @@ Sé concreto, directo y accionable. Basa todo en patrones reales del mercado de 
                     woo_cs = st.text_input("Consumer Secret:", type="password", key="cat_woo_cs_add")
                     if woo_url and woo_ck and woo_cs and st.button("Conectar WooCommerce", key="cat_woo_connect_add"):
                         with st.spinner("Cargando desde WooCommerce..."):
-                            try:
-                                base_woo = ("https://" + woo_url.rstrip("/")) if not woo_url.startswith("http") else woo_url.rstrip("/")
-                                r_woo = requests.get(f"{base_woo}/wp-json/wc/v3/products",
-                                                     params={"per_page": 100}, auth=(woo_ck, woo_cs), timeout=15)
-                                if r_woo.status_code == 200:
-                                    lineas_woo = [f"{p.get('name','')} - {moneda_cat}{p.get('price','')}" for p in r_woo.json()]
-                                    st.session_state["cat_prods_temp"] = lineas_woo
-                                    st.success(f"{len(lineas_woo)} productos cargados.")
-                                else:
-                                    st.error(f"Error {r_woo.status_code}: {r_woo.text[:200]}")
-                            except Exception as ex:
-                                st.error(f"Error: {ex}")
+                            lineas_woo, _err_woo = _stores.fetch_woocommerce_products(woo_url, woo_ck, woo_cs, moneda_cat)
+                            if _err_woo:
+                                st.error(_err_woo)
+                            else:
+                                st.session_state["cat_prods_temp"] = lineas_woo
+                                st.success(f"{len(lineas_woo)} productos cargados.")
                     if st.session_state.get("cat_prods_temp"):
                         sel_woo = st.multiselect("Selecciona los que quieres guardar:", st.session_state["cat_prods_temp"], key="cat_woo_sel_add")
                         if sel_woo and st.button("💾 Guardar seleccionados", key="cat_woo_save_add"):
@@ -5150,7 +5091,7 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 _panel_edicion(st.session_state["_ed_cat_camp"], "cat_camp", max_tokens=4000)
                 # ── Puente: crear banner real con la imagen de un producto ─────
                 _prods_img_pc = [_p for _p in catalogo_db if (_p.get("imagen_url") or "").strip()]
-                if _prods_img_pc:
+                if IMAGENES_ACTIVAS and _prods_img_pc:
                     st.divider()
                     _is_en_pc = st.session_state.get("lang") == "en"
                     st.markdown("🎨 " + ("**¿Quieres el banner real de un producto de esta campaña?**"
@@ -5237,19 +5178,12 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 sh_key_n = st.text_input("Access Token:", type="password", key="cat_sh_key_n")
                 if sh_url_n and sh_key_n and st.button("Cargar desde Shopify", key="cat_sh_btn_n"):
                     with st.spinner("Conectando con Shopify..."):
-                        try:
-                            base = ("https://" + sh_url_n.rstrip("/")) if not sh_url_n.startswith("http") else sh_url_n.rstrip("/")
-                            r = requests.get(f"{base}/admin/api/2024-01/products.json?limit=100",
-                                             headers={"X-Shopify-Access-Token": sh_key_n}, timeout=15)
-                            if r.status_code == 200:
-                                prods_sh_n = r.json().get("products", [])
-                                lineas_sh_n = [f"{p.get('title','')} - {moneda_cat}{p.get('variants',[{}])[0].get('price','')}" for p in prods_sh_n]
-                                st.session_state["cat_prods_temp"] = lineas_sh_n
-                                st.success(f"{len(lineas_sh_n)} productos cargados.")
-                            else:
-                                st.error(f"Error {r.status_code}: {r.text[:200]}")
-                        except Exception as ex:
-                            st.error(f"Error: {ex}")
+                        lineas_sh_n, _err_sh_n = _stores.fetch_shopify_products(sh_url_n, sh_key_n, moneda_cat)
+                        if _err_sh_n:
+                            st.error(_err_sh_n)
+                        else:
+                            st.session_state["cat_prods_temp"] = lineas_sh_n
+                            st.success(f"{len(lineas_sh_n)} productos cargados.")
                 if st.session_state.get("cat_prods_temp"):
                     sel_sh_n = st.multiselect("Selecciona los que quieres guardar:", st.session_state["cat_prods_temp"],
                                                default=st.session_state["cat_prods_temp"][:20], key="cat_sh_sel_n")
@@ -5265,18 +5199,12 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                 woo_cs_n = st.text_input("Consumer Secret:", type="password", key="cat_woo_cs_n")
                 if woo_url_n and woo_ck_n and woo_cs_n and st.button("Cargar desde WooCommerce", key="cat_woo_btn_n"):
                     with st.spinner("Conectando con WooCommerce..."):
-                        try:
-                            base_woo_n = ("https://" + woo_url_n.rstrip("/")) if not woo_url_n.startswith("http") else woo_url_n.rstrip("/")
-                            r_woo_n = requests.get(f"{base_woo_n}/wp-json/wc/v3/products",
-                                                   params={"per_page": 100}, auth=(woo_ck_n, woo_cs_n), timeout=15)
-                            if r_woo_n.status_code == 200:
-                                lineas_woo_n = [f"{p.get('name','')} - {moneda_cat}{p.get('price','')}" for p in r_woo_n.json()]
-                                st.session_state["cat_prods_temp"] = lineas_woo_n
-                                st.success(f"{len(lineas_woo_n)} productos cargados.")
-                            else:
-                                st.error(f"Error {r_woo_n.status_code}: {r_woo_n.text[:200]}")
-                        except Exception as ex:
-                            st.error(f"Error: {ex}")
+                        lineas_woo_n, _err_woo_n = _stores.fetch_woocommerce_products(woo_url_n, woo_ck_n, woo_cs_n, moneda_cat)
+                        if _err_woo_n:
+                            st.error(_err_woo_n)
+                        else:
+                            st.session_state["cat_prods_temp"] = lineas_woo_n
+                            st.success(f"{len(lineas_woo_n)} productos cargados.")
                 if st.session_state.get("cat_prods_temp"):
                     sel_woo_n = st.multiselect("Selecciona los que quieres guardar:", st.session_state["cat_prods_temp"],
                                                 default=st.session_state["cat_prods_temp"][:20], key="cat_woo_sel_n")
@@ -5319,6 +5247,11 @@ Completa todas las secciones. No cortes el texto a la mitad."""
                         st.rerun()
 
     elif opcion_mkt == "Generador de Imagenes":
+        if not IMAGENES_ACTIVAS:
+            st.info("🎨 La generación de imágenes está desactivada por ahora."
+                    if st.session_state.get("lang") != "en"
+                    else "🎨 Image generation is turned off for now.")
+            st.stop()
         st.subheader("🎨 Generador de Imágenes Profesional")
         st.caption("Crea 3 variaciones fotográficas de alta calidad — texto incluido en la imagen")
 
@@ -5627,6 +5560,12 @@ Quality: Award-winning commercial photography, Sony A7R IV quality, high convers
     # ── SIMULADOR DE CAMPAÑA ──────────────────────────────────────────────────
     elif opcion_mkt == "Simulador de Campaña":
         _is_en_sim = st.session_state.get("lang") == "en"
+
+        # Función retirada: el Gemelo Digital la reemplaza (mejor y con datos reales).
+        st.info("🔮 " + ("El Simulador se movió al **Gemelo Digital** (en el inicio), que simula mejor y con tus datos reales."
+                         if not _is_en_sim else
+                         "The Simulator moved to the **Digital Twin** (on the home), which simulates better and with your real data."))
+        st.stop()
 
         if _is_en_sim:
             st.subheader("🧪 Campaign Simulator")
@@ -6003,7 +5942,14 @@ Sé muy específico con los números que ves en la imagen."""
         _is_en_int = st.session_state.get("lang") == "en"
         _email_int = (st.session_state.get("user_email") or "").strip().lower()
 
-        if not _email_int:
+        if not plan_permite("integraciones"):
+            st.markdown("### 🔗 " + ("Integraciones" if not _is_en_int else "Integrations"))
+            _mostrar_upgrade("🔒 " + ("Conectar Google Analytics y tu tienda está disponible desde el plan Pro. "
+                                      "Así Tentakl lee tus datos reales por ti:"
+                                      if not _is_en_int else
+                                      "Connecting Google Analytics and your store is available from the Pro plan. "
+                                      "So Tentakl reads your real data for you:"))
+        elif not _email_int:
             st.warning("Ingresa tu email para usar integraciones." if not _is_en_int else "Enter your email to use integrations.")
         else:
             # ── SECCIÓN 1 — Estado Google Analytics ─────────────────────────────
@@ -6023,7 +5969,7 @@ Sé muy específico con los números que ves en la imagen."""
                         _ga_conectado = True
                         _ga_record = _r.data[0]
                 except Exception:
-                    pass
+                    _ignorar_error()
 
             if _ga_conectado:
                 st.success("✅ Google Analytics conectado" if not _is_en_int else "✅ Google Analytics connected")
@@ -6054,122 +6000,113 @@ Sé muy específico con los números que ves en la imagen."""
 
                 if _btn_analizar:
                     if verificar_creditos(2):
-                        # ── Try real GA API ─────────────────────────────────────────
-                        _ga_data = None
-                        _usando_demo = False
-                        try:
-                            _url_ga = f"https://analyticsdata.googleapis.com/v1beta/properties/{_ga_pid}:runReport"
-                            _headers_ga = {"X-goog-api-key": _ga_key, "Content-Type": "application/json"}
-                            _body_ga = {
-                                "dateRanges": [{"startDate": _periodo_val, "endDate": "today"}],
-                                "metrics": [
-                                    {"name": "sessions"}, {"name": "activeUsers"},
-                                    {"name": "bounceRate"}, {"name": "averageSessionDuration"},
-                                    {"name": "screenPageViewsPerSession"}, {"name": "newUsers"}
-                                ],
-                                "dimensions": [{"name": "sessionDefaultChannelGroup"}]
-                            }
-                            _resp_ga = requests.post(_url_ga, json=_body_ga, headers=_headers_ga, timeout=15)
-                            if _resp_ga.status_code == 200:
-                                _raw = _resp_ga.json()
-                                _totals = {}
-                                _channels = {}
-                                for _row in _raw.get("rows", []):
-                                    _ch = _row["dimensionValues"][0]["value"]
-                                    _vals = [v["value"] for v in _row["metricValues"]]
-                                    _channels[_ch] = int(float(_vals[0]))
-                                    for _i, _mk in enumerate(["sessions","activeUsers","bounceRate","avgDuration","pagesPerSession","newUsers"]):
-                                        _totals[_mk] = _totals.get(_mk, 0) + float(_vals[_i])
-                                _ga_data = {
-                                    "sessions": int(_totals.get("sessions", 0)),
-                                    "activeUsers": int(_totals.get("activeUsers", 0)),
-                                    "newUsers": int(_totals.get("newUsers", 0)),
-                                    "bounceRate": round(_totals.get("bounceRate", 0) / max(len(_raw.get("rows", [])), 1), 1),
-                                    "avgDuration": int(_totals.get("avgDuration", 0) / max(len(_raw.get("rows", [])), 1)),
-                                    "pagesPerSession": round(_totals.get("pagesPerSession", 0) / max(len(_raw.get("rows", [])), 1), 1),
-                                    "channels": _channels,
-                                }
+                        # Datos REALES de GA4 vía OAuth. Nunca datos inventados:
+                        # si algo falla, mostramos el error y no cobramos.
+                        _ga_bundle = _ganalytics.parsear_token_guardado(_ga_record.get("access_token", ""))
+                        if _ga_bundle.get("api_key_legacy"):
+                            st.error("Esta conexión usa el método viejo (API Key), que no sirve para el Data API de GA4. Desconecta y vuelve a conectar con el botón de Google."
+                                     if not _is_en_int else
+                                     "This connection uses the old API Key method, which doesn't work for the GA4 Data API. Disconnect and reconnect with the Google button.")
+                        else:
+                            _ga_tok, _ga_bundle2, _ga_tok_err = _ganalytics.access_token_valido(st.secrets, _ga_bundle)
+                            if _ga_tok_err or not _ga_tok:
+                                st.error(("No se pudo autenticar con Google: " if not _is_en_int else "Could not authenticate with Google: ") + str(_ga_tok_err or ""))
                             else:
-                                _usando_demo = True
-                        except Exception:
-                            _usando_demo = True
+                                # Persiste el token renovado si cambió
+                                if supabase and _ga_bundle2 and _ga_bundle2 != _ga_bundle:
+                                    try:
+                                        supabase.table("integraciones").update(
+                                            {"access_token": _ganalytics.serializar_bundle(_ga_bundle2)}
+                                        ).eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
+                                    except Exception:
+                                        _ignorar_error()
+                                with st.spinner("Trayendo tus datos reales de GA4..." if not _is_en_int else "Fetching your real GA4 data..."):
+                                    _ga_data, _ga_err = _ganalytics.fetch_ga4_report(_ga_pid, _ga_tok, _periodo_val)
+                                if _ga_err:
+                                    st.error(("GA4: " if not _is_en_int else "GA4: ") + _ga_err)
+                                else:
+                                    st.session_state["ga_data"] = _ga_data
+                                    consumir(2)
 
-                        if _usando_demo or _ga_data is None:
-                            st.warning("⚠ Mostrando datos de ejemplo. Configura tu API key para ver datos reales." if not _is_en_int else "⚠ Showing sample data. Configure your API key to see real data.")
-                            _ga_data = {
-                                "sessions": 1250, "activeUsers": 890, "newUsers": 340,
-                                "bounceRate": 68.5, "avgDuration": 125, "pagesPerSession": 2.3,
-                                "channels": {"Organic Search": 35, "Direct": 28, "Social": 22, "Referral": 15}
-                            }
-
-                        st.session_state["ga_data"] = _ga_data
-                        consumir(2)
-
-                # Show metrics if available
+                # Dashboard de datos REALES (tal cual GA4)
                 _gd = st.session_state.get("ga_data")
-                if _gd:
+                if _gd and _gd.get("totales"):
+                    _tt = _gd["totales"]
                     st.markdown("---")
-                    st.markdown("#### 📊 Métricas" if not _is_en_int else "#### 📊 Metrics")
-                    _gc1, _gc2, _gc3 = st.columns(3)
-                    _gc1.metric("Sesiones" if not _is_en_int else "Sessions", f"{_gd['sessions']:,}")
-                    _gc2.metric("Usuarios activos" if not _is_en_int else "Active users", f"{_gd['activeUsers']:,}")
-                    _gc3.metric("Usuarios nuevos" if not _is_en_int else "New users", f"{_gd['newUsers']:,}")
-                    _gc4, _gc5, _gc6 = st.columns(3)
-                    _gc4.metric("Tasa de rebote" if not _is_en_int else "Bounce rate",
-                                f"{_gd['bounceRate']}%",
-                                delta="-5%" if _gd['bounceRate'] < 70 else "+5%",
-                                delta_color="normal" if _gd['bounceRate'] < 70 else "inverse")
-                    _dur_m = _gd['avgDuration'] // 60
-                    _dur_s = _gd['avgDuration'] % 60
-                    _gc5.metric("Duración prom." if not _is_en_int else "Avg. duration", f"{_dur_m}m {_dur_s}s")
-                    _gc6.metric("Páginas/sesión" if not _is_en_int else "Pages/session", f"{_gd['pagesPerSession']}")
+                    st.markdown("#### 📊 Resumen" if not _is_en_int else "#### 📊 Overview")
+                    _gc1, _gc2, _gc3, _gc4 = st.columns(4)
+                    _gc1.metric("Sesiones" if not _is_en_int else "Sessions", f"{_tt['sessions']:,}")
+                    _gc2.metric("Usuarios activos" if not _is_en_int else "Active users", f"{_tt['activeUsers']:,}")
+                    _gc3.metric("Usuarios nuevos" if not _is_en_int else "New users", f"{_tt['newUsers']:,}")
+                    _gc4.metric("Vistas de página" if not _is_en_int else "Page views", f"{_tt['pageViews']:,}")
+                    _gc5, _gc6, _gc7, _gc8 = st.columns(4)
+                    _gc5.metric("Tasa de rebote" if not _is_en_int else "Bounce rate", f"{_tt['bounceRate']}%")
+                    _dur_m = _tt['avgDuration'] // 60
+                    _dur_s = _tt['avgDuration'] % 60
+                    _gc6.metric("Duración prom." if not _is_en_int else "Avg. duration", f"{_dur_m}m {_dur_s}s")
+                    _gc7.metric("Páginas/sesión" if not _is_en_int else "Pages/session", f"{_tt['pagesPerSession']}")
+                    _gc8.metric("Engagement" if not _is_en_int else "Engagement", f"{_tt['engagementRate']}%")
 
-                    # Pie chart de canales
-                    if _gd.get("channels"):
-                        try:
-                            import plotly.express as px
-                            _df_ch = {"Canal": list(_gd["channels"].keys()), "Sesiones": list(_gd["channels"].values())}
-                            _fig = px.pie(
-                                _df_ch, values="Sesiones", names="Canal",
-                                title="Fuentes de tráfico" if not _is_en_int else "Traffic sources",
-                                color_discrete_sequence=px.colors.qualitative.Set2
-                            )
-                            _fig.update_layout(height=320)
-                            st.plotly_chart(_fig, use_container_width=True)
-                        except ImportError:
-                            st.write(_gd["channels"])
+                    try:
+                        import plotly.express as px
+                        import pandas as _pd
+                        if _gd.get("serie"):
+                            _dfs = _pd.DataFrame(_gd["serie"])
+                            _dfs["fecha"] = _pd.to_datetime(_dfs["fecha"], format="%Y%m%d", errors="coerce")
+                            _figs = px.line(_dfs, x="fecha", y=["sesiones", "usuarios"],
+                                            title="Tendencia diaria" if not _is_en_int else "Daily trend")
+                            _figs.update_layout(height=300, legend_title_text="")
+                            st.plotly_chart(_figs, use_container_width=True)
+                        _cca, _ccb = st.columns(2)
+                        with _cca:
+                            if _gd.get("canales"):
+                                _figc = px.pie(names=list(_gd["canales"].keys()), values=list(_gd["canales"].values()),
+                                               title="Fuentes de tráfico" if not _is_en_int else "Traffic sources",
+                                               color_discrete_sequence=px.colors.qualitative.Set2)
+                                _figc.update_layout(height=320)
+                                st.plotly_chart(_figc, use_container_width=True)
+                        with _ccb:
+                            if _gd.get("dispositivos"):
+                                _figd = px.bar(x=list(_gd["dispositivos"].keys()), y=list(_gd["dispositivos"].values()),
+                                               title="Dispositivos" if not _is_en_int else "Devices",
+                                               labels={"x": "", "y": "Sesiones" if not _is_en_int else "Sessions"})
+                                _figd.update_layout(height=320)
+                                st.plotly_chart(_figd, use_container_width=True)
+                    except Exception:
+                        st.write({"canales": _gd.get("canales"), "dispositivos": _gd.get("dispositivos")})
 
-                    # Gemini analysis
+                    _ccp, _ccq = st.columns(2)
+                    with _ccp:
+                        st.markdown("**📄 Páginas top**" if not _is_en_int else "**📄 Top pages**")
+                        if _gd.get("paginas"):
+                            st.dataframe(_gd["paginas"], use_container_width=True, hide_index=True)
+                    with _ccq:
+                        st.markdown("**🌍 Países**" if not _is_en_int else "**🌍 Countries**")
+                        if _gd.get("paises"):
+                            st.dataframe([{"país": _k, "sesiones": _v} for _k, _v in _gd["paises"].items()],
+                                         use_container_width=True, hide_index=True)
+
+                    # Análisis con IA (sobre los datos reales)
                     if st.button("🧠 Analizar con IA" if not _is_en_int else "🧠 AI Analysis", key="ga_ia_btn"):
-                        _nicho_ga  = st.session_state.get("nicho_guardado", "")
-                        _pais_ga   = st.session_state.get("pais_guardado", "")
+                        _nicho_ga = st.session_state.get("nicho_guardado", "")
+                        _pais_ga = st.session_state.get("pais_guardado", "")
                         _prompt_ga = (
                             f"Eres un analista web experto en marketing digital.\n\n"
-                            f"Analiza estas métricas del sitio web:\n"
-                            f"- Sesiones: {_gd['sessions']}\n"
-                            f"- Usuarios activos: {_gd['activeUsers']}\n"
-                            f"- Usuarios nuevos: {_gd['newUsers']}\n"
-                            f"- Tasa de rebote: {_gd['bounceRate']}%\n"
-                            f"- Duración promedio: {_gd['avgDuration']} segundos\n"
-                            f"- Páginas por sesión: {_gd['pagesPerSession']}\n"
-                            f"- Fuentes de tráfico: {_gd['channels']}\n"
-                            f"- Período: {_sel_periodo}\n"
+                            f"Analiza estas métricas REALES del sitio web (período {_sel_periodo}):\n"
+                            f"- Sesiones: {_tt['sessions']} | Usuarios activos: {_tt['activeUsers']} | Nuevos: {_tt['newUsers']}\n"
+                            f"- Vistas: {_tt['pageViews']} | Rebote: {_tt['bounceRate']}% | Engagement: {_tt['engagementRate']}%\n"
+                            f"- Duración prom.: {_tt['avgDuration']}s | Páginas/sesión: {_tt['pagesPerSession']}\n"
+                            f"- Fuentes de tráfico: {_gd.get('canales')}\n"
+                            f"- Páginas top: {_gd.get('paginas')}\n"
+                            f"- Países: {_gd.get('paises')} | Dispositivos: {_gd.get('dispositivos')}\n"
                             f"- Nicho: {_nicho_ga} en {_pais_ga}\n\n"
                             f"Dame EXACTAMENTE esto sin introducciones:\n\n"
-                            f"## 📊 DIAGNÓSTICO GENERAL\n"
-                            f"[Qué está bien y qué está mal comparado con benchmarks del sector {_nicho_ga}]\n\n"
-                            f"## 🔴 PROBLEMA PRINCIPAL\n"
-                            f"[El problema más urgente con su causa exacta]\n\n"
-                            f"## ✅ SOLUCIÓN CONCRETA\n"
-                            f"[Pasos específicos numerados para arreglarlo]\n\n"
-                            f"## 📈 OPORTUNIDAD DETECTADA\n"
-                            f"[La mayor oportunidad de crecimiento basada en los datos]\n\n"
-                            f"## 🎯 3 ACCIONES PARA ESTA SEMANA\n"
-                            f"1. [acción específica]\n"
-                            f"2. [acción específica]\n"
-                            f"3. [acción específica]\n\n"
-                            f"## 📉 MÉTRICA A MEJORAR PRIMERO\n"
-                            f"[Una sola métrica con objetivo numérico]"
+                            f"## 📊 DIAGNÓSTICO GENERAL\n[Qué está bien y mal vs benchmarks del sector {_nicho_ga}]\n\n"
+                            f"## 🔴 PROBLEMA PRINCIPAL\n[El problema más urgente con su causa exacta]\n\n"
+                            f"## ✅ SOLUCIÓN CONCRETA\n[Pasos numerados para arreglarlo]\n\n"
+                            f"## 📈 OPORTUNIDAD DETECTADA\n[La mayor oportunidad según los datos]\n\n"
+                            f"## 🎯 3 ACCIONES PARA ESTA SEMANA\n1. [acción]\n2. [acción]\n3. [acción]\n\n"
+                            f"## 📉 MÉTRICA A MEJORAR PRIMERO\n[Una sola métrica con objetivo numérico]"
                         )
                         _res_ga = generar_analitico(_prompt_ga, max_tokens=4000)
                         st.session_state["ga_ia_result"] = _res_ga
@@ -6187,59 +6124,111 @@ Sé muy específico con los números que ves en la imagen."""
                             st.success("✅ Guardado en Mis Reportes.")
 
             else:
-                # NOT CONNECTED — show instructions + form
-                st.info(
-                    "📊 **Conecta Google Analytics** para que Tentakl analice el tráfico de tu web:\n\n"
-                    "**Paso 1:** Ve a analytics.google.com\n"
-                    "**Paso 2:** Admin → Configuración de propiedad\n"
-                    "**Paso 3:** Copia tu ID de propiedad (G-XXXXXXXX)\n"
-                    "**Paso 4:** Ve a console.cloud.google.com\n"
-                    "**Paso 5:** Crea un proyecto → Habilita **Google Analytics Data API**\n"
-                    "**Paso 6:** Crea credenciales → API Key\n"
-                    "**Paso 7:** Pega ambos datos abajo" if not _is_en_int else
-                    "📊 **Connect Google Analytics** so Tentakl can analyze your web traffic:\n\n"
-                    "**Step 1:** Go to analytics.google.com\n"
-                    "**Step 2:** Admin → Property settings\n"
-                    "**Step 3:** Copy your property ID (G-XXXXXXXX)\n"
-                    "**Step 4:** Go to console.cloud.google.com\n"
-                    "**Step 5:** Create project → Enable **Google Analytics Data API**\n"
-                    "**Step 6:** Create credentials → API Key\n"
-                    "**Step 7:** Paste both below"
-                )
+                # ¿Hay una conexión OAuth pendiente (token guardado, falta elegir propiedad)?
+                _ga_pend = {}
+                if supabase:
+                    try:
+                        _rp = supabase.table("integraciones").select("*") \
+                            .eq("user_email", _email_int).eq("tipo", "google_analytics") \
+                            .limit(1).execute()
+                        if _rp.data:
+                            _ga_pend = _rp.data[0]
+                    except Exception:
+                        _ignorar_error()
+                _ga_pend_bundle = _ganalytics.parsear_token_guardado(_ga_pend.get("access_token", "")) if _ga_pend else {}
+                _ga_tiene_oauth = bool(_ga_pend_bundle.get("refresh_token") or _ga_pend_bundle.get("access_token"))
 
-                _ga_pid_inp = st.text_input(
-                    "ID de propiedad de Google Analytics" if not _is_en_int else "Google Analytics property ID",
-                    placeholder="G-XXXXXXXXXX",
-                    value=st.session_state.get("ga_property_id", ""),
-                    key="ga_property_id"
-                )
-                _ga_key_inp = st.text_input(
-                    "API Key de Google" if not _is_en_int else "Google API Key",
-                    placeholder="AIzaSy...",
-                    type="password",
-                    key="ga_api_key"
-                )
-
-                if st.button("🔗 Conectar Google Analytics" if not _is_en_int else "🔗 Connect Google Analytics", key="ga_conectar"):
-                    if not _ga_pid_inp.strip():
-                        st.warning("Ingresa el ID de propiedad." if not _is_en_int else "Enter the property ID.")
-                    elif not _ga_key_inp.strip():
-                        st.warning("Ingresa la API Key." if not _is_en_int else "Enter the API Key.")
-                    elif supabase:
-                        try:
-                            supabase.table("integraciones").upsert({
-                                "user_email": _email_int,
-                                "tipo": "google_analytics",
-                                "account_id": _ga_pid_inp.strip(),
-                                "access_token": _ga_key_inp.strip(),
-                                "activo": True,
-                            }, on_conflict="user_email,tipo").execute()
-                            st.success("✅ Google Analytics conectado" if not _is_en_int else "✅ Google Analytics connected")
-                            st.rerun()
-                        except Exception as _e:
-                            st.error(f"Error: {_e}")
+                if _ga_pend and _ga_tiene_oauth and not _ga_pend_bundle.get("api_key_legacy"):
+                    # ── PASO 2 de OAuth: elegir la propiedad GA4 ──────────────────
+                    st.success("✅ Conectado con Google. Elige tu propiedad de Analytics:" if not _is_en_int
+                               else "✅ Connected with Google. Pick your Analytics property:")
+                    _ga_tok_p, _ga_bundle_p, _ga_err_p = _ganalytics.access_token_valido(st.secrets, _ga_pend_bundle)
+                    if _ga_err_p or not _ga_tok_p:
+                        st.error(("No se pudo autenticar: " if not _is_en_int else "Auth failed: ") + str(_ga_err_p or ""))
                     else:
-                        st.warning("Supabase no configurado.")
+                        if supabase and _ga_bundle_p != _ga_pend_bundle:
+                            try:
+                                supabase.table("integraciones").update(
+                                    {"access_token": _ganalytics.serializar_bundle(_ga_bundle_p)}
+                                ).eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
+                            except Exception:
+                                _ignorar_error()
+                        _props, _perr = _ganalytics.listar_propiedades(_ga_tok_p)
+                        if _perr:
+                            st.error(_perr)
+                        elif not _props:
+                            st.warning("No encontramos propiedades GA4 en tu cuenta de Google." if not _is_en_int
+                                       else "No GA4 properties found in your Google account.")
+                        else:
+                            _labels = [f"{_p['nombre']} ({_p['id']})" for _p in _props]
+                            _sel_prop = st.selectbox("Propiedad:" if not _is_en_int else "Property:", _labels, key="ga_prop_pick")
+                            _pid_sel = _props[_labels.index(_sel_prop)]["id"]
+                            if st.button("✅ Usar esta propiedad" if not _is_en_int else "✅ Use this property", key="ga_prop_ok"):
+                                try:
+                                    supabase.table("integraciones").update(
+                                        {"account_id": _pid_sel, "activo": True}
+                                    ).eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
+                                    st.success("✅ Conectado." if not _is_en_int else "✅ Connected.")
+                                    st.rerun()
+                                except Exception as _e:
+                                    st.error(str(_e))
+                    if st.button("🔌 Cancelar conexión" if not _is_en_int else "🔌 Cancel connection", key="ga_pend_cancel"):
+                        if supabase:
+                            try:
+                                supabase.table("integraciones").delete() \
+                                    .eq("user_email", _email_int).eq("tipo", "google_analytics").execute()
+                                st.rerun()
+                            except Exception:
+                                _ignorar_error()
+                else:
+                    # ── NO conectado: botón OAuth de un clic ──────────────────────
+                    st.info("📊 Conecta Google Analytics para que Tentakl lea el tráfico real de tu web y te dé reportes claros."
+                            if not _is_en_int else
+                            "📊 Connect Google Analytics so Tentakl reads your real web traffic and gives you clear reports.")
+                    if _ganalytics.oauth_configurado(st.secrets):
+                        _auth_url = _ganalytics.build_auth_url(st.secrets, state=f"tentaklga|{_email_int}")
+                        st.link_button("🔗 Conectar con Google" if not _is_en_int else "🔗 Connect with Google", _auth_url)
+                        st.caption("Inicia sesión con Google y autoriza el acceso de solo lectura. Luego vuelve aquí y pulsa Actualizar."
+                                   if not _is_en_int else
+                                   "Sign in with Google and grant read-only access. Then come back and press Refresh.")
+                        if st.button("🔄 Ya autoricé — actualizar" if not _is_en_int else "🔄 I authorized — refresh", key="ga_oauth_refresh"):
+                            st.rerun()
+                    else:
+                        st.warning("⚙ El acceso con Google (OAuth) aún no está configurado en esta instancia. "
+                                   "Falta agregar GOOGLE_OAUTH_CLIENT_ID / CLIENT_SECRET / REDIRECT_URI en los secrets."
+                                   if not _is_en_int else
+                                   "⚙ Google sign-in (OAuth) isn't configured yet. Add GOOGLE_OAUTH_CLIENT_ID / CLIENT_SECRET / REDIRECT_URI to secrets.")
+
+                    with st.expander("⚙ Opción avanzada (manual: ID numérico + access token)" if not _is_en_int
+                                     else "⚙ Advanced (manual: numeric ID + access token)"):
+                        st.caption("Solo para pruebas. El ID numérico de propiedad (no el G-XXXX) y un access token OAuth válido.")
+                        _ga_pid_inp = st.text_input(
+                            "ID numérico de propiedad GA4" if not _is_en_int else "GA4 numeric property ID",
+                            placeholder="123456789", key="ga_property_id")
+                        _ga_key_inp = st.text_input(
+                            "Access token OAuth" if not _is_en_int else "OAuth access token",
+                            type="password", key="ga_api_key")
+                        if st.button("🔗 Conectar (manual)" if not _is_en_int else "🔗 Connect (manual)", key="ga_conectar"):
+                            if not _ga_pid_inp.strip() or not _ga_key_inp.strip():
+                                st.warning("Completa ambos campos." if not _is_en_int else "Fill both fields.")
+                            elif supabase:
+                                try:
+                                    import time as _tmod
+                                    _manual_bundle = {"access_token": _ga_key_inp.strip(), "refresh_token": "",
+                                                      "expiry": _tmod.time() + 3600}
+                                    supabase.table("integraciones").upsert({
+                                        "user_email": _email_int,
+                                        "tipo": "google_analytics",
+                                        "account_id": _ga_pid_inp.strip(),
+                                        "access_token": _ganalytics.serializar_bundle(_manual_bundle),
+                                        "activo": True,
+                                    }, on_conflict="user_email,tipo").execute()
+                                    st.success("✅ Conectado (manual)." if not _is_en_int else "✅ Connected (manual).")
+                                    st.rerun()
+                                except Exception as _e:
+                                    st.error(f"Error: {_e}")
+                            else:
+                                st.warning("Supabase no configurado.")
 
             # ── SECCIÓN 2 — Conectar mi Tienda ──────────────────────────────
             st.markdown("---")
@@ -6872,7 +6861,7 @@ if _sec_activa == "power":
                             _kpi_df = _kpi_df[["semana", "ventas", "seguidores", "alcance", "clics", "leads"]].set_index("semana")
                             st.line_chart(_kpi_df)
                         except Exception:
-                            pass
+                            _ignorar_error()
 
                     _kpi_prefix = "Respond ONLY in English.\n\n" if _is_en_pw else ""
                     _kpi_ant = _kpi_hist[1] if len(_kpi_hist) > 1 else {}
@@ -6909,7 +6898,7 @@ if _sec_activa == "power":
                     _kpi_df2 = _kpi_df2[["semana", "ventas", "seguidores", "alcance", "clics", "leads"]].set_index("semana")
                     st.line_chart(_kpi_df2)
                 except Exception:
-                    pass
+                    _ignorar_error()
 
     # ── 8. OPTIMIZADOR LANDING CRO ────────────────────────────────────────────
     elif opcion_power == "Optimizador Landing CRO":
@@ -7000,9 +6989,9 @@ if _sec_activa == "autopiloto":
         st.warning("⚠ Ingresa tu email en el sidebar para acceder a esta sección."
                    if not _is_en_ap else "⚠ Enter your email in the sidebar to access this section.")
     elif _plan_ap not in ("Pro", "Agency", "Admin"):
-        _mostrar_upgrade("🔒 " + ("El Autopiloto está disponible desde el plan Pro ($39/mes). Deja que tu equipo completo trabaje por ti:"
+        _mostrar_upgrade("🔒 " + ("El Autopiloto está disponible desde el plan Pro. Deja que tu equipo completo trabaje por ti:"
                                   if not _is_en_ap else
-                                  "Autopilot is available from the Pro plan ($39/mo). Let your whole team work for you:"))
+                                  "Autopilot is available from the Pro plan. Let your whole team work for you:"))
     else:
         _usos_ap = db_get_autopiloto_usos(_email_ap, _mes_ap)
         st.caption(f"Corridas este mes: {_usos_ap}" if not _is_en_ap else f"Runs this month: {_usos_ap}")
@@ -7081,7 +7070,7 @@ def crm_update_estado(contacto_id, nuevo_estado):
         supabase.table("crm_contactos").update({"estado": nuevo_estado}) \
             .eq("id", contacto_id).execute()
     except Exception:
-        pass
+        _ignorar_error()
 
 def crm_get_interacciones(contacto_id):
     if not supabase:
@@ -7151,7 +7140,7 @@ def crm_completar_tarea(tarea_id):
         supabase.table("crm_tareas").update({"completada": True}) \
             .eq("id", tarea_id).execute()
     except Exception:
-        pass
+        _ignorar_error()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECCIÓN: CRM (agente Comercial)
@@ -7438,7 +7427,7 @@ if _sec_activa == "crm":
                         try:
                             _vencida = _date_crm.fromisoformat(str(_t_fecha)[:10]) < _hoy
                         except Exception:
-                            pass
+                            _ignorar_error()
 
                     _t_col1, _t_col2 = st.columns([1, 8])
                     with _t_col1:
@@ -7633,7 +7622,21 @@ if _sec_activa == "admin_dashboard":
                 if _cf_rows:
                     st.dataframe(pd.DataFrame(_cf_rows), use_container_width=True)
             except Exception:
-                pass
+                _ignorar_error()
+
+# ── SECCIÓN: GEMELO DIGITAL (módulo nuevo) ──────────────────────────────────
+if _sec_activa == "gemelo":
+    _gemelo_ui.render(
+        supabase=supabase,
+        generar_texto=generar_texto,
+        user_email=(st.session_state.get("user_email") or "").strip().lower(),
+        marca=st.session_state.get("marca_guardada", ""),
+        sector_nicho=st.session_state.get("nicho_guardado", ""),
+        moneda=get_contexto_pais(st.session_state.get("pais_guardado", ""))["moneda"],
+        lang=st.session_state.get("lang", "es"),
+        log=_ignorar_error,
+        historial_activo=plan_permite("gemelo_historial"),   # el "completo" (Pro+)
+    )
 
 st.markdown("---")
 # ✅ FIX: alcance leído desde session_state para el footer (nunca da NameError)
