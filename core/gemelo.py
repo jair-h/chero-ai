@@ -41,6 +41,28 @@ BENCHMARKS_SECTOR = {
 }
 SECTOR_DEFAULT = "ecommerce_general"
 
+# ── Multiplicador de CAMPAÑA para arranque en frío (sin campañas propias) ────
+# Cuánto suele vender un mes/periodo de campaña fuerte (Cyber, Black, Navidad)
+# frente a un mes normal del mismo negocio. Es un punto de partida honesto; en
+# cuanto el negocio carga sus campañas reales, el Gemelo usa SU propio número.
+CAMPANA_BENCH = {
+    "retail_moda":       2.0,
+    "food_beverage":     1.5,
+    "servicios":         1.3,
+    "ecommerce_general": 1.9,
+}
+CAMPANA_MULT_DEFAULT = 1.8
+
+
+def _es_campana(semana):
+    """True si la semana/periodo está marcado como campaña (Cyber, Black, etc.).
+
+    Se activa con cualquiera de: `campana`/`campaña` truthy, o un `evento` con
+    texto (nombre de la campaña). Así el usuario solo marca sus picos y el
+    motor los separa de los meses normales."""
+    return bool(semana.get("campana") or semana.get("campaña")
+                or str(semana.get("evento", "") or "").strip())
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # VALIDACIÓN DE DATOS
@@ -152,17 +174,50 @@ def _calibrar_canal(pares):
     return mejor
 
 
+def _mult_campana(normales, campanas, sector):
+    """Aprende el multiplicador de campaña del propio negocio: cuánto vende un
+    periodo de campaña frente a uno normal. Si no hay campañas marcadas, cae a
+    un benchmark del sector (fuente='benchmark').
+
+    Devuelve dict: {"multiplicador", "vol", "fuente", "n"}.
+    """
+    v_norm = [float(s.get("ventas", 0) or 0) for s in normales if float(s.get("ventas", 0) or 0) > 0]
+    v_camp = [float(s.get("ventas", 0) or 0) for s in campanas if float(s.get("ventas", 0) or 0) > 0]
+    if v_norm and v_camp and np.mean(v_norm) > 0:
+        mult = float(np.mean(v_camp) / np.mean(v_norm))
+        # Las campañas varían mucho entre sí → más incertidumbre en el rango.
+        if len(v_camp) >= 2 and np.mean(v_camp) > 0:
+            vol = float(np.clip(np.std(v_camp) / np.mean(v_camp), 0.10, 0.50))
+        else:
+            vol = 0.25
+        return {"multiplicador": float(np.clip(mult, 1.0, 5.0)), "vol": vol,
+                "fuente": "datos", "n": len(v_camp)}
+    # Arranque en frío: benchmark del sector (se comunica como estimación).
+    return {"multiplicador": float(CAMPANA_BENCH.get(sector, CAMPANA_MULT_DEFAULT)),
+            "vol": 0.30, "fuente": "benchmark", "n": 0}
+
+
 def calibrar(semanas, sector=SECTOR_DEFAULT, ventas_base=0.0):
     """Calibra los parámetros del gemelo con datos reales.
 
     ventas_base: ventas que ocurren igual SIN publicidad (piso). Si no se da,
     las curvas modelan todas las ventas como ad-driven (negocio nuevo/chico).
 
-    Devuelve dict: {"canales": {canal: {"max": .., "b": ..}}, "elasticidad": ..,
-    "precio_ref": .., "base": .., "fuente": "datos"}.
+    Las semanas marcadas como campaña (ver `_es_campana`) se APARTAN para
+    calibrar curvas/base/volatilidad con meses normales, y de su comparación
+    sale el multiplicador de campaña. Si no hay campañas marcadas, todo se
+    comporta igual que antes y el multiplicador queda en benchmark.
+
+    Devuelve dict: {"canales", "elasticidad", "precio_ref", "base",
+    "volatilidad", "campana", "fuente"}.
     """
     ventas_base = float(ventas_base or 0)
-    series = _atribuir_ventas(semanas, ventas_base)
+    campanas = [s for s in (semanas or []) if _es_campana(s)]
+    normales = [s for s in (semanas or []) if not _es_campana(s)]
+    # Si TODO está marcado como campaña (o no hay normales), calibramos con todo
+    # para no quedarnos sin curvas; el multiplicador caerá a benchmark.
+    base_semanas = normales if normales else list(semanas or [])
+    series = _atribuir_ventas(base_semanas, ventas_base)
     canales = {}
     for c in CANALES:
         if series[c]:
@@ -170,18 +225,21 @@ def calibrar(semanas, sector=SECTOR_DEFAULT, ventas_base=0.0):
         else:
             mx, b = 1.0, 1.0
         canales[c] = {"max": mx, "b": b}
-    precios = [float(s.get("precio", 0) or 0) for s in semanas if float(s.get("precio", 0) or 0) > 0]
+    precios = [float(s.get("precio", 0) or 0) for s in (semanas or []) if float(s.get("precio", 0) or 0) > 0]
     precio_ref = float(np.mean(precios)) if precios else 0.0
     elasticidad = BENCHMARKS_SECTOR.get(sector, BENCHMARKS_SECTOR[SECTOR_DEFAULT])["elasticidad"]
     # Volatilidad REAL: cuánto varían tus ventas mes a mes por cosas que los ads
-    # no explican (temporada, promos, marca). El rango del Gemelo la refleja.
-    _vts = [float(s.get("ventas", 0) or 0) for s in semanas if float(s.get("ventas", 0) or 0) > 0]
+    # no explican (temporada, promos, marca). Se mide con meses NORMALES para que
+    # los picos de campaña no inflen el ruido de un mes cualquiera.
+    _vts = [float(s.get("ventas", 0) or 0) for s in base_semanas if float(s.get("ventas", 0) or 0) > 0]
     if len(_vts) >= 2 and np.mean(_vts) > 0:
         volatilidad = float(np.clip(np.std(_vts) / np.mean(_vts), 0.08, 0.40))
     else:
         volatilidad = 0.15
+    campana = _mult_campana(normales, campanas, sector)
     return {"canales": canales, "elasticidad": elasticidad, "precio_ref": precio_ref,
-            "base": ventas_base, "volatilidad": volatilidad, "fuente": "datos"}
+            "base": ventas_base, "volatilidad": volatilidad, "campana": campana,
+            "fuente": "datos"}
 
 
 def params_benchmark(sector, precio_ref, gasto_tipico_por_canal, ventas_base=0.0):
@@ -202,7 +260,10 @@ def params_benchmark(sector, precio_ref, gasto_tipico_por_canal, ventas_base=0.0
         canales[c] = {"max": float(max_ventas), "b": float(b)}
     return {"canales": canales, "elasticidad": bench["elasticidad"],
             "precio_ref": float(precio_ref or 0), "base": float(ventas_base or 0),
-            "volatilidad": 0.15, "fuente": "benchmark"}
+            "volatilidad": 0.15,
+            "campana": {"multiplicador": float(CAMPANA_BENCH.get(sector, CAMPANA_MULT_DEFAULT)),
+                        "vol": 0.30, "fuente": "benchmark", "n": 0},
+            "fuente": "benchmark"}
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -218,8 +279,14 @@ def predecir_ventas(params, plan_gasto, precio):
     return max(total * factor, 0.0)
 
 
-def monte_carlo(params, plan_gasto, precio, costo=0.0, n=500, variacion=0.15, seed=None):
+def monte_carlo(params, plan_gasto, precio, costo=0.0, n=500, variacion=0.15, seed=None,
+                mult_campana=1.0, vol_campana=0.0):
     """N simulaciones variando los parámetros ±`variacion`. Devuelve rangos.
+
+    mult_campana: factor por el que sube la venta en un periodo de campaña
+    (1.0 = mes normal). vol_campana: incertidumbre extra del propio pico de
+    campaña (las campañas varían mucho entre sí). Por defecto no afectan nada,
+    así cualquier llamada existente se comporta igual.
 
     Salida: {"ventas": {p10,p50,p90}, "ingresos": {...}, "utilidad": {...},
     "n": n}. ingresos = ventas*precio; utilidad = ventas*(precio-costo) - gasto.
@@ -250,6 +317,13 @@ def monte_carlo(params, plan_gasto, precio, costo=0.0, n=500, variacion=0.15, se
     _vol = float(params.get("volatilidad", 0.0) or 0.0)
     if _vol > 0:
         ventas_sims = ventas_sims * (1.0 + rng.normal(0.0, _vol, n))
+    # Multiplicador de campaña (Cyber, Black, Navidad...): escala la venta del
+    # mes con su propia incertidumbre. 1.0 = mes normal, no toca nada.
+    _mc = float(mult_campana if mult_campana else 1.0)
+    if _mc != 1.0:
+        _vc = max(float(vol_campana or 0.0), 0.0)
+        mult_sims = _mc * (1.0 + rng.normal(0.0, _vc, n)) if _vc > 0 else _mc
+        ventas_sims = ventas_sims * mult_sims
     ventas_sims = np.maximum(ventas_sims, 0.0)
     ingresos_sims = ventas_sims * float(precio)
     utilidad_sims = ventas_sims * (float(precio) - float(costo)) - gasto_total
@@ -382,7 +456,7 @@ def proyeccion(mc_resultado, semanas_por_mes=4.3, meses=(6, 12), crecimiento_men
 # calibradas (sólidos); producto y zona son por SUPUESTOS explícitos (se marca
 # fuente="supuestos" y se usa más incertidumbre, para no caer en fantasía).
 # ══════════════════════════════════════════════════════════════════════════
-TIPOS_DECISION = ("presupuesto", "precio", "producto", "zona")
+TIPOS_DECISION = ("presupuesto", "precio", "producto", "zona", "campana")
 
 
 def _empacar(mc, tipo, extra=None):
@@ -420,6 +494,43 @@ def sim_presupuesto(params, presupuesto, precio, costo=0.0, n=500, seed=None):
     mc = monte_carlo(params, dist["asignacion"], precio, costo=costo, n=n, seed=seed)
     return _empacar(mc, "presupuesto",
                     {"asignacion": dist["asignacion"], "fuente": params.get("fuente", "datos")})
+
+
+def factor_campana(params, intensidad=1.0):
+    """Resuelve el multiplicador de campaña a aplicar y su incertidumbre.
+
+    intensidad escala cuánto se aparta de un mes normal: 1.0 = como las campañas
+    típicas del negocio; 1.3 = esperas que pegue más fuerte; 0 = mes normal.
+    Devuelve (mult_ajustado, vol, meta) donde meta trae fuente/n/mult_base.
+    """
+    camp = (params or {}).get("campana") or {}
+    mult = float(camp.get("multiplicador", 1.0) or 1.0)
+    vol = float(camp.get("vol", 0.0) or 0.0)
+    # El piso es el mes normal (1.0); intensidad mueve el excedente sobre 1.
+    mult_aj = 1.0 + (mult - 1.0) * max(float(intensidad), 0.0)
+    meta = {"fuente": camp.get("fuente", "benchmark"), "n": int(camp.get("n", 0)),
+            "mult_base": round(mult, 2)}
+    return float(max(mult_aj, 0.0)), vol, meta
+
+
+def sim_campana(params, presupuesto, precio, costo=0.0, intensidad=1.0, n=500, seed=None):
+    """¿Cuánto venderé en un mes/periodo de CAMPAÑA (Cyber, Black, Navidad...)?
+
+    Reparte el presupuesto óptimamente y aplica el multiplicador de campaña que
+    el Gemelo aprendió de las campañas del propio negocio (o un benchmark del
+    sector si aún no hay historial). El rango sale más ancho a propósito: las
+    campañas son más impredecibles que un mes normal.
+    """
+    mult_aj, vol, meta = factor_campana(params, intensidad)
+    dist = distribuir_optimo(params, presupuesto, precio)
+    mc = monte_carlo(params, dist["asignacion"], precio, costo=costo, n=n, seed=seed,
+                     mult_campana=mult_aj, vol_campana=vol)
+    return _empacar(mc, "campana", {
+        "asignacion": dist["asignacion"], "fuente": params.get("fuente", "datos"),
+        "multiplicador": round(mult_aj, 2), "mult_base": meta["mult_base"],
+        "mult_fuente": meta["fuente"], "n_campanas": meta["n"],
+        "intensidad": float(intensidad),
+    })
 
 
 def sim_precio(params, precio_actual, precio_nuevo, plan_gasto, costo=0.0, n=500, seed=None):

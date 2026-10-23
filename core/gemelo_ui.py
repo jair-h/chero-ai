@@ -93,6 +93,9 @@ def _semanas_desde_editor(df):
             "ventas": float(row.get("Ventas", 0) or 0),
             "precio": float(row.get("Precio", 0) or 0),
             "costo": float(row.get("Costo", 0) or 0),
+            # Marca de campaña (Cyber, Black, Navidad...): aparta los picos para
+            # que el Gemelo aprenda cuánto suben vs. un mes normal.
+            "campana": bool(row.get("Campaña", False)),
         })
     return semanas
 
@@ -102,6 +105,10 @@ def _tab_datos(supabase, user_email, moneda, T, log):
 
     st.write(T(f"Ingresa tus últimas semanas (gasto en {moneda}). Con 4+ semanas el Gemelo se calibra con TUS datos.",
                f"Enter your recent weeks (spend in {moneda}). With 4+ weeks the Twin calibrates on YOUR data."))
+    st.caption("🔥 " + T("Marca la casilla **Campaña** en las semanas de Cyber, Black, Navidad, Día de la Madre, etc. "
+                         "Así el Gemelo aprende cuánto suben tus ventas en campaña y puede proyectar las próximas.",
+                         "Tick the **Campaign** box on Cyber, Black, Xmas, Mother's Day weeks, etc. "
+                         "The Twin then learns your campaign uplift and can project upcoming ones."))
 
     # Carga previa (sesión o Supabase)
     _key = "gemelo_df"
@@ -109,12 +116,20 @@ def _tab_datos(supabase, user_email, moneda, T, log):
         _filas = _cargar_datos(supabase, user_email, log)
         if not _filas:
             _filas = [{"Semana": f"S{i}", "Gasto Meta": 0.0, "Gasto Google": 0.0,
-                       "Gasto TikTok": 0.0, "Ventas": 0.0, "Precio": 0.0, "Costo": 0.0}
+                       "Gasto TikTok": 0.0, "Ventas": 0.0, "Precio": 0.0, "Costo": 0.0,
+                       "Campaña": False}
                       for i in range(1, 5)]
         st.session_state[_key] = pd.DataFrame(_filas)
+    # Compatibilidad: datos viejos sin la columna Campaña
+    if "Campaña" not in st.session_state[_key].columns:
+        st.session_state[_key]["Campaña"] = False
 
     df = st.data_editor(st.session_state[_key], num_rows="dynamic", use_container_width=True,
-                        key="gemelo_editor")
+                        key="gemelo_editor",
+                        column_config={"Campaña": st.column_config.CheckboxColumn(
+                            T("Campaña", "Campaign"),
+                            help=T("Semana de campaña fuerte (Cyber, Black, Navidad...)",
+                                   "Strong campaign week (Cyber, Black, Xmas...)"))})
 
     _c1, _c2 = st.columns(2)
     with _c1:
@@ -142,6 +157,7 @@ def _tab_datos(supabase, user_email, moneda, T, log):
 
 _DECISIONES = {
     "presupuesto": ("💰 ¿Cuánto invertir en ads y cómo repartir?", "💰 How much to spend on ads & how to split?"),
+    "campana":     ("🔥 ¿Cuánto venderé en campaña (Cyber, Black, Navidad)?", "🔥 How much will I sell on a campaign (Cyber, Black, Xmas)?"),
     "precio":      ("🏷 ¿Subo o bajo el precio?", "🏷 Should I raise or lower the price?"),
     "producto":    ("🚀 ¿Lanzo un producto nuevo?", "🚀 Should I launch a new product?"),
     "zona":        ("📍 ¿Abro en otra zona?", "📍 Should I open in another area?"),
@@ -170,7 +186,7 @@ def _tab_simular(supabase, generar_texto, user_email, marca, sector_nicho, moned
                          format_func=lambda k: _DECISIONES[k][1 if _en_lang() else 0],
                          key="gemelo_tipo_decision")
 
-    if _tipo in ("presupuesto", "precio"):
+    if _tipo in ("presupuesto", "precio", "campana"):
         if hay_datos:
             st.success(T("✅ Gemelo calibrado con tus datos reales.", "✅ Twin calibrated on your real data."))
         else:
@@ -191,7 +207,7 @@ def _tab_simular(supabase, generar_texto, user_email, marca, sector_nicho, moned
 
     # Piso de ventas base: lo que vendes aunque NO hagas ads (negocio establecido).
     # Para negocio nuevo, dejar en 0 → los ads mueven todo.
-    if _tipo in ("presupuesto", "precio"):
+    if _tipo in ("presupuesto", "precio", "campana"):
         _base_def = 0.0
         if semanas:
             _vv = [s["ventas"] for s in semanas if s["ventas"] > 0]
@@ -208,6 +224,35 @@ def _tab_simular(supabase, generar_texto, user_email, marca, sector_nicho, moned
         datos["presupuesto"] = st.slider(T(f"Presupuesto semanal ({moneda})", f"Weekly budget ({moneda})"),
                                          0, _tope, min(int(_gasto_hist) or 300, _tope),
                                          step=max(_tope // 100, 10), key="g_presup")
+    elif _tipo == "campana":
+        # Muestra el multiplicador que el Gemelo ya conoce (datos propios o benchmark)
+        _mult_info = ""
+        if semanas:
+            _pprev = (G.calibrar(semanas, _sector, ventas_base=float(datos.get("ventas_base", 0) or 0))
+                      if hay_datos else G.params_benchmark(_sector, _precio_def or 20, {c: 100 for c in G.CANALES}))
+            _camp = _pprev.get("campana", {})
+            if _camp.get("fuente") == "datos":
+                st.success(T(f"📈 Según TUS campañas marcadas, vendes ~**{_camp['multiplicador']:.1f}x** más que un mes normal "
+                             f"({_camp.get('n', 0)} campaña(s) en tus datos).",
+                             f"📈 Per YOUR tagged campaigns, you sell ~**{_camp['multiplicador']:.1f}x** a normal month "
+                             f"({_camp.get('n', 0)} campaign(s) in your data)."))
+            else:
+                st.info(T(f"🔎 Aún no marcaste campañas en tus datos → uso un estimado del sector (~**{_camp.get('multiplicador', 1.8):.1f}x**). "
+                          "Marca tus semanas de Cyber/Black en 📥 Mis datos para que aprenda TU número.",
+                          f"🔎 No campaigns tagged yet → using a sector estimate (~**{_camp.get('multiplicador', 1.8):.1f}x**). "
+                          "Tag your Cyber/Black weeks in 📥 My data so it learns YOUR number."))
+        _tope = max(int(_gasto_hist * 5), 2000)
+        datos["presupuesto"] = st.slider(
+            T(f"Presupuesto TOTAL de la campaña ({moneda})", f"TOTAL campaign budget ({moneda})"),
+            0, _tope, min(int(_gasto_hist * 2) or 1000, _tope),
+            step=max(_tope // 100, 50), key="g_camp_presup",
+            help=T("Suma todo lo que invertirás en la campaña (ej. Cyber Wow + Black Week).",
+                   "Sum everything you'll invest in the campaign."))
+        datos["intensidad"] = st.slider(
+            T("¿Qué tan fuerte esperas esta campaña?", "How strong do you expect this campaign?"),
+            0.5, 1.5, 1.0, step=0.1, key="g_camp_int",
+            help=T("1.0 = como tus campañas típicas · 1.3 = esperas que pegue más fuerte · 0.7 = más floja.",
+                   "1.0 = like your typical campaigns · 1.3 = expect stronger · 0.7 = weaker."))
     elif _tipo == "precio":
         _c1, _c2 = st.columns(2)
         datos["precio_actual"] = _c1.number_input(T(f"Precio actual ({moneda})", f"Current price ({moneda})"),
@@ -276,7 +321,7 @@ def _ejecutar_simulacion(tipo, datos, semanas, hay_datos, sector, moneda, ciudad
     """Enruta al tipo de decisión, arma el resultado estándar y lo guarda."""
     precio = float(datos.get("precio", 0) or 0)
     costo = float(datos.get("costo", 0) or 0)
-    if tipo in ("presupuesto", "precio") and precio <= 0:
+    if tipo in ("presupuesto", "precio", "campana") and precio <= 0:
         st.error(T("Ingresa un precio mayor que 0.", "Enter a price greater than 0."))
         return
 
@@ -318,6 +363,9 @@ def _ejecutar_simulacion(tipo, datos, semanas, hay_datos, sector, moneda, ciudad
 
     if tipo == "presupuesto":
         res = G.sim_presupuesto(_params(), datos["presupuesto"], precio, costo=costo)
+    elif tipo == "campana":
+        res = G.sim_campana(_params(), datos["presupuesto"], precio, costo=costo,
+                            intensidad=float(datos.get("intensidad", 1.0) or 1.0))
     elif tipo == "precio":
         plan = {c: datos["gasto"] / 3.0 for c in G.CANALES}
         res = G.sim_precio(_params(), datos["precio_actual"], datos["precio_nuevo"], plan, costo=costo)
@@ -401,7 +449,9 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
             unsafe_allow_html=True,
         )
 
-    st.markdown(f"### {T('Predicción de esta semana', 'This week prediction')}")
+    _es_camp = r.get("tipo") == "campana"
+    st.markdown(f"### " + (T("Predicción de la campaña", "Campaign prediction") if _es_camp
+                           else T("Predicción de esta semana", "This week prediction")))
     _c1, _c2, _c3 = st.columns(3)
     _c1.metric(T("Pesimista", "Pessimistic"), f"{v['p10']:.0f}")
     _c2.metric(T("Más probable", "Most likely"), f"{v['p50']:.0f}", T("ventas", "sales"))
@@ -415,6 +465,18 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
     elif r.get("fuente") == "supuestos":
         st.caption("⚠ " + T("Estimación por supuestos (sin historial) — rango amplio a propósito.",
                              "Assumption-based estimate (no history) — range is wide on purpose."))
+    if _es_camp:
+        _mf = r.get("mult_fuente", "benchmark")
+        _origen = T("tus propias campañas", "your own campaigns") if _mf == "datos" \
+            else T("un estimado del sector", "a sector estimate")
+        st.caption(f"🔥 " + T(
+            f"Modo campaña: multiplica un mes normal por **{r.get('multiplicador', '?')}x** "
+            f"(de {_origen}). El rango es ancho porque las campañas son más impredecibles.",
+            f"Campaign mode: multiplies a normal month by **{r.get('multiplicador', '?')}x** "
+            f"(from {_origen}). The range is wide because campaigns are less predictable."))
+        if _mf == "benchmark":
+            st.caption("👉 " + T("Marca tus campañas pasadas en 📥 Mis datos para afinar TU multiplicador real.",
+                                 "Tag your past campaigns in 📥 My data to sharpen YOUR real multiplier."))
     if r.get("distrito"):
         st.caption("📍 " + f"{r.get('ciudad', '')} · {r['distrito']}".strip(" ·"))
 
@@ -544,6 +606,7 @@ def _tab_historial(supabase, user_email, moneda, T, log):
 # ──────────────────────────────────────────────────────────────────────────
 _DECISION_TXT = {
     "presupuesto": "cuánto invertir en ads y cómo repartirlo",
+    "campana": "cuánto venderás en un periodo de campaña (Cyber, Black, Navidad)",
     "precio": "si subir o bajar el precio",
     "producto": "si lanzar un producto nuevo",
     "zona": "si abrir en otra zona/distrito",
@@ -602,7 +665,8 @@ def _cargar_datos(supabase, email, log):
                           "Gasto TikTok": float(row.get("gasto_tiktok", 0) or 0),
                           "Ventas": float(row.get("ventas", 0) or 0),
                           "Precio": float(row.get("precio", 0) or 0),
-                          "Costo": float(row.get("costo", 0) or 0)})
+                          "Costo": float(row.get("costo", 0) or 0),
+                          "Campaña": bool(row.get("campana", False))})
         return filas
     except Exception:
         log("gemelo_cargar_datos")
@@ -613,7 +677,6 @@ def _guardar_datos(supabase, email, df, log):
     if not supabase:
         return
     try:
-        supabase.table("gemelo_datos").delete().eq("user_id", email).execute()
         payload = []
         for _, row in df.iterrows():
             payload.append({"user_id": email, "fecha": str(row.get("Semana", "")),
@@ -622,9 +685,18 @@ def _guardar_datos(supabase, email, df, log):
                             "gasto_tiktok": float(row.get("Gasto TikTok", 0) or 0),
                             "ventas": float(row.get("Ventas", 0) or 0),
                             "precio": float(row.get("Precio", 0) or 0),
-                            "costo": float(row.get("Costo", 0) or 0)})
+                            "costo": float(row.get("Costo", 0) or 0),
+                            "campana": bool(row.get("Campaña", False))})
+        supabase.table("gemelo_datos").delete().eq("user_id", email).execute()
         if payload:
-            supabase.table("gemelo_datos").insert(payload).execute()
+            try:
+                supabase.table("gemelo_datos").insert(payload).execute()
+            except Exception:
+                # BD sin la columna 'campana' (tabla vieja): reintenta sin ella
+                log("gemelo_guardar_datos_sin_campana")
+                for p in payload:
+                    p.pop("campana", None)
+                supabase.table("gemelo_datos").insert(payload).execute()
     except Exception:
         log("gemelo_guardar_datos")
 

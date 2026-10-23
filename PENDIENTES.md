@@ -18,6 +18,15 @@ El código ya está listo (ver `integrations/README_ANALYTICS.md`). Falta que Ja
 ## 🗄️ Crear tablas del Gemelo en Supabase — PENDIENTE de Jair
 SQL listo en `core/README_GEMELO.md` (tablas `gemelo_datos` y `gemelo_simulaciones`).
 Sin ellas el Gemelo funciona en memoria pero no guarda datos ni historial.
+> El SQL ya incluye la columna `campana` (modo campaña). Si creaste la tabla
+> antes, corre el `alter table ... add column campana` que está en el README.
+
+## ✅ Modo campaña del Gemelo — HECHO (para todos los usuarios)
+El Gemelo ya proyecta meses de campaña (Cyber, Black, Navidad, Día de la Madre...).
+Cada negocio marca sus semanas de campaña en "📥 Mis datos" (casilla Campaña) y el
+motor aprende SU multiplicador real (pico vs. mes normal). Si aún no hay campañas
+marcadas, usa un benchmark del sector y lo avisa. Nuevo tipo de decisión
+"🔥 ¿Cuánto venderé en campaña?" con slider de intensidad. Todo con rango (p10–p90).
 
 ## 🐛 Fallas a corregir (de la auditoría de funciones) — por hacer
 1. **Scores inventados** en Auditoría Maestra (viralidad/demanda 0-100 sin fuente):

@@ -324,6 +324,30 @@ def test_gemelo():
     check(_rng["p10"] <= 148 <= _rng["p90"] and _rng["p10"] <= 181 <= _rng["p90"],
           "el rango honesto contiene ambos meses reales")
 
+    # ── MODO CAMPAÑA (general para todos los usuarios) ──────────────────────
+    # Sin campañas marcadas -> multiplicador por benchmark del sector
+    _p_sinc = GM.calibrar(_sem_est, "ecommerce_general", ventas_base=120)
+    check(_p_sinc["campana"]["fuente"] == "benchmark" and _p_sinc["campana"]["multiplicador"] > 1.0,
+          "sin campañas marcadas usa benchmark del sector")
+    # Con una campaña real marcada (vende ~2x) -> aprende el multiplicador propio
+    _sem_camp = _sem_est + [{"gasto": {"Meta": 6, "Google": 7, "TikTok": 2}, "ventas": 330,
+                             "precio": 1, "costo": 0.6, "evento": "Fiestas Patrias"}]
+    _p_conc = GM.calibrar(_sem_camp, "ecommerce_general", ventas_base=120)
+    check(_p_conc["campana"]["fuente"] == "datos" and _p_conc["campana"]["n"] == 1,
+          "aprende el multiplicador de las campañas marcadas del negocio")
+    check(1.6 <= _p_conc["campana"]["multiplicador"] <= 2.5, "multiplicador aprendido ~2x (330 vs ~165)")
+    # La semana de campaña NO infla las curvas de un mes normal
+    _norm = GM.monte_carlo(_p_conc, {"Meta": 5.6, "Google": 7, "TikTok": 1.4}, 1, costo=0.6, n=1500, seed=5)
+    check(_norm["ventas"]["p50"] <= 230, "un mes normal sigue siendo normal (no contaminado por la campaña)")
+    # sim_campana vende claramente más que un mes normal y mantiene el formato
+    _rc = GM.sim_campana(_p_conc, 15.4, 1, costo=0.6, n=1500, seed=5)
+    check(all(k in _rc for k in _campos) and _rc["tipo"] == "campana", "sim_campana devuelve formato uniforme")
+    check(_rc["ventas"]["p50"] > _norm["ventas"]["p50"] * 1.3, "campaña proyecta bastante más que mes normal")
+    check(_rc["mult_fuente"] == "datos" and _rc["multiplicador"] > 1.0, "campaña reporta su multiplicador y fuente")
+    # Intensidad 0 -> vuelve a mes normal (multiplicador ~1)
+    _rc0 = GM.sim_campana(_p_conc, 15.4, 1, costo=0.6, intensidad=0.0, n=800, seed=5)
+    check(abs(_rc0["multiplicador"] - 1.0) < 1e-6, "intensidad 0 = mes normal (multiplicador 1.0)")
+
 
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,

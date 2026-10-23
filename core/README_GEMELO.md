@@ -30,9 +30,13 @@ create table if not exists gemelo_datos (
     ventas      double precision default 0,
     precio      double precision default 0,
     costo       double precision default 0,
+    campana     boolean default false,   -- semana de campaña (Cyber, Black, Navidad...)
     created_at  timestamptz default now()
 );
 create index if not exists idx_gemelo_datos_user on gemelo_datos(user_id);
+
+-- Si YA creaste la tabla antes, añade solo la columna nueva:
+-- alter table gemelo_datos add column if not exists campana boolean default false;
 
 create table if not exists gemelo_simulaciones (
     id          bigint generated always as identity primary key,
