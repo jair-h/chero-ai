@@ -101,6 +101,8 @@ _PREGUNTAS_SIMPLE = {
                     "🔥 How much will I sell on a campaign? (Cyber, Black, Xmas)"),
     "precio":      ("🏷 ¿Me conviene subir el precio?",
                     "🏷 Should I raise my price?"),
+    "zona":        ("📍 ¿Cómo me irá en una zona o distrito nuevo?",
+                    "📍 How would I do in a new area or district?"),
 }
 
 
@@ -117,6 +119,17 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
     _pregunta = st.radio("pregunta", list(_PREGUNTAS_SIMPLE),
                          format_func=lambda k: _PREGUNTAS_SIMPLE[k][1 if _en_lang() else 0],
                          key="gs_pregunta", label_visibility="collapsed")
+
+    # Al cambiar de pregunta, el resultado viejo ya no aplica → se limpia.
+    if st.session_state.get("gs_last_pregunta") != _pregunta:
+        st.session_state["gs_last_pregunta"] = _pregunta
+        st.session_state.pop("gemelo_resultado", None)
+        st.session_state.pop("gemelo_personas", None)
+
+    # Zona/distrito: flujo propio (es un estimado, no necesita historial mensual).
+    if _pregunta == "zona":
+        _render_simple_zona(supabase, generar_texto, user_email, marca, moneda, T, log)
+        return
 
     # ── 2. ¿Ya vendes o recién empiezas? ─────────────────────────────────────
     st.markdown("##### 2. " + T("¿Ya vendes o recién empiezas?", "Do you already sell or just starting?"))
@@ -245,6 +258,51 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
         _guardar_simulacion(supabase, user_email, res, log)
 
     # ── Resultado AQUÍ MISMO (misma pantalla, sin saltar pestañas) ───────────
+    if st.session_state.get("gemelo_resultado"):
+        st.divider()
+        _tab_resultado(marca, moneda, T, generar_texto)
+
+
+def _render_simple_zona(supabase, generar_texto, user_email, marca, moneda, T, log):
+    """Pregunta de zona/distrito en modo simple. Estimado por supuestos
+    (mercado × penetración); honesto: no usa datos reales de la calle."""
+    st.markdown("##### 2. " + T("Datos de la zona", "Area details"))
+    st.info("📍 " + T("Es un estimado por supuestos: tamaño del mercado × % que esperas captar. "
+                      "Hoy NO usa datos reales de tráfico de la calle (eso sería un módulo aparte). "
+                      "Igual te sirve para decidir si una zona conviene y comparar entre varias.",
+                      "An assumption-based estimate: market size × % you expect to capture. "
+                      "It does NOT use real street-traffic data yet. Still useful to judge and compare areas."))
+    _distrito = st.text_input(T("¿Qué zona o distrito?", "Which area/district?"), key="gsz_distrito")
+    _c1, _c2 = st.columns(2)
+    _precio = _c1.number_input(T(f"Precio de lo que vendes ({moneda})", f"Price ({moneda})"),
+                               min_value=0.0, value=25.0, step=1.0, key="gsz_precio")
+    _costo = _c2.number_input(T(f"Costo por unidad ({moneda})", f"Cost per unit ({moneda})"),
+                              min_value=0.0, value=10.0, step=1.0, key="gsz_costo")
+    _clientes = st.number_input(
+        T("¿Cuántos clientes potenciales hay en la zona? (estimado)", "Potential customers in the area? (estimate)"),
+        min_value=0.0, value=8000.0, step=500.0, key="gsz_cli",
+        help=T("Si no sabes el número exacto, pon un estimado del tamaño del mercado de esa zona.",
+               "If you don't know the exact number, estimate the market size of that area."))
+    _pen = st.slider(T("% que esperas captar", "% you expect to capture"),
+                     0.0, 20.0, 3.0, step=0.5, key="gsz_pen")
+    _inv = st.number_input(T(f"Inversión mensual para operar ahí ({moneda})", f"Monthly investment to operate there ({moneda})"),
+                           min_value=0.0, value=1500.0, step=100.0, key="gsz_inv")
+
+    if st.button("🔮 " + T("Calcular", "Calculate"), key="gsz_calcular",
+                 use_container_width=True, type="primary"):
+        if _precio <= 0:
+            st.error(T("Pon un precio mayor que 0.", "Enter a price greater than 0."))
+        else:
+            res = G.sim_zona(_precio, _costo, _inv, _clientes, _pen)
+            res.pop("proyeccion", None)
+            res.update({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "semana": datetime.now().strftime("%b %Y"), "moneda": moneda,
+                        "distrito": _distrito, "precio": _precio, "costo": _costo, "periodo": "mes"})
+            res["explicacion"] = _explicar_ia(generar_texto, res, marca, moneda, T) if generar_texto else ""
+            st.session_state["gemelo_resultado"] = res
+            st.session_state.pop("gemelo_personas", None)
+            _guardar_simulacion(supabase, user_email, res, log)
+
     if st.session_state.get("gemelo_resultado"):
         st.divider()
         _tab_resultado(marca, moneda, T, generar_texto)
