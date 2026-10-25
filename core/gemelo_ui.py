@@ -52,6 +52,16 @@ def render(*, supabase=None, generar_texto=None, user_email="", marca="",
                      "Enter your email in the left panel to use the Twin."))
         return
 
+    # Por defecto: modo SIMPLE (una pantalla, en meses, para cualquiera).
+    # El modo avanzado (4 pestañas, más tipos de decisión) queda a un toggle.
+    _avanzado = st.toggle(
+        T("⚙️ Modo avanzado (más decisiones, historial, equipo)",
+          "⚙️ Advanced mode (more decisions, history, team)"),
+        value=st.session_state.get("gemelo_avanzado", False), key="gemelo_avanzado")
+    if not _avanzado:
+        _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, moneda, T, log)
+        return
+
     tabs = st.tabs([T("📥 Mis datos", "📥 My data"), T("🎛 Simular", "🎛 Simulate"),
                     T("📊 Resultado", "📊 Result"), T("📈 Historial", "📈 History")])
 
@@ -79,6 +89,165 @@ def render(*, supabase=None, generar_texto=None, user_email="", marca="",
                               "On your current plan you can simulate as much as you want; "
                               "saving the history to track weekly accuracy is Pro."))
             st.caption("👉 tentakl.ai/planes")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# MODO SIMPLE — una sola pantalla, en MESES, apta para negocios sin datos
+# ══════════════════════════════════════════════════════════════════════════
+_PREGUNTAS_SIMPLE = {
+    "presupuesto": ("💰 ¿Cuánto venderé el próximo mes?",
+                    "💰 How much will I sell next month?"),
+    "campana":     ("🔥 ¿Cuánto venderé en una campaña? (Cyber, Black, Navidad)",
+                    "🔥 How much will I sell on a campaign? (Cyber, Black, Xmas)"),
+    "precio":      ("🏷 ¿Me conviene subir el precio?",
+                    "🏷 Should I raise my price?"),
+}
+
+
+def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, moneda, T, log):
+    """El Gemelo en UNA pantalla: 3 preguntas, calcula y muestra el resultado
+    ahí mismo. En MESES (no semanas) y con camino para negocios sin datos."""
+    import pandas as pd
+
+    st.caption(T("Responde 3 cosas y te doy un rango realista de ventas (no un número inventado).",
+                 "Answer 3 things and I'll give you a realistic sales range (not a made-up number)."))
+
+    # ── 1. ¿Qué quieres saber? ───────────────────────────────────────────────
+    st.markdown("##### 1. " + T("¿Qué quieres saber?", "What do you want to know?"))
+    _pregunta = st.radio("pregunta", list(_PREGUNTAS_SIMPLE),
+                         format_func=lambda k: _PREGUNTAS_SIMPLE[k][1 if _en_lang() else 0],
+                         key="gs_pregunta", label_visibility="collapsed")
+
+    # ── 2. ¿Ya vendes o recién empiezas? ─────────────────────────────────────
+    st.markdown("##### 2. " + T("¿Ya vendes o recién empiezas?", "Do you already sell or just starting?"))
+    _situacion = st.radio(
+        "situacion", ["tengo", "nuevo"],
+        format_func=lambda k: {"tengo": T("Ya tengo ventas", "I already have sales"),
+                               "nuevo": T("Recién empiezo (no tengo datos)", "Just starting (no data)")}[k],
+        horizontal=True, key="gs_situacion", label_visibility="collapsed")
+
+    _sector = st.selectbox(T("Tu rubro:", "Your sector:"), list(_SECTORES_LBL.keys()),
+                           format_func=lambda k: _SECTORES_LBL[k], key="gs_sector")
+
+    semanas = []  # son MESES (el motor es agnóstico al periodo)
+    _df = None
+    if _situacion == "tengo":
+        st.caption("📅 " + T("Pon tus últimos 2 a 4 MESES. Solo 2 datos por mes: lo que invertiste en ads y lo que vendiste.",
+                             "Enter your last 2-4 MONTHS: ad spend and sales per month."))
+        _key = "gs_meses_df"
+        if _key not in st.session_state:
+            _saved = _cargar_datos(supabase, user_email, log)
+            if _saved:
+                st.session_state[_key] = pd.DataFrame([
+                    {"Mes": (r.get("Semana") or f"Mes {i + 1}"),
+                     "Inversión en ads": (float(r.get("Gasto Meta", 0) or 0) + float(r.get("Gasto Google", 0) or 0)
+                                          + float(r.get("Gasto TikTok", 0) or 0)),
+                     "Ventas": float(r.get("Ventas", 0) or 0)} for i, r in enumerate(_saved)])
+            else:
+                st.session_state[_key] = pd.DataFrame(
+                    [{"Mes": f"Mes {i}", "Inversión en ads": 0.0, "Ventas": 0.0} for i in range(1, 4)])
+        _df = st.data_editor(st.session_state[_key], num_rows="dynamic",
+                             use_container_width=True, key="gs_editor")
+        _c1, _c2 = st.columns(2)
+        _precio_def = _c1.number_input(
+            T(f"Precio promedio de lo que vendes ({moneda})", f"Avg selling price ({moneda})"),
+            min_value=0.0, value=0.0, step=1.0, key="gs_precio",
+            help=T("Déjalo en 1 si registras el MONTO total de ventas (no unidades).",
+                   "Leave at 1 if you track total REVENUE, not units."))
+        _costo_def = _c2.number_input(T(f"Costo por unidad ({moneda})", f"Cost per unit ({moneda})"),
+                                      min_value=0.0, value=0.0, step=1.0, key="gs_costo")
+        for _, row in _df.iterrows():
+            g = float(row.get("Inversión en ads", 0) or 0)
+            semanas.append({"gasto": {c: g / 3.0 for c in G.CANALES},
+                            "ventas": float(row.get("Ventas", 0) or 0),
+                            "precio": _precio_def, "costo": _costo_def})
+    else:
+        st.info("🔎 " + T("Como recién empiezas, te daré un estimado del sector (rango amplio y honesto). "
+                          "En cuanto tengas 2-3 meses de ventas reales, el Gemelo se vuelve mucho más preciso.",
+                          "Since you're just starting, I'll give a sector estimate (wide, honest range). "
+                          "With 2-3 months of real sales it gets far more precise."))
+        _c1, _c2 = st.columns(2)
+        _precio_def = _c1.number_input(T(f"Precio de lo que vendes ({moneda})", f"Price ({moneda})"),
+                                       min_value=0.0, value=30.0, step=1.0, key="gs_precio_nuevo")
+        _costo_def = _c2.number_input(T(f"Costo por unidad ({moneda})", f"Cost per unit ({moneda})"),
+                                      min_value=0.0, value=12.0, step=1.0, key="gs_costo_nuevo")
+
+    hay_datos = G.datos_suficientes(semanas, minimo=2)
+    _vv = [s["ventas"] for s in semanas if s["ventas"] > 0]
+    _ventas_base = round(min(_vv) * 0.5, 0) if (hay_datos and _vv) else 0.0
+    _gasto_hist = max((sum(s["gasto"].values()) for s in semanas), default=0.0) if semanas else 0.0
+
+    # ── 3. El dato de la pregunta elegida ────────────────────────────────────
+    st.markdown("##### 3. " + T("Un último dato", "One last thing"))
+    _intensidad, _precio_nuevo, _precio_act = 1.0, 0.0, 0.0
+    if _pregunta in ("presupuesto", "campana"):
+        _lbl = (T(f"¿Cuánto piensas invertir en ads el próximo mes? ({moneda})", f"Ad budget next month ({moneda})")
+                if _pregunta == "presupuesto"
+                else T(f"Presupuesto TOTAL de la campaña ({moneda})", f"TOTAL campaign budget ({moneda})"))
+        _default_inv = float(round(_gasto_hist)) or (1000.0 if _pregunta == "campana" else 300.0)
+        _inv = st.number_input(_lbl, min_value=0.0, value=_default_inv, step=50.0, key="gs_inv")
+        if _pregunta == "campana":
+            _intensidad = st.slider(T("¿Qué tan fuerte esperas la campaña?", "How strong do you expect it?"),
+                                    0.5, 1.5, 1.0, step=0.1, key="gs_int",
+                                    help=T("1.0 = campaña típica · 1.3 = más fuerte", "1.0 = typical · 1.3 = stronger"))
+    else:  # precio
+        _c1, _c2 = st.columns(2)
+        _precio_act = _c1.number_input(T(f"Precio actual ({moneda})", f"Current price ({moneda})"),
+                                       min_value=0.0, value=float(_precio_def or 20.0), step=1.0, key="gs_pact")
+        _precio_nuevo = _c2.number_input(T(f"Precio nuevo ({moneda})", f"New price ({moneda})"),
+                                         min_value=0.0, value=float((_precio_def or 20.0) * 1.1), step=1.0, key="gs_pnew")
+        _inv = float(_gasto_hist or 300)
+
+    if st.button("🔮 " + T("Calcular", "Calculate"), key="gs_calcular",
+                 use_container_width=True, type="primary"):
+        _precio = _precio_nuevo if _pregunta == "precio" else (_precio_def or 1.0)
+
+        def _params():
+            if hay_datos:
+                p = G.calibrar(semanas, _sector, ventas_base=_ventas_base)
+                if not p.get("precio_ref"):
+                    p["precio_ref"] = _precio
+                return p
+            _g = _inv or 300
+            return G.params_benchmark(_sector, _precio_def or 20,
+                                      {c: _g / 3.0 for c in G.CANALES}, ventas_base=0.0)
+
+        if _pregunta == "presupuesto":
+            res = G.sim_presupuesto(_params(), _inv, _precio, costo=_costo_def)
+        elif _pregunta == "campana":
+            res = G.sim_campana(_params(), _inv, _precio, costo=_costo_def, intensidad=_intensidad)
+        else:
+            _plan = {c: _inv / 3.0 for c in G.CANALES}
+            res = G.sim_precio(_params(), _precio_act, _precio_nuevo, _plan, costo=_costo_def)
+
+        # Datos en MESES → la proyección interna (semanal) no aplica: la ocultamos.
+        res.pop("proyeccion", None)
+        res.update({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "semana": datetime.now().strftime("%b %Y"), "moneda": moneda,
+                    "sector": _sector, "precio": _precio, "costo": _costo_def, "periodo": "mes"})
+        res["explicacion"] = _explicar_ia(generar_texto, res, marca, moneda, T) if generar_texto else ""
+        st.session_state["gemelo_resultado"] = res
+        st.session_state.pop("gemelo_personas", None)
+        # Guarda los meses (convertidos al formato del motor) para no perderlos.
+        if _situacion == "tengo" and _df is not None and semanas:
+            try:
+                _dfsave = pd.DataFrame([
+                    {"Semana": str(r.get("Mes", f"Mes {i + 1}")),
+                     "Gasto Meta": float(r.get("Inversión en ads", 0) or 0) / 3.0,
+                     "Gasto Google": float(r.get("Inversión en ads", 0) or 0) / 3.0,
+                     "Gasto TikTok": float(r.get("Inversión en ads", 0) or 0) / 3.0,
+                     "Ventas": float(r.get("Ventas", 0) or 0),
+                     "Precio": _precio_def, "Costo": _costo_def, "Campaña": False}
+                    for i, r in _df.iterrows()])
+                _guardar_datos(supabase, user_email, _dfsave, log)
+            except Exception:
+                log("gs_guardar_datos")
+        _guardar_simulacion(supabase, user_email, res, log)
+
+    # ── Resultado AQUÍ MISMO (misma pantalla, sin saltar pestañas) ───────────
+    if st.session_state.get("gemelo_resultado"):
+        st.divider()
+        _tab_resultado(marca, moneda, T, generar_texto)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -450,8 +619,13 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
         )
 
     _es_camp = r.get("tipo") == "campana"
-    st.markdown(f"### " + (T("Predicción de la campaña", "Campaign prediction") if _es_camp
-                           else T("Predicción de esta semana", "This week prediction")))
+    if _es_camp:
+        _titulo_pred = T("Predicción de la campaña", "Campaign prediction")
+    elif r.get("periodo") == "mes":
+        _titulo_pred = T("Predicción del próximo mes", "Next month prediction")
+    else:
+        _titulo_pred = T("Predicción de esta semana", "This week prediction")
+    st.markdown("### " + _titulo_pred)
     _c1, _c2, _c3 = st.columns(3)
     _c1.metric(T("Pesimista", "Pessimistic"), f"{v['p10']:.0f}")
     _c2.metric(T("Más probable", "Most likely"), f"{v['p50']:.0f}", T("ventas", "sales"))
