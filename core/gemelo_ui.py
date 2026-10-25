@@ -23,7 +23,26 @@ _SECTORES_LBL = {
     "food_beverage": "Comida y bebida",
     "servicios": "Servicios",
     "ecommerce_general": "E-commerce general",
+    "otro": "Otro (escríbelo)",
 }
+
+
+def _meses_recientes(n=3):
+    """Etiquetas de los últimos n meses COMPLETOS (calendario real), p. ej.
+    si hoy es octubre 2026 → ['Jul 2026', 'Ago 2026', 'Sep 2026']."""
+    _mes_es = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
+               "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+    hoy = datetime.now()
+    y, m = hoy.year, hoy.month
+    out = []
+    for k in range(n):
+        mm, yy = m - 1 - k, y
+        while mm <= 0:
+            mm += 12
+            yy -= 1
+        out.append(f"{_mes_es[mm - 1]} {yy}")
+    out.reverse()
+    return out
 
 
 def _noop(*_a, **_k):
@@ -139,8 +158,19 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
                                "nuevo": T("Recién empiezo (no tengo datos)", "Just starting (no data)")}[k],
         horizontal=True, key="gs_situacion", label_visibility="collapsed")
 
-    _sector = st.selectbox(T("Tu rubro:", "Your sector:"), list(_SECTORES_LBL.keys()),
-                           format_func=lambda k: _SECTORES_LBL[k], key="gs_sector")
+    _sector_sel = st.selectbox(T("Tu rubro:", "Your sector:"), list(_SECTORES_LBL.keys()),
+                               format_func=lambda k: _SECTORES_LBL[k], key="gs_sector")
+    if _sector_sel == "otro":
+        _otro = st.text_input(T("¿Cuál es tu rubro?", "What's your sector?"),
+                              placeholder=T("Ej: mascotas, ferretería, cosmética...", "Ex: pets, hardware, cosmetics..."),
+                              key="gs_sector_otro")
+        st.caption("ℹ️ " + T("Para tu rubro usaré referencias generales de e-commerce (funciona igual). "
+                             "El Gemelo se afina con TUS datos reales, no con el rubro.",
+                             "I'll use general e-commerce benchmarks for your sector (works the same). "
+                             "The Twin sharpens with YOUR real data, not the sector."))
+        _sector = G.SECTOR_DEFAULT
+    else:
+        _sector = _sector_sel
 
     semanas = []  # son MESES (el motor es agnóstico al periodo)
     _df = None
@@ -158,9 +188,14 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
                      "Ventas": float(r.get("Ventas", 0) or 0)} for i, r in enumerate(_saved)])
             else:
                 st.session_state[_key] = pd.DataFrame(
-                    [{"Mes": f"Mes {i}", "Inversión en ads": 0.0, "Ventas": 0.0} for i in range(1, 4)])
+                    [{"Mes": _m, "Inversión en ads": 0.0, "Ventas": 0.0}
+                     for _m in _meses_recientes(3)])
         _df = st.data_editor(st.session_state[_key], num_rows="dynamic",
                              use_container_width=True, key="gs_editor")
+        st.caption("➕ " + T("¿Quieres agregar más meses? Escribe en la fila vacía del final de la tabla "
+                             "(se agregan solas). Mientras más meses, más preciso.",
+                             "Want more months? Type in the empty row at the bottom of the table "
+                             "(rows add themselves). More months = more precise."))
         _c1, _c2 = st.columns(2)
         _precio_def = _c1.number_input(
             T(f"Precio promedio de lo que vendes ({moneda})", f"Avg selling price ({moneda})"),
@@ -283,8 +318,13 @@ def _render_simple_zona(supabase, generar_texto, user_email, marca, moneda, T, l
         min_value=0.0, value=8000.0, step=500.0, key="gsz_cli",
         help=T("Si no sabes el número exacto, pon un estimado del tamaño del mercado de esa zona.",
                "If you don't know the exact number, estimate the market size of that area."))
-    _pen = st.slider(T("% que esperas captar", "% you expect to capture"),
-                     0.0, 20.0, 3.0, step=0.5, key="gsz_pen")
+    _pen = st.slider(
+        T("De cada 100 clientes posibles, ¿cuántos crees que te comprarán? (%)",
+          "Of every 100 possible customers, how many do you think will buy? (%)"),
+        0.0, 20.0, 3.0, step=0.5, key="gsz_pen",
+        help=T("Es tu % de captación. Ejemplo: 3 = de cada 100 personas de la zona, 3 te compran. "
+               "Para un negocio nuevo lo normal es entre 1% y 5%.",
+               "Your capture rate. Example: 3 = of every 100 people, 3 buy from you. New business: usually 1%-5%."))
     _inv = st.number_input(T(f"Inversión mensual para operar ahí ({moneda})", f"Monthly investment to operate there ({moneda})"),
                            min_value=0.0, value=1500.0, step=100.0, key="gsz_inv")
 
@@ -737,15 +777,20 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
     # Comparación de precio (solo decisión de precio)
     _comp = r.get("comparacion")
     if _comp:
+        def _n(x):
+            try:
+                return float(x)
+            except (TypeError, ValueError):
+                return 0.0
         st.markdown(f"#### 🏷 {T('Precio actual vs nuevo', 'Current vs new price')}")
         _pa, _pb = st.columns(2)
-        _pa.metric(f"{moneda}{r.get('precio_actual', 0):.0f} " + T("(actual)", "(current)"),
-                   f"{_comp['ventas_actual']:.0f} " + T("ventas", "sales"),
-                   f"{moneda}{_comp['utilidad_actual']:.0f} " + T("utilidad", "profit"))
-        _pb.metric(f"{moneda}{r.get('precio_nuevo', 0):.0f} " + T("(nuevo)", "(new)"),
-                   f"{_comp['ventas_nueva']:.0f} " + T("ventas", "sales"),
-                   f"{moneda}{_comp['utilidad_nueva']:.0f}",
-                   delta=f"{_comp['mejora']:+.0f} " + T("utilidad", "profit"))
+        _pa.metric(f"{moneda}{_n(r.get('precio_actual')):.0f} " + T("(actual)", "(current)"),
+                   f"{_n(_comp.get('ventas_actual')):.0f} " + T("ventas", "sales"),
+                   f"{moneda}{_n(_comp.get('utilidad_actual')):.0f} " + T("utilidad", "profit"))
+        _pb.metric(f"{moneda}{_n(r.get('precio_nuevo')):.0f} " + T("(nuevo)", "(new)"),
+                   f"{_n(_comp.get('ventas_nueva')):.0f} " + T("ventas", "sales"),
+                   f"{moneda}{_n(_comp.get('utilidad_nueva')):.0f}",
+                   delta=f"{_n(_comp.get('mejora')):+.0f} " + T("utilidad", "profit"))
 
     # Proyección 6/12 meses (si mantiene el ritmo)
     _proy = r.get("proyeccion")
@@ -847,20 +892,36 @@ _DECISION_TXT = {
 
 def _explicar_ia(generar_texto, r, marca, moneda, T):
     """La IA SOLO explica los números que ya calculó el motor (nunca inventa)."""
+    def _n(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return 0.0
+
     v, ing, ut = r["ventas"], r["ingresos"], r["utilidad"]
     ver = r.get("veredicto", {})
     tipo = r.get("tipo", "presupuesto")
     _extra = ""
     if r.get("asignacion"):
-        _extra = "- Reparto recomendado: " + ", ".join(f"{c}: {moneda}{g:.0f}" for c, g in r["asignacion"].items()) + "\n"
+        _extra = "- Reparto recomendado: " + ", ".join(f"{c}: {moneda}{_n(g):.0f}" for c, g in r["asignacion"].items()) + "\n"
     elif r.get("comparacion"):
         _c = r["comparacion"]
-        _extra = (f"- Precio actual {moneda}{r.get('precio_actual', 0):.0f} da utilidad {moneda}{_c['utilidad_actual']:.0f}; "
-                  f"precio nuevo {moneda}{r.get('precio_nuevo', 0):.0f} da {moneda}{_c['utilidad_nueva']:.0f} "
-                  f"(cambio {_c['mejora']:+.0f}).\n")
+        _extra = (f"- Precio actual {moneda}{_n(r.get('precio_actual')):.0f} da utilidad {moneda}{_n(_c.get('utilidad_actual')):.0f}; "
+                  f"precio nuevo {moneda}{_n(r.get('precio_nuevo')):.0f} da {moneda}{_n(_c.get('utilidad_nueva')):.0f} "
+                  f"(cambio {_n(_c.get('mejora')):+.0f}).\n")
+    _zona = (r.get("distrito") or r.get("ciudad") or "").strip()
+    if _zona:
+        _extra += (f"- Zona/distrito indicado por el usuario: {_zona}. (No tenemos datos reales de esa "
+                   "zona; es un estimado por supuestos. NO inventes datos de esa zona, solo nómbrala.)\n")
+    # La IA DEBE saber en qué fecha estamos (si no, sugiere campañas que ya pasaron).
+    _mes_es = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+               "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    _hoy = datetime.now()
+    _fecha_txt = f"{_hoy.day} de {_mes_es[_hoy.month - 1]} de {_hoy.year}"
     prompt = (
         "Eres un analista de negocio. Explica en español simple, en MÁXIMO 150 palabras, "
         "este resultado de una simulación. NO inventes números ni nombres: usa SOLO estos.\n"
+        f"- HOY es {_fecha_txt} (estamos en {_mes_es[_hoy.month - 1]}). Esta es la fecha ACTUAL.\n"
         f"- Marca: {marca}\n"
         f"- Decisión analizada: {_DECISION_TXT.get(tipo, tipo)}\n"
         f"- Veredicto del motor: {ver.get('icono', '')} {ver.get('titulo', '')} ({ver.get('razon', '')})\n"
@@ -870,8 +931,10 @@ def _explicar_ia(generar_texto, r, marca, moneda, T):
         "Formato EXACTO (sin encabezados markdown):\n"
         "1) Una frase que explique el veredicto y el rango en lenguaje de dueño de negocio.\n"
         "2) Una frase con el porqué (qué mueve el resultado).\n"
-        "3) UNA acción concreta para esta semana.\n"
-        "Directo y honesto; si el veredicto es ⚠️ o ❌, dilo claro, no lo adornes."
+        "3) UNA acción concreta para los próximos días.\n"
+        "REGLA DE FECHA: solo menciona campañas o temporadas que vienen DESPUÉS de hoy "
+        "(ej. las próximas según el calendario). NUNCA sugieras aprovechar una fecha o campaña "
+        "que YA PASÓ este año. Directo y honesto; si el veredicto es ⚠️ o ❌, dilo claro."
     )
     try:
         out = generar_texto(prompt, max_out=1200, temperatura=0.3)
