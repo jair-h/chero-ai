@@ -50,6 +50,15 @@ def _noop(*_a, **_k):
     return None
 
 
+def _num(x, d=0.0):
+    """Convierte a float de forma segura (None/str/'' -> d). Evita que un valor
+    raro en un resultado reviente el formateo (:.0f) de la pantalla."""
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return d
+
+
 def render(*, supabase=None, generar_texto=None, user_email="", marca="",
            sector_nicho="", moneda="S/", lang="es", log=None, historial_activo=True,
            store_config_fn=None):
@@ -138,7 +147,10 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
                  "Answer 3 things and I'll give you a realistic sales range (not a made-up number)."))
 
     # Confianza: precisión acumulada del Gemelo (predicho vs. real)
-    _panel_precision(supabase, user_email, moneda, T, log)
+    try:
+        _panel_precision(supabase, user_email, moneda, T, log)
+    except Exception:
+        log("panel_precision")
 
     # ── 1. ¿Qué quieres saber? ───────────────────────────────────────────────
     st.markdown("##### 1. " + T("¿Qué quieres saber?", "What do you want to know?"))
@@ -340,7 +352,12 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
     # ── Resultado AQUÍ MISMO (misma pantalla, sin saltar pestañas) ───────────
     if st.session_state.get("gemelo_resultado"):
         st.divider()
-        _tab_resultado(marca, moneda, T, generar_texto)
+        try:
+            _tab_resultado(marca, moneda, T, generar_texto)
+        except Exception as _e:
+            log("gemelo_render")
+            st.error(T("No pude mostrar el resultado. Comparte este detalle con tu equipo: ",
+                       "Couldn't show the result. Share this detail: ") + f"`{type(_e).__name__}: {_e}`")
 
 
 def _render_simple_zona(supabase, generar_texto, user_email, marca, moneda, T, log):
@@ -390,7 +407,12 @@ def _render_simple_zona(supabase, generar_texto, user_email, marca, moneda, T, l
 
     if st.session_state.get("gemelo_resultado"):
         st.divider()
-        _tab_resultado(marca, moneda, T, generar_texto)
+        try:
+            _tab_resultado(marca, moneda, T, generar_texto)
+        except Exception as _e:
+            log("gemelo_render")
+            st.error(T("No pude mostrar el resultado. Comparte este detalle con tu equipo: ",
+                       "Couldn't show the result. Share this detail: ") + f"`{type(_e).__name__}: {_e}`")
 
 
 def _registrar_venta_real(supabase, email, sim_id, venta, log):
@@ -835,13 +857,16 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
     else:
         _titulo_pred = T("Predicción de esta semana", "This week prediction")
     st.markdown("### " + _titulo_pred)
+    _p10, _p50, _p90 = _num(v.get("p10")), _num(v.get("p50")), _num(v.get("p90"))
+    _ing = _num((r.get("ingresos") or {}).get("p50"))
+    _uti = _num((r.get("utilidad") or {}).get("p50"))
     _c1, _c2, _c3 = st.columns(3)
-    _c1.metric(T("Pesimista", "Pessimistic"), f"{v['p10']:.0f}")
-    _c2.metric(T("Más probable", "Most likely"), f"{v['p50']:.0f}", T("ventas", "sales"))
-    _c3.metric(T("Optimista", "Optimistic"), f"{v['p90']:.0f}")
-    st.markdown(f"**{T('Rango de ventas', 'Sales range')}: {v['p10']:.0f} – {v['p90']:.0f}** · "
-                f"{T('Ingresos', 'Revenue')} ≈ {moneda}{r['ingresos']['p50']:.0f} · "
-                f"{T('Utilidad', 'Profit')} ≈ {moneda}{r['utilidad']['p50']:.0f}")
+    _c1.metric(T("Pesimista", "Pessimistic"), f"{_p10:.0f}")
+    _c2.metric(T("Más probable", "Most likely"), f"{_p50:.0f}", T("ventas", "sales"))
+    _c3.metric(T("Optimista", "Optimistic"), f"{_p90:.0f}")
+    st.markdown(f"**{T('Rango de ventas', 'Sales range')}: {_p10:.0f} – {_p90:.0f}** · "
+                f"{T('Ingresos', 'Revenue')} ≈ {moneda}{_ing:.0f} · "
+                f"{T('Utilidad', 'Profit')} ≈ {moneda}{_uti:.0f}")
     if r.get("fuente") == "benchmark":
         st.caption("⚠ " + T("Basado en benchmarks del sector (sin tus datos aún).",
                              "Based on sector benchmarks (no data from you yet)."))
