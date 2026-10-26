@@ -189,6 +189,32 @@ def test_stores():
     lineas, err = S.fetch_woocommerce_products("mitienda.com", "ck", "cs", "S/")
     check(err is None and lineas == ["Cacao - S/5"], "WooCommerce parsea nombre y precio")
 
+    # Ventas por mes (autollenado del Gemelo): suma pedidos reales, ignora cancelados
+    from datetime import datetime as _dt
+    _now = _dt.now()
+    _ym_now = _now.strftime("%Y-%m")
+    _lm, _ly = (_now.month - 1, _now.year) if _now.month > 1 else (12, _now.year - 1)
+    _ym_last = f"{_ly:04d}-{_lm:02d}"
+
+    def router_woo_sales(method, url, kw):
+        if "/wp-json/wc/v3/orders" in url:
+            if kw.get("params", {}).get("page", 1) != 1:
+                return FakeResp(200, [])
+            return FakeResp(200, [
+                {"status": "completed", "total": "100.00", "date_paid": _ym_now + "-05T10:00:00"},
+                {"status": "processing", "total": "50.00", "date_created": _ym_now + "-06T10:00:00"},
+                {"status": "cancelled", "total": "999.00", "date_created": _ym_now + "-07T10:00:00"},
+                {"status": "completed", "total": "80.00", "date_paid": _ym_last + "-10T10:00:00"},
+            ])
+        return FakeResp(500, {}, "err")
+    S.requests = FakeRequests(router_woo_sales)
+    filas, err = S.fetch_woocommerce_sales_by_month("mitienda.com", "ck", "cs", meses=3)
+    _d = {f["ym"]: f["ventas"] for f in filas}
+    check(err is None and _d.get(_ym_now) == 150.0, "ventas del mes suma completed+processing")
+    check(_d.get(_ym_last) == 80.0, "ventas del mes anterior correctas")
+    check(len(filas) == 3 and all("mes" in f for f in filas), "devuelve 3 meses con etiqueta legible")
+    check(999.0 not in _d.values(), "ignora pedidos cancelados")
+
 
 def test_agents():
     print("\n[6] capa de agentes")

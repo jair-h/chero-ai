@@ -7671,6 +7671,7 @@ if _sec_activa == "gemelo":
         lang=st.session_state.get("lang", "es"),
         log=_ignorar_error,
         historial_activo=plan_permite("gemelo_historial"),   # el "completo" (Pro+)
+        store_config_fn=obtener_config_tienda,   # autollenar ventas desde la tienda
     )
 
 st.markdown("---")

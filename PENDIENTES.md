@@ -61,4 +61,13 @@ Ajustar `PRECIOS_USA` y `_PAISES_ALTO_INGRESO` en app.py si cambias la tabla.
 - VER: Search Console, Meta/Google/TikTok Ads (gasto/ROAS), Clarity (parcial).
 - HACER: lanzar/ajustar ads, editar web (Shopify/WordPress/VTEX), publicar
   (redes/WhatsApp/email).
-- Autollenado del Gemelo desde las APIs de ads (que deje de pedir datos a mano).
+
+## ✅ Autollenado del Gemelo (ventas) — HECHO (WooCommerce)
+El Gemelo ya trae las VENTAS reales por mes desde la tienda conectada
+(`fetch_woocommerce_sales_by_month`), con el botón "📥 Traer mis ventas de mi
+tienda" en Mis datos. Suma pedidos completed/processing, ignora cancelados.
+PENDIENTE para completar el autollenado:
+- **Inversión en ads** (aún a mano): falta conectar Meta/Google/TikTok Ads
+  para traer gasto/ROAS y autollenar esa columna.
+- **Shopify/otras**: hoy el autollenado de ventas es solo WooCommerce; falta
+  el equivalente con la Orders API de Shopify y otras plataformas.
