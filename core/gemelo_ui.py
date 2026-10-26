@@ -133,6 +133,9 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
     st.caption(T("Responde 3 cosas y te doy un rango realista de ventas (no un número inventado).",
                  "Answer 3 things and I'll give you a realistic sales range (not a made-up number)."))
 
+    # Confianza: precisión acumulada del Gemelo (predicho vs. real)
+    _panel_precision(supabase, user_email, moneda, T, log)
+
     # ── 1. ¿Qué quieres saber? ───────────────────────────────────────────────
     st.markdown("##### 1. " + T("¿Qué quieres saber?", "What do you want to know?"))
     _pregunta = st.radio("pregunta", list(_PREGUNTAS_SIMPLE),
@@ -346,6 +349,72 @@ def _render_simple_zona(supabase, generar_texto, user_email, marca, moneda, T, l
     if st.session_state.get("gemelo_resultado"):
         st.divider()
         _tab_resultado(marca, moneda, T, generar_texto)
+
+
+def _registrar_venta_real(supabase, email, sim_id, venta, log):
+    """Guarda la venta real de una predicción pasada, para medir la precisión."""
+    if not supabase or sim_id is None:
+        return False
+    try:
+        supabase.table("gemelo_simulaciones").update(
+            {"ventas_reales_posterior": float(venta)}).eq("id", sim_id).eq("user_id", email).execute()
+        return True
+    except Exception:
+        log("registrar_venta_real")
+        return False
+
+
+def _panel_precision(supabase, user_email, moneda, T, log):
+    """Precisión acumulada del Gemelo (predicho vs. real) + registro de ventas
+    reales de predicciones de mes/campaña pasadas. Es la feature de confianza:
+    "el mes pasado predije X, vendiste Y, acerté Z%"."""
+    filas = _cargar_simulaciones(supabase, user_email, log)
+    if not filas:
+        return
+    _precisiones, _pendientes = [], []
+    for f in filas:
+        try:
+            _par = f.get("parametros_json")
+            _par = json.loads(_par) if isinstance(_par, str) else (_par or {})
+            if _par.get("tipo", "") not in ("presupuesto", "campana"):
+                continue  # solo una predicción de ventas de un periodo es verificable
+            _res = f.get("resultado_json")
+            _res = json.loads(_res) if isinstance(_res, str) else (_res or {})
+            _v = _res.get("ventas", {})
+            _real = f.get("ventas_reales_posterior")
+            if _real is not None:
+                _precisiones.append(G.precision(_v.get("p10", 0), _v.get("p90", 0), _real))
+            else:
+                _pendientes.append((f.get("id"), f.get("fecha_sim", ""),
+                                    float(_v.get("p10", 0) or 0), float(_v.get("p90", 0) or 0)))
+        except Exception:
+            log("panel_precision_fila")
+
+    if _precisiones:
+        _avg = sum(_precisiones) / len(_precisiones)
+        st.success("📈 " + T(
+            f"**Precisión del Gemelo: {_avg:.0f}%** — de {len(_precisiones)} predicción(es) que ya comparaste con tus ventas reales.",
+            f"**Twin accuracy: {_avg:.0f}%** — from {len(_precisiones)} prediction(s) you compared with real sales."))
+    elif _pendientes:
+        st.info("📈 " + T("Registra tus ventas reales (abajo) para empezar a medir qué tan preciso es tu Gemelo.",
+                          "Log your real sales (below) to start measuring your Twin's accuracy."))
+
+    if _pendientes:
+        with st.expander("✅ " + T(f"Registrar mis ventas reales ({len(_pendientes)} pendiente(s))",
+                                   f"Log my real sales ({len(_pendientes)} pending)")):
+            st.caption(T("Cuando termine el periodo, pon cuánto vendiste de verdad. Así el Gemelo mide su precisión.",
+                         "When the period ends, enter what you really sold. That's how the Twin measures its accuracy."))
+            for _id, _fecha, _p10, _p90 in _pendientes[:8]:
+                _ca, _cb, _cc = st.columns([3, 2, 1])
+                _ca.markdown(T(f"**{_fecha}** · predije {_p10:.0f}–{_p90:.0f}",
+                               f"**{_fecha}** · predicted {_p10:.0f}–{_p90:.0f}"))
+                _vr = _cb.number_input(T("Venta real", "Real sales"), min_value=0.0, value=0.0,
+                                       step=10.0, key=f"vr_{_id}", label_visibility="collapsed")
+                if _cc.button(T("Guardar", "Save"), key=f"vrbtn_{_id}"):
+                    if _vr > 0 and _registrar_venta_real(supabase, user_email, _id, _vr, log):
+                        st.rerun()
+                    else:
+                        st.warning(T("Pon una venta real mayor que 0.", "Enter real sales > 0."))
 
 
 # ──────────────────────────────────────────────────────────────────────────
