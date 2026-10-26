@@ -7661,18 +7661,25 @@ if _sec_activa == "admin_dashboard":
 
 # ── SECCIÓN: GEMELO DIGITAL (módulo nuevo) ──────────────────────────────────
 if _sec_activa == "gemelo":
-    _gemelo_ui.render(
-        supabase=supabase,
-        generar_texto=generar_texto,
-        user_email=(st.session_state.get("user_email") or "").strip().lower(),
-        marca=st.session_state.get("marca_guardada", ""),
-        sector_nicho=st.session_state.get("nicho_guardado", ""),
-        moneda=get_contexto_pais(st.session_state.get("pais_guardado", ""))["moneda"],
-        lang=st.session_state.get("lang", "es"),
-        log=_ignorar_error,
-        historial_activo=plan_permite("gemelo_historial"),   # el "completo" (Pro+)
-        store_config_fn=obtener_config_tienda,   # autollenar ventas desde la tienda
-    )
+    try:
+        _gemelo_ui.render(
+            supabase=supabase,
+            generar_texto=generar_texto,
+            user_email=(st.session_state.get("user_email") or "").strip().lower(),
+            marca=st.session_state.get("marca_guardada", ""),
+            sector_nicho=st.session_state.get("nicho_guardado", ""),
+            moneda=get_contexto_pais(st.session_state.get("pais_guardado", ""))["moneda"],
+            lang=st.session_state.get("lang", "es"),
+            log=_ignorar_error,
+            historial_activo=plan_permite("gemelo_historial"),   # el "completo" (Pro+)
+            store_config_fn=obtener_config_tienda,   # autollenar ventas desde la tienda
+        )
+    except Exception as _e_gem:
+        import traceback as _tb_gem
+        st.error("⚠️ El Gemelo tuvo un problema. Intenta de nuevo; si sigue, comparte el detalle de abajo.")
+        with st.expander("🔧 Detalle técnico (compártelo con tu equipo)"):
+            st.code(f"{type(_e_gem).__name__}: {_e_gem}\n\n{_tb_gem.format_exc()}")
+        _ignorar_error()
 
 st.markdown("---")
 # ✅ FIX: alcance leído desde session_state para el footer (nunca da NameError)
