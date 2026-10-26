@@ -11,10 +11,17 @@ Cada función devuelve:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import requests
 
 SHOPIFY_API_VERSION = "2024-01"
 _TIMEOUT = 15
+
+_MES_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
+           "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+# Estados de pedido que cuentan como venta real (no cancelados/fallidos/pendientes).
+_WOO_ESTADOS_VENTA = ("completed", "processing")
 
 
 def _normalizar_base(url: str) -> str:
@@ -70,3 +77,71 @@ def fetch_woocommerce_products(url: str, consumer_key: str, consumer_secret: str
         return lineas, None
     except Exception as ex:  # noqa: BLE001 - se reporta al usuario
         return [], f"Error: {ex}"
+
+
+def fetch_woocommerce_sales_by_month(url: str, consumer_key: str, consumer_secret: str,
+                                     meses: int = 6, max_paginas: int = 15):
+    """Lee los pedidos de WooCommerce y suma las VENTAS por mes (últimos `meses`).
+
+    Sirve para autollenar el Gemelo con ventas reales. Solo cuenta pedidos en
+    estado de venta real (completado / en proceso), ignorando cancelados,
+    reembolsados, fallidos y pendientes. Devuelve (filas, error):
+        filas: [{"mes": "Jul 2026", "ventas": <float>, "ym": "2026-07"}, ...]
+               de más antiguo a más reciente, un item por cada uno de los
+               últimos `meses` (relleno con 0 si ese mes no tuvo ventas).
+    """
+    base = _normalizar_base(url)
+    ck, cs = (consumer_key or "").strip(), (consumer_secret or "").strip()
+    if not base or not ck or not cs:
+        return [], "Faltan la URL, Consumer Key o Consumer Secret de WooCommerce."
+
+    hoy = datetime.now(timezone.utc)
+    # Mes inicial de la ventana (meses-1 atrás del actual).
+    _mm, _yy = hoy.month - (meses - 1), hoy.year
+    while _mm <= 0:
+        _mm += 12
+        _yy -= 1
+    desde = f"{_yy:04d}-{_mm:02d}-01T00:00:00"
+
+    acum: dict[str, float] = {}
+    try:
+        for page in range(1, int(max_paginas) + 1):
+            r = requests.get(
+                f"{base}/wp-json/wc/v3/orders",
+                params={"per_page": 100, "page": page, "after": desde,
+                        "status": "any", "orderby": "date", "order": "asc"},
+                auth=(ck, cs), timeout=_TIMEOUT,
+            )
+            if r.status_code != 200:
+                return [], f"Error {r.status_code}: {str(r.text)[:200]}"
+            pedidos = r.json() or []
+            if not pedidos:
+                break
+            for o in pedidos:
+                if o.get("status") not in _WOO_ESTADOS_VENTA:
+                    continue
+                ym = str(o.get("date_paid") or o.get("date_created") or "")[:7]
+                if len(ym) != 7:
+                    continue
+                try:
+                    total = float(o.get("total", 0) or 0)
+                except (TypeError, ValueError):
+                    total = 0.0
+                acum[ym] = acum.get(ym, 0.0) + total
+            if len(pedidos) < 100:
+                break
+    except Exception as ex:  # noqa: BLE001 - se reporta al usuario
+        return [], f"Error: {ex}"
+
+    filas = []
+    for k in range(int(meses)):
+        cm, cy = hoy.month - (meses - 1) + k, hoy.year
+        while cm <= 0:
+            cm += 12
+            cy -= 1
+        while cm > 12:
+            cm -= 12
+            cy += 1
+        ym = f"{cy:04d}-{cm:02d}"
+        filas.append({"mes": f"{_MES_ES[cm - 1]} {cy}", "ventas": round(acum.get(ym, 0.0), 2), "ym": ym})
+    return filas, None

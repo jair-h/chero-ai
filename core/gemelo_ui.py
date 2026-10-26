@@ -17,6 +17,7 @@ import streamlit as st
 from core import gemelo as G
 from core import gemelo_card as GC
 from core import gemelo_personas as GP
+from integrations import stores as _stores
 
 _SECTORES_LBL = {
     "retail_moda": "Retail / Moda",
@@ -50,7 +51,8 @@ def _noop(*_a, **_k):
 
 
 def render(*, supabase=None, generar_texto=None, user_email="", marca="",
-           sector_nicho="", moneda="S/", lang="es", log=None, historial_activo=True):
+           sector_nicho="", moneda="S/", lang="es", log=None, historial_activo=True,
+           store_config_fn=None):
     """Dibuja el Gemelo Digital. Dependencias inyectadas (ver docstring)."""
     log = log or _noop
     _en = (lang == "en")
@@ -78,7 +80,8 @@ def render(*, supabase=None, generar_texto=None, user_email="", marca="",
           "⚙️ Advanced mode (more decisions, history, team)"),
         value=st.session_state.get("gemelo_avanzado", False), key="gemelo_avanzado")
     if not _avanzado:
-        _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, moneda, T, log)
+        _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, moneda, T, log,
+                       store_config_fn=store_config_fn)
         return
 
     tabs = st.tabs([T("📥 Mis datos", "📥 My data"), T("🎛 Simular", "🎛 Simulate"),
@@ -125,7 +128,8 @@ _PREGUNTAS_SIMPLE = {
 }
 
 
-def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, moneda, T, log):
+def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, moneda, T, log,
+                   store_config_fn=None):
     """El Gemelo en UNA pantalla: 3 preguntas, calcula y muestra el resultado
     ahí mismo. En MESES (no semanas) y con camino para negocios sin datos."""
     import pandas as pd
@@ -199,6 +203,44 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
                              "(se agregan solas). Mientras más meses, más preciso.",
                              "Want more months? Type in the empty row at the bottom of the table "
                              "(rows add themselves). More months = more precise."))
+        if st.session_state.pop("gs_autofill_ok", False):
+            st.success("✅ " + T("Ventas traídas de tu tienda. Revisa los meses y agrega tu inversión en ads.",
+                                 "Sales pulled from your store. Review the months and add your ad spend."))
+        # Autollenar las VENTAS desde la tienda conectada (hoy: WooCommerce)
+        if store_config_fn:
+            st.caption("💡 " + T("Puedo traer tus VENTAS reales desde tu tienda. La inversión en ads la pones tú "
+                                 "(pronto también será automática).",
+                                 "I can pull your real SALES from your store. Ad spend you enter yourself "
+                                 "(soon automatic too)."))
+            if st.button("📥 " + T("Traer mis ventas de mi tienda", "Pull my sales from my store"),
+                         key="gs_autofill", use_container_width=True):
+                _cfg = None
+                try:
+                    _cfg = store_config_fn(user_email)
+                except Exception:
+                    log("gs_store_cfg")
+                if not _cfg:
+                    st.warning(T("No encuentro tu tienda conectada. Conéctala en 📋 Gestión → Integraciones.",
+                                 "No connected store found. Connect it in Management → Integrations."))
+                elif _cfg.get("plataforma") != "WooCommerce":
+                    st.info(T(f"Por ahora el autollenado funciona con WooCommerce (tu tienda es {_cfg.get('plataforma', '—')}).",
+                              f"Auto-fill currently supports WooCommerce (your store is {_cfg.get('plataforma', '—')})."))
+                else:
+                    with st.spinner(T("Leyendo tus ventas de WooCommerce...", "Reading your WooCommerce sales...")):
+                        _filas, _err = _stores.fetch_woocommerce_sales_by_month(
+                            _cfg.get("url", ""), _cfg.get("consumer_key", ""),
+                            _cfg.get("consumer_secret", ""), meses=6)
+                    if _err:
+                        st.error(T("No pude traer las ventas: ", "Couldn't fetch sales: ") + _err)
+                    elif not any(f["ventas"] > 0 for f in (_filas or [])):
+                        st.warning(T("Tu tienda respondió, pero no veo ventas en los últimos meses. Llénalas a mano.",
+                                     "Store responded but no sales in recent months. Fill them manually."))
+                    else:
+                        st.session_state[_key] = pd.DataFrame(
+                            [{"Mes": f["mes"], "Inversión en ads": 0.0, "Ventas": f["ventas"]} for f in _filas])
+                        st.session_state.pop("gs_editor", None)  # re-inicializa el editor con lo traído
+                        st.session_state["gs_autofill_ok"] = True
+                        st.rerun()
         _c1, _c2 = st.columns(2)
         _precio_def = _c1.number_input(
             T(f"Precio promedio de lo que vendes ({moneda})", f"Avg selling price ({moneda})"),
