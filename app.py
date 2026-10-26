@@ -6082,6 +6082,22 @@ Sé muy específico con los números que ves en la imagen."""
                     _gc7.metric("Páginas/sesión" if not _is_en_int else "Pages/session", f"{_tt['pagesPerSession']}")
                     _gc8.metric("Engagement" if not _is_en_int else "Engagement", f"{_tt['engagementRate']}%")
 
+                    # 🛒 Ventas (ecommerce) — solo si GA4 reporta compras reales
+                    if _tt.get("ingresos", 0) > 0 or _tt.get("transacciones", 0) > 0:
+                        st.markdown("##### 🛒 Ventas (ecommerce)" if not _is_en_int else "##### 🛒 Sales (ecommerce)")
+                        _ge1, _ge2, _ge3 = st.columns(3)
+                        _ge1.metric("Ingresos" if not _is_en_int else "Revenue", f"{_tt.get('ingresos', 0):,.0f}")
+                        _ge2.metric("Transacciones" if not _is_en_int else "Transactions", f"{_tt.get('transacciones', 0):,}")
+                        _ge3.metric("Ticket promedio" if not _is_en_int else "Avg. order value", f"{_tt.get('ticketPromedio', 0):,.2f}")
+                        st.caption("Montos en la moneda configurada en tu Google Analytics."
+                                   if not _is_en_int else "Amounts in the currency set in your Google Analytics.")
+                    else:
+                        st.caption("ℹ️ Tu Analytics no está reportando ventas (ecommerce). Si vendes online, activa el "
+                                   "seguimiento de ecommerce en GA4 para ver aquí tus ingresos y ticket promedio."
+                                   if not _is_en_int else
+                                   "ℹ️ Your Analytics isn't reporting ecommerce sales. If you sell online, enable "
+                                   "ecommerce tracking in GA4 to see revenue and average order value here.")
+
                     try:
                         import plotly.express as px
                         import pandas as _pd
@@ -6131,6 +6147,7 @@ Sé muy específico con los números que ves en la imagen."""
                             f"- Sesiones: {_tt['sessions']} | Usuarios activos: {_tt['activeUsers']} | Nuevos: {_tt['newUsers']}\n"
                             f"- Vistas: {_tt['pageViews']} | Rebote: {_tt['bounceRate']}% | Engagement: {_tt['engagementRate']}%\n"
                             f"- Duración prom.: {_tt['avgDuration']}s | Páginas/sesión: {_tt['pagesPerSession']}\n"
+                            f"- Ventas (ecommerce): ingresos {_tt.get('ingresos', 0)}, transacciones {_tt.get('transacciones', 0)}, ticket promedio {_tt.get('ticketPromedio', 0)}\n"
                             f"- Fuentes de tráfico: {_gd.get('canales')}\n"
                             f"- Páginas top: {_gd.get('paginas')}\n"
                             f"- Países: {_gd.get('paises')} | Dispositivos: {_gd.get('dispositivos')}\n"

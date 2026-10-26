@@ -113,7 +113,8 @@ def test_ga4_report():
     reports = {"reports": [
         {"rows": [{"metricValues": [
             {"value": "1000"}, {"value": "800"}, {"value": "300"}, {"value": "2500"},
-            {"value": "0.45"}, {"value": "95"}, {"value": "2.5"}, {"value": "0.62"}]}]},
+            {"value": "0.45"}, {"value": "95"}, {"value": "2.5"}, {"value": "0.62"},
+            {"value": "15000.50"}, {"value": "120"}]}]},
         {"rows": [
             {"dimensionValues": [{"value": "Organic Search"}], "metricValues": [{"value": "500"}]},
             {"dimensionValues": [{"value": "Direct"}], "metricValues": [{"value": "300"}]}]},
@@ -142,6 +143,8 @@ def test_ga4_report():
     check(data["dispositivos"]["mobile"] == 700, "dispositivos")
     check(data["paises"]["Peru"] == 600, "países")
     check(data["serie"][0]["fecha"] == "20251001" and data["serie"][0]["sesiones"] == 50, "serie diaria")
+    check(t["ingresos"] == 15000.5 and t["transacciones"] == 120, "ecommerce: ingresos y transacciones")
+    check(t["ticketPromedio"] == 125.0, "ticket promedio = ingresos/transacciones")
 
     # Error de API: no inventa datos
     def router_err(method, url, kw):
