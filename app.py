@@ -3198,9 +3198,38 @@ if _es_home:
     elif _cm_fase == "done":
         _cm_render_done(_is_en_ui)
 
+    # ── Modo simple del inicio (por defecto): camino guiado, esconde lo avanzado
+    _inicio_avanzado = st.session_state.get("inicio_avanzado", False)
+    if not _inicio_avanzado and _cm_fase not in ("confirmar", "ejecutar", "done"):
+        st.markdown("##### " + ("🚀 Empieza en 3 pasos" if not _is_en_ui else "🚀 Start in 3 steps"))
+        _g1, _g2, _g3 = st.columns(3)
+        with _g1:
+            st.markdown("**1️⃣ " + ("Conecta tu tienda" if not _is_en_ui else "Connect your store") + "**")
+            st.caption("Analytics y tu tienda, para datos reales." if not _is_en_ui
+                       else "Analytics & store, for real data.")
+            if st.button("🔗 " + ("Conectar" if not _is_en_ui else "Connect"),
+                         key="guia_conectar", use_container_width=True):
+                st.session_state.agente_activo = "gestion"
+                st.session_state["sub_gestion"] = ("🔗 Integraciones (tiendas y GA)" if not _is_en_ui
+                                                   else "🔗 Integrations (stores & GA)")
+                st.rerun()
+        with _g2:
+            st.markdown("**2️⃣ " + ("Dime tu objetivo" if not _is_en_ui else "Tell me your goal") + "**")
+            st.caption("Escríbelo en la caja de arriba ⬆️ y pulsa Empezar." if not _is_en_ui
+                       else "Type it in the box above ⬆️ and hit Start.")
+        with _g3:
+            st.markdown("**3️⃣ " + ("Simula tus ventas" if not _is_en_ui else "Simulate your sales") + "**")
+            st.caption("El Gemelo te da un rango realista de ventas." if not _is_en_ui
+                       else "The Twin gives a realistic sales range.")
+            if st.button("🔮 " + ("Simular" if not _is_en_ui else "Simulate"),
+                         key="guia_simular", use_container_width=True):
+                st.session_state.agente_activo = "gemelo"
+                st.rerun()
+        st.divider()
+
     # ── Pulpo interactivo (clic bidireccional, sin recarga) ───────────────────
     _pulpo_ok = _pulpo_component is not None
-    if _cm_fase != "ejecutar":
+    if _inicio_avanzado and _cm_fase != "ejecutar":
         _click_pulpo = None
         if _pulpo_ok:
             try:
@@ -3241,34 +3270,35 @@ if _es_home:
             unsafe_allow_html=True,
         )
 
-    # ── Accesos secundarios: fila compacta centrada, estilo ghost ────────────
-    _ap_lock_home = _plan_ui in ("Free", "Starter")
-    if _es_admin_ui:
-        _cm_pads = st.columns([0.5, 1.3, 1.3, 1.3, 1.3, 0.5])
-        _slots_modo = _cm_pads[1:5]
-    else:
-        _cm_pads = st.columns([1, 1.5, 1.5, 1.5, 1])
-        _slots_modo = _cm_pads[1:4]
-    with _slots_modo[0]:
-        if st.button("🧰 " + ("Herramientas" if not _is_en_ui else "Tools"),
-                     key="btn_modo_herramientas", use_container_width=True):
-            st.session_state["modo_herramientas"] = not st.session_state.get("modo_herramientas", False)
-            st.rerun()
-    with _slots_modo[1]:
-        if st.button(("⚡ Autopiloto" if not _ap_lock_home else "🔒 Autopiloto"),
-                     key="btn_home_autopiloto", use_container_width=True):
-            st.session_state.agente_activo = "autopiloto"
-            st.rerun()
-    with _slots_modo[2]:
-        if st.button("📂 " + ("Reportes" if not _is_en_ui else "Reports"),
-                     key="btn_home_reportes", use_container_width=True):
-            st.session_state.agente_activo = "reportes"
-            st.rerun()
-    if _es_admin_ui:
-        with _slots_modo[3]:
-            if st.button("🛠 Admin", key="btn_home_admin_dash", use_container_width=True):
-                st.session_state.agente_activo = "admin_dashboard"
+    # ── Accesos secundarios (solo modo avanzado): Herramientas/Autopiloto/... ─
+    if _inicio_avanzado:
+        _ap_lock_home = _plan_ui in ("Free", "Starter")
+        if _es_admin_ui:
+            _cm_pads = st.columns([0.5, 1.3, 1.3, 1.3, 1.3, 0.5])
+            _slots_modo = _cm_pads[1:5]
+        else:
+            _cm_pads = st.columns([1, 1.5, 1.5, 1.5, 1])
+            _slots_modo = _cm_pads[1:4]
+        with _slots_modo[0]:
+            if st.button("🧰 " + ("Herramientas" if not _is_en_ui else "Tools"),
+                         key="btn_modo_herramientas", use_container_width=True):
+                st.session_state["modo_herramientas"] = not st.session_state.get("modo_herramientas", False)
                 st.rerun()
+        with _slots_modo[1]:
+            if st.button(("⚡ Autopiloto" if not _ap_lock_home else "🔒 Autopiloto"),
+                         key="btn_home_autopiloto", use_container_width=True):
+                st.session_state.agente_activo = "autopiloto"
+                st.rerun()
+        with _slots_modo[2]:
+            if st.button("📂 " + ("Reportes" if not _is_en_ui else "Reports"),
+                         key="btn_home_reportes", use_container_width=True):
+                st.session_state.agente_activo = "reportes"
+                st.rerun()
+        if _es_admin_ui:
+            with _slots_modo[3]:
+                if st.button("🛠 Admin", key="btn_home_admin_dash", use_container_width=True):
+                    st.session_state.agente_activo = "admin_dashboard"
+                    st.rerun()
 
     # Acceso al Gemelo Digital (módulo nuevo)
     if st.button("🔮 " + ("Gemelo Digital — simula tus ventas" if not _is_en_ui
@@ -3278,7 +3308,7 @@ if _es_home:
         st.rerun()
 
     # ── Modo Herramientas / fallback: tarjetas por agente ────────────────────
-    if st.session_state.get("modo_herramientas") or not _pulpo_ok:
+    if (_inicio_avanzado and st.session_state.get("modo_herramientas")) or not _pulpo_ok:
         st.divider()
         st.markdown("#### 🧰 " + ("Tus agentes y herramientas" if not _is_en_ui else "Your agents and tools"))
         _orden_agentes = ["estrategia", "contenido", "imagenes", "publicidad",
@@ -3299,6 +3329,11 @@ if _es_home:
                         st.session_state["ctx_compartido"] = ""
                         st.rerun()
                     st.caption(_ag_desc)
+
+    # Interruptor discreto: pasar a modo avanzado (todo el equipo de agentes)
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+    st.toggle(("⚙️ Modo avanzado (ver todo mi equipo de agentes)" if not _is_en_ui
+               else "⚙️ Advanced mode (see my whole agent team)"), key="inicio_avanzado")
 
 elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto", "gemelo"):
     if st.button("← " + ("Volver a mis agentes" if not _is_en_ui else "Back to my agents"),
