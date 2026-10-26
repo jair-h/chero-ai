@@ -202,6 +202,8 @@ def fetch_ga4_report(property_id: str, access_token: str, start_date: str = "30d
             {"name": "screenPageViews"}, {"name": "bounceRate"},
             {"name": "averageSessionDuration"}, {"name": "screenPageViewsPerSession"},
             {"name": "engagementRate"},
+            # Ecommerce (0 si la web no mide compras): ingresos y transacciones
+            {"name": "totalRevenue"}, {"name": "transactions"},
         ]},
         # 1) Por canal
         {"dateRanges": rango, "dimensions": [{"name": "sessionDefaultChannelGroup"}],
@@ -237,20 +239,34 @@ def fetch_ga4_report(property_id: str, access_token: str, start_date: str = "30d
         tot_rows = reps[0].get("rows", [])
         if tot_rows:
             tv = tot_rows[0]["metricValues"]
+
+            def _mv(i):
+                """Valor métrico i de forma segura (0 si falta)."""
+                try:
+                    return float(tv[i]["value"])
+                except (IndexError, KeyError, TypeError, ValueError):
+                    return 0.0
+
+            _ingresos = round(_mv(8), 2)
+            _trans = int(_mv(9))
             totales = {
-                "sessions": int(float(tv[0]["value"])),
-                "activeUsers": int(float(tv[1]["value"])),
-                "newUsers": int(float(tv[2]["value"])),
-                "pageViews": int(float(tv[3]["value"])),
-                "bounceRate": round(float(tv[4]["value"]) * 100, 1),
-                "avgDuration": int(float(tv[5]["value"])),
-                "pagesPerSession": round(float(tv[6]["value"]), 2),
-                "engagementRate": round(float(tv[7]["value"]) * 100, 1),
+                "sessions": int(_mv(0)),
+                "activeUsers": int(_mv(1)),
+                "newUsers": int(_mv(2)),
+                "pageViews": int(_mv(3)),
+                "bounceRate": round(_mv(4) * 100, 1),
+                "avgDuration": int(_mv(5)),
+                "pagesPerSession": round(_mv(6), 2),
+                "engagementRate": round(_mv(7) * 100, 1),
+                "ingresos": _ingresos,
+                "transacciones": _trans,
+                "ticketPromedio": round(_ingresos / _trans, 2) if _trans > 0 else 0.0,
             }
         else:
             totales = {"sessions": 0, "activeUsers": 0, "newUsers": 0, "pageViews": 0,
                        "bounceRate": 0.0, "avgDuration": 0, "pagesPerSession": 0.0,
-                       "engagementRate": 0.0}
+                       "engagementRate": 0.0, "ingresos": 0.0, "transacciones": 0,
+                       "ticketPromedio": 0.0}
 
         def _dim_dict(rep):
             out = {}
