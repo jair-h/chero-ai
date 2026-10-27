@@ -966,14 +966,25 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
                         st.markdown(f"**{_emoji} {_lbl}**")
                         st.write(_op)
 
-    # Tarjeta compartible
+    # 📲 Tarjeta compartible (gancho viral) — prominente y honesta según veredicto
     st.divider()
-    png, err = GC.generar_tarjeta(marca, v["p10"], v["p90"], r.get("semana", ""),
-                                  moneda=moneda, ingresos_p50=r["ingresos"]["p50"])
+    st.markdown("#### 📲 " + T("Comparte tu predicción", "Share your forecast"))
+    _en_card = _en_lang()
+    png, err = GC.generar_tarjeta(marca, _p10, _p90, r.get("semana", ""),
+                                  moneda=moneda, ingresos_p50=_ing,
+                                  veredicto=_ver, periodo=r.get("periodo", "semana"), en=_en_card)
     if png:
-        st.download_button("📤 " + T("Descargar tarjeta para compartir", "Download shareable card"),
-                           data=png, file_name="gemelo_tentakl.png", mime="image/png",
-                           key="gemelo_card_dl", use_container_width=True)
+        _cimg, _cbtn = st.columns([1, 1])
+        with _cimg:
+            st.image(png, use_container_width=True)
+        with _cbtn:
+            st.markdown(T("Descárgala y compártela en WhatsApp, Instagram o tus estados. "
+                          "Cada vez que la compartes, más gente descubre Tentakl. 🐙",
+                          "Download it and share on WhatsApp, Instagram or your stories. "
+                          "Every share helps more people discover Tentakl. 🐙"))
+            st.download_button("📲 " + T("Descargar para compartir", "Download to share"),
+                               data=png, file_name="gemelo_tentakl.png", mime="image/png",
+                               key="gemelo_card_dl", use_container_width=True)
     else:
         st.caption(T("No se pudo generar la tarjeta: ", "Could not generate the card: ") + str(err))
 
