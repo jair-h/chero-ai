@@ -4,8 +4,22 @@
 Conectar tienda/Analytics ya NO requiere Pro: `FUNCION_PLAN_MIN["integraciones"] = "Free"`.
 El anzuelo (conectar + Gemelo básico) es gratis para enganchar; se cobra la
 PROFUNDIDAD (Autopiloto, historial+precisión del Gemelo, multi-cliente).
-Siguiente para amplificar la viralidad: tarjeta compartible del Gemelo más
-visible, alerta semanal de retención, y referidos.
+
+## 📲 Tarjeta compartible del Gemelo — HECHO
+Rediseñada (insignia de veredicto en color, titular que se adapta honestamente),
+mostrada al frente del resultado con botón de compartir. Branding tentakl.ai.
+
+## 🎁 Referidos (invita y gana) — HECHO (sin SQL nuevo)
+Cada usuario tiene su link `?ref=<token>` (en el sidebar: "Invita y gana"). Cuando
+un amigo entra por el link y crea su cuenta, AMBOS ganan `CREDITOS_REFERIDO` (30)
+créditos vía `creditos_extra`. Usa el email codificado en base64 como token.
+Limitación conocida (MVP): no hay anti-abuso fuerte (no registra referido_por);
+el bono se da una vez por alta. Mejoras futuras: registrar referido_por, tope de
+referidos, y requerir que el nuevo haga una acción antes de premiar.
+
+## 🔁 Growth — siguientes
+Alerta semanal de retención ("tus ventas vs. lo que predije"); hacer el link de
+referido parte de la tarjeta compartible automáticamente.
 
 
 ## 🔑 Conectar Google Analytics (OAuth) — PENDIENTE de Jair
