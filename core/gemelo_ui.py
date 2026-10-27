@@ -61,12 +61,14 @@ def _num(x, d=0.0):
 
 def render(*, supabase=None, generar_texto=None, user_email="", marca="",
            sector_nicho="", moneda="S/", lang="es", log=None, historial_activo=True,
-           store_config_fn=None, ref_link=""):
+           store_config_fn=None, ref_link="", cobrar_fn=None):
     """Dibuja el Gemelo Digital. Dependencias inyectadas (ver docstring)."""
     log = log or _noop
     _en = (lang == "en")
     # Link de referido del usuario (para unirlo a la tarjeta compartible)
     st.session_state["_gemelo_ref_link"] = ref_link or ""
+    # Cobro de créditos para la explicación IA (a pedido). El número es gratis.
+    st.session_state["_gemelo_cobrar_fn"] = cobrar_fn
 
     def T(es, en):
         return en if _en else es
@@ -332,7 +334,7 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
         res.update({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "semana": datetime.now().strftime("%b %Y"), "moneda": moneda,
                     "sector": _sector, "precio": _precio, "costo": _costo_def, "periodo": "mes"})
-        res["explicacion"] = _explicar_ia(generar_texto, res, marca, moneda, T) if generar_texto else ""
+        res["explicacion"] = ""   # la explicación IA ahora es a pedido (cuesta 1 crédito)
         st.session_state["gemelo_resultado"] = res
         st.session_state.pop("gemelo_personas", None)
         # Guarda los meses (convertidos al formato del motor) para no perderlos.
@@ -402,7 +404,7 @@ def _render_simple_zona(supabase, generar_texto, user_email, marca, moneda, T, l
             res.update({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "semana": datetime.now().strftime("%b %Y"), "moneda": moneda,
                         "distrito": _distrito, "precio": _precio, "costo": _costo, "periodo": "mes"})
-            res["explicacion"] = _explicar_ia(generar_texto, res, marca, moneda, T) if generar_texto else ""
+            res["explicacion"] = ""   # la explicación IA ahora es a pedido (cuesta 1 crédito)
             st.session_state["gemelo_resultado"] = res
             st.session_state.pop("gemelo_personas", None)
             _guardar_simulacion(supabase, user_email, res, log)
@@ -782,7 +784,7 @@ def _ejecutar_simulacion(tipo, datos, semanas, hay_datos, sector, moneda, ciudad
         "moneda": moneda, "ciudad": ciudad, "distrito": distrito, "sector": sector,
         "precio": precio or datos.get("precio_nuevo", 0), "costo": costo,
     })
-    res["explicacion"] = _explicar_ia(generar_texto, res, marca, moneda, T) if generar_texto else ""
+    res["explicacion"] = ""   # la explicación IA ahora es a pedido (cuesta 1 crédito)
     st.session_state["gemelo_resultado"] = res
     st.session_state.pop("gemelo_personas", None)  # opiniones viejas no aplican a esta sim
     _guardar_simulacion(supabase, user_email, res, log)
@@ -940,23 +942,37 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
         st.caption(T("Estimación lineal del caso probable — no es una promesa.",
                      "Linear estimate of the likely case — not a promise."))
 
-    # Explicación IA
-    if r.get("explicacion"):
+    # Explicación IA — A PEDIDO (el número y la tarjeta son gratis; esto cuesta
+    # 1 crédito). Así un uso viral gratis no dispara el costo de IA.
+    _cobrar = st.session_state.get("_gemelo_cobrar_fn")
+    if generar_texto:
         st.markdown("#### 🧠 " + T("Qué significa", "What it means"))
-        st.markdown(r["explicacion"])
+        if r.get("explicacion"):
+            st.markdown(r["explicacion"])
+        else:
+            if st.button("🧠 " + T("Explícame este resultado (1 crédito)", "Explain this result (1 credit)"),
+                         key="gemelo_explicar_btn", use_container_width=True):
+                if (_cobrar(1) if callable(_cobrar) else True):
+                    with st.spinner(T("Analizando...", "Analyzing...")):
+                        r["explicacion"] = _explicar_ia(generar_texto, r, marca, moneda, T)
+                    st.session_state["gemelo_resultado"] = r
+                    st.rerun()
+            st.caption(T("El número y el rango son gratis. La explicación con IA cuesta 1 crédito.",
+                         "The number and range are free. The AI explanation costs 1 credit."))
 
-    # 👥 Opinión del equipo (agentes-persona, a pedido para no gastar en cada sim)
+    # 👥 Opinión del equipo (agentes-persona, a pedido; cuesta 2 créditos)
     if generar_texto:
         st.divider()
         st.markdown("#### 👥 " + T("Qué opina tu equipo", "What your team thinks"))
         _ops = st.session_state.get("gemelo_personas")
-        if st.button("🗣 " + T("Pedir opinión (comprador · competidor · mercado)",
-                               "Ask the team (buyer · competitor · market)"),
+        if st.button("🗣 " + T("Pedir opinión (comprador · competidor · mercado) — 2 créditos",
+                               "Ask the team (buyer · competitor · market) — 2 credits"),
                      key="gemelo_personas_btn", use_container_width=True):
-            with st.spinner(T("Consultando a tu equipo...", "Asking your team...")):
-                _ops = GP.opiniones_equipo(generar_texto, r, marca, r.get("sector", ""),
-                                           moneda, r.get("ciudad", ""), r.get("distrito", ""))
-                st.session_state["gemelo_personas"] = _ops
+            if (_cobrar(2) if callable(_cobrar) else True):
+                with st.spinner(T("Consultando a tu equipo...", "Asking your team...")):
+                    _ops = GP.opiniones_equipo(generar_texto, r, marca, r.get("sector", ""),
+                                               moneda, r.get("ciudad", ""), r.get("distrito", ""))
+                    st.session_state["gemelo_personas"] = _ops
         if _ops:
             _personas_meta = [("comprador", "🛒", T("Comprador", "Buyer")),
                               ("competidor", "⚔️", T("Competidor", "Competitor")),
