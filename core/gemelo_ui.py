@@ -61,10 +61,12 @@ def _num(x, d=0.0):
 
 def render(*, supabase=None, generar_texto=None, user_email="", marca="",
            sector_nicho="", moneda="S/", lang="es", log=None, historial_activo=True,
-           store_config_fn=None):
+           store_config_fn=None, ref_link=""):
     """Dibuja el Gemelo Digital. Dependencias inyectadas (ver docstring)."""
     log = log or _noop
     _en = (lang == "en")
+    # Link de referido del usuario (para unirlo a la tarjeta compartible)
+    st.session_state["_gemelo_ref_link"] = ref_link or ""
 
     def T(es, en):
         return en if _en else es
@@ -985,6 +987,16 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
             st.download_button("📲 " + T("Descargar para compartir", "Download to share"),
                                data=png, file_name="gemelo_tentakl.png", mime="image/png",
                                key="gemelo_card_dl", use_container_width=True)
+            # 🔗 Mensaje listo para pegar CON tu link de referido (invita y gana)
+            _ref_link = st.session_state.get("_gemelo_ref_link", "")
+            if _ref_link:
+                _msg = T("🔮 Mira lo que mi Gemelo Digital predijo para mi negocio. Pruébalo gratis: ",
+                         "🔮 Look at what my Digital Twin predicted for my business. Try it free: ") + _ref_link
+                st.caption("💬 " + T("Copia este mensaje y pégalo junto con la imagen "
+                                     "(si alguien entra por tu link y crea su cuenta, ambos ganan créditos):",
+                                     "Copy this message and paste it with the image "
+                                     "(if someone joins with your link and signs up, you both get credits):"))
+                st.code(_msg, language=None)
     else:
         st.caption(T("No se pudo generar la tarjeta: ", "Could not generate the card: ") + str(err))
 

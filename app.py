@@ -7796,6 +7796,7 @@ if _sec_activa == "gemelo":
             log=_ignorar_error,
             historial_activo=plan_permite("gemelo_historial"),   # el "completo" (Pro+)
             store_config_fn=obtener_config_tienda,   # autollenar ventas desde la tienda
+            ref_link=mi_link_referido(),   # unir el link de referido a la tarjeta
         )
     except Exception as _e_gem:
         import traceback as _tb_gem
