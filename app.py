@@ -7783,6 +7783,18 @@ if _sec_activa == "admin_dashboard":
                 _ignorar_error()
 
 # ── SECCIÓN: GEMELO DIGITAL (módulo nuevo) ──────────────────────────────────
+def _gemelo_cobrar(costo=1):
+    """Cobra `costo` créditos por la explicación IA del Gemelo (a pedido).
+    La predicción es gratis; esto tapa el costo de IA con los créditos del plan.
+    Devuelve True si cobró; False si no hay créditos (muestra upgrade)."""
+    if st.session_state.get("plan") == "Admin":
+        return True
+    if not verificar_creditos(costo):
+        return False
+    consumir(costo, tipo_accion="gemelo_explicacion")
+    return True
+
+
 if _sec_activa == "gemelo":
     try:
         _gemelo_ui.render(
@@ -7797,6 +7809,7 @@ if _sec_activa == "gemelo":
             historial_activo=plan_permite("gemelo_historial"),   # el "completo" (Pro+)
             store_config_fn=obtener_config_tienda,   # autollenar ventas desde la tienda
             ref_link=mi_link_referido(),   # unir el link de referido a la tarjeta
+            cobrar_fn=_gemelo_cobrar,   # explicación IA a pedido (1 crédito); el número es gratis
         )
     except Exception as _e_gem:
         import traceback as _tb_gem
