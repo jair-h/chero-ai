@@ -1064,6 +1064,90 @@ def crear_cuenta_free(email):
     st.session_state.encuesta_completada = False
     st.session_state["_cuenta_pendiente_tc"] = False
     st.session_state.user_sincronizado = True
+    _bono_ref = aplicar_referido(email)   # premia si vino por un link de referido
+    if _bono_ref:
+        st.session_state["_ref_bono_nuevo"] = _bono_ref
+
+
+# =========================
+# REFERIDOS (invita y gana créditos) — motor viral, sin SQL nuevo (usa creditos_extra)
+# =========================
+CREDITOS_REFERIDO = 30   # créditos de regalo para AMBOS (referente y nuevo)
+
+
+def _app_url():
+    """URL pública de la app (del secret del redirect OAuth, o fallback conocido)."""
+    try:
+        u = (st.secrets.get("GOOGLE_OAUTH_REDIRECT_URI", "") or "").strip()
+    except Exception:
+        u = ""
+    if not u:
+        u = "https://chero-ai-52mrkx4zvmpqihpvavndiz.streamlit.app/"
+    return u.rstrip("/") + "/"
+
+
+def _ref_encode(email):
+    """Codifica el email del referente en un token corto para el link (?ref=)."""
+    import base64
+    try:
+        return base64.urlsafe_b64encode((email or "").strip().lower().encode()).decode().rstrip("=")
+    except Exception:
+        return ""
+
+
+def _ref_decode(token):
+    """Decodifica el token ?ref= de vuelta al email del referente."""
+    import base64
+    try:
+        t = (token or "").strip()
+        t += "=" * (-len(t) % 4)
+        return base64.urlsafe_b64decode(t.encode()).decode().strip().lower()
+    except Exception:
+        return ""
+
+
+def mi_link_referido():
+    """Link único del usuario actual para invitar."""
+    email = (st.session_state.get("user_email") or "").strip().lower()
+    return f"{_app_url()}?ref={_ref_encode(email)}" if email else ""
+
+
+def _otorgar_creditos(email, cantidad):
+    """Suma `cantidad` a creditos_extra de un usuario en la DB (best-effort)."""
+    if not supabase or not email:
+        return
+    try:
+        _u = supabase.table("usuarios").select("creditos_extra").eq("email", email).limit(1).execute().data or []
+        _ex = int((_u[0].get("creditos_extra") if _u else 0) or 0)
+        supabase.table("usuarios").update({"creditos_extra": _ex + int(cantidad)}).eq("email", email).execute()
+    except Exception:
+        pass
+
+
+def aplicar_referido(nuevo_email):
+    """Si el alta trae un ?ref válido de otro usuario existente, premia a AMBOS
+    (una sola vez, en el alta). Devuelve los créditos otorgados al nuevo (0 si no aplica)."""
+    try:
+        _tok = st.query_params.get("ref")
+    except Exception:
+        _tok = None
+    if not _tok:
+        return 0
+    _ref_email = _ref_decode(_tok)
+    _nuevo = (nuevo_email or "").strip().lower()
+    if not _ref_email or _ref_email == _nuevo or not db_get_usuario(_ref_email):
+        return 0
+    # Premia al referente (en DB) y al nuevo (en sesión + DB)
+    _otorgar_creditos(_ref_email, CREDITOS_REFERIDO)
+    st.session_state.creditos_extra = int(st.session_state.get("creditos_extra", 0) or 0) + CREDITOS_REFERIDO
+    try:
+        db_upsert_usuario(_nuevo, st.session_state.get("plan", "Free"),
+                          int(st.session_state.get("usados", 0) or 0),
+                          extra={"creditos_extra": st.session_state.creditos_extra})
+    except Exception:
+        pass
+    return CREDITOS_REFERIDO
+
 
 # =========================
 # SUPABASE: PERFIL NEGOCIO
@@ -2024,7 +2108,13 @@ with st.sidebar:
                              else "You must accept the Terms and Conditions to create your account.")
                 else:
                     crear_cuenta_free(nuevo_email)
-                    st.success("✅ Cuenta creada. ¡Bienvenido a Tentakl!" if not _en_tc else "✅ Account created. Welcome to Tentakl!")
+                    _bono = st.session_state.pop("_ref_bono_nuevo", 0)
+                    if _bono:
+                        st.success((f"✅ Cuenta creada con +{_bono} créditos de regalo por tu invitación. ¡Bienvenido a Tentakl!"
+                                    if not _en_tc else
+                                    f"✅ Account created with +{_bono} bonus credits from your invite. Welcome to Tentakl!"))
+                    else:
+                        st.success("✅ Cuenta creada. ¡Bienvenido a Tentakl!" if not _en_tc else "✅ Account created. Welcome to Tentakl!")
                     st.rerun()
 
         try:
@@ -2252,6 +2342,20 @@ Sé muy específico, como si describieras a una persona real."""
     if plan_actual == "Free" and 0 < restantes <= 10:
         st.warning(f"🐙 Te quedan {restantes} créditos. Mira los planes →" if st.session_state.get("lang") != "en"
                    else f"🐙 You have {restantes} credits left. Check out the plans →")
+
+    # ── 🎁 Invita y gana créditos (referidos) ─────────────────────────────────
+    if (st.session_state.get("user_email") or "").strip():
+        _en_ref = st.session_state.get("lang") == "en"
+        with st.expander("🎁 " + ("Invita y gana créditos" if not _en_ref else "Invite & earn credits")):
+            st.caption((f"Por cada amigo que entre con tu link y cree su cuenta, **ambos ganan {CREDITOS_REFERIDO} créditos**."
+                        if not _en_ref else
+                        f"For every friend who joins with your link and creates an account, **you both get {CREDITOS_REFERIDO} credits**."))
+            _link_ref = mi_link_referido()
+            if _link_ref:
+                st.code(_link_ref, language=None)
+                st.caption(("Copia tu link y compártelo — o comparte la tarjeta de tu Gemelo 📲 con tu link."
+                            if not _en_ref else
+                            "Copy your link and share it — or share your Twin card 📲 with your link."))
 
     # ── Encuesta Free (+15 créditos, una única vez) ────────────────────────────
     if (plan_actual == "Free" and restantes <= 0
