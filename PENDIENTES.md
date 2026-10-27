@@ -1,5 +1,13 @@
 # Pendientes de Tentakl
 
+## 🎣 Gancho gratis (growth) — HECHO
+Conectar tienda/Analytics ya NO requiere Pro: `FUNCION_PLAN_MIN["integraciones"] = "Free"`.
+El anzuelo (conectar + Gemelo básico) es gratis para enganchar; se cobra la
+PROFUNDIDAD (Autopiloto, historial+precisión del Gemelo, multi-cliente).
+Siguiente para amplificar la viralidad: tarjeta compartible del Gemelo más
+visible, alerta semanal de retención, y referidos.
+
+
 ## 🔑 Conectar Google Analytics (OAuth) — PENDIENTE de Jair
 El código ya está listo (ver `integrations/README_ANALYTICS.md`). Falta que Jair,
 **desde su laptop con la cuenta de Google de Tentakl**, haga una sola vez:

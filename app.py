@@ -201,7 +201,9 @@ def get_plan_config(plan=None):
 PLAN_RANK = {"Free": 0, "Starter": 1, "Pro": 2, "Agency": 3, "Admin": 9}
 # Qué plan mínimo desbloquea cada función premium:
 FUNCION_PLAN_MIN = {
-    "integraciones": "Pro",       # conectar Analytics / tiendas
+    # 🎣 GANCHO GRATIS: conectar tienda/Analytics es gratis (el imán de entrada).
+    # Se cobra la PROFUNDIDAD (Autopiloto, historial del Gemelo, multi-cliente).
+    "integraciones": "Free",      # conectar Analytics / tiendas → gratis
     "autopiloto": "Pro",          # equipo completo trabajando solo
     "gemelo_historial": "Pro",    # guardar historial + precisión del Gemelo
     "multi_cliente": "Agency",    # gestionar varios negocios/clientes
