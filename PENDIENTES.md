@@ -5,19 +5,11 @@ Jair decide el correo real (puede ser gratis: reenvío del registrador o Zoho Ma
 con dominio propio). Está en: política de privacidad, términos y el Libro de
 Reclamaciones (fallback). Cambiarlo en esos 3 lugares cuando se decida.
 
-## 📕 Libro de Reclamaciones (INDECOPI, Perú) — HECHO (código)
+## 📕 Libro de Reclamaciones (INDECOPI, Perú) — HECHO (código + tabla)
 Formulario en la app (link en el pie → sección "reclamaciones"): tipo (Reclamo/
 Queja), datos del consumidor, bien, detalle y pedido; genera un código y guarda
-en Supabase. PENDIENTE de Jair: crear la tabla en Supabase:
-```sql
-create table if not exists reclamaciones (
-  id bigint generated always as identity primary key,
-  codigo text, fecha timestamptz, tipo text, nombre text, doc_tipo text,
-  doc_num text, email text, telefono text, domicilio text, bien_tipo text,
-  bien_desc text, monto text, detalle text, pedido text,
-  atendido boolean default false, created_at timestamptz default now()
-);
-```
+en Supabase. ✅ Tabla `reclamaciones` ya CREADA en Supabase (proyecto CHERO) con
+RLS activado. No hay nada pendiente de Jair aquí.
 Mejora futura: enviar copia por EMAIL al consumidor y a Tentakl (necesita
 servicio de correo) y un panel admin para atender dentro de los 15 días hábiles.
 
@@ -116,11 +108,25 @@ marcadas, usa un benchmark del sector y lo avisa. Nuevo tipo de decisión
 6. **SEO keywords**: aclarar que son sugerencias de IA, no volumen real (hasta que
    se conecte data real — ver abajo).
 
-## 🔎 SEO/SEM de verdad (hacerlo que funcione muy bien) — roadmap
-Hoy el SEO genera keywords "del modelo" (sin datos reales). Para que sea neto SEO/SEM:
-- **Fase 1 (gratis, alto valor):** Google Search Console (OAuth, keywords/posición
-  reales del propio sitio) + auditoría on-page (scrape: title/meta/H1/estructura) +
-  Google Trends (estacionalidad) + Google Autocomplete/"People also ask".
+## 🔎 Search Console (SEO real, fase 1) — HECHO (código + tests)
+`integrations/search_console.py` (reusa la MISMA app OAuth de Google que Analytics,
+scope `webmasters.readonly`). Trae del sitio REAL del usuario: keywords por las que
+lo encuentran, clics/impresiones/CTR/posición y páginas top. En Integraciones:
+"🔎 Google Search Console (SEO)" → Conectar con Google → elegir sitio → ver reporte.
+**Es GRATIS (no usa IA)**, coherente con el modelo de costo. Callback OAuth con
+state `tentaklsc|<email>`, se guarda en `integraciones` (tipo `search_console`).
+PENDIENTE de Jair (1 sola vez, en Google Cloud, misma cuenta que Analytics):
+1. Habilitar **"Google Search Console API"** en el proyecto.
+2. En la pantalla de consentimiento OAuth, **agregar el scope**
+   `.../auth/webmasters.readonly` (es sensible → entra en la misma verificación
+   que `analytics.readonly`; mientras tanto funciona con usuarios de prueba).
+3. El sitio debe estar **verificado** en search.google.com/search-console con esa
+   cuenta (si no, "no hay sitios verificados").
+
+## 🔎 SEO/SEM de verdad (lo que falta) — roadmap
+- **Fase 1 (gratis, alto valor):** ✅ Search Console (hecho). Falta: auditoría
+  on-page (scrape: title/meta/H1/estructura) + Google Trends (estacionalidad) +
+  Google Autocomplete/"People also ask".
 - **Fase 2 (pago barato):** DataForSEO (~$0.05/consulta) para volumen de búsqueda y
   CPC reales → investigación de keywords de verdad.
 - **Fase 3:** Google Ads Keyword Planner (volumen/CPC/competencia) + armar campañas

@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from integrations import analytics as A
 from integrations import stores as S
 from integrations import meta_ads as MA
+from integrations import search_console as SC
 from core import agents as AG
 from core import context as CX
 from core import gemelo as GM
@@ -433,10 +434,70 @@ def test_meta_ads():
     check(len(_filas) == 3 and all("mes" in f for f in _filas), "devuelve 3 meses con etiqueta")
 
 
+def test_search_console():
+    print("\n[10] Search Console (SEO real: keywords y posiciones)")
+    check(SC.oauth_configurado(SECRETS) and not SC.oauth_configurado({}),
+          "reusa el OAuth de Analytics (misma app)")
+    _url = SC.build_auth_url(SECRETS, state="tentaklsc|jair@x.com")
+    check("webmasters.readonly" in _url and "client_id=cid" in _url,
+          "arma la URL con el scope de Search Console")
+    check("state=tentaklsc" in _url and "access_type=offline" in _url,
+          "lleva el state y pide refresh token")
+
+    # Listar sitios verificados
+    def router_sites(method, url, kw):
+        if url.endswith("/sites"):
+            return FakeResp(200, {"siteEntry": [
+                {"siteUrl": "https://tentakl.ai/", "permissionLevel": "siteOwner"},
+                {"siteUrl": "sc-domain:otro.com", "permissionLevel": "siteFullUser"}]})
+        return FakeResp(404, {}, "no")
+    SC.requests = FakeRequests(router_sites)
+    _sitios, _e = SC.listar_sitios("TOK")
+    check(_e is None and len(_sitios) == 2 and _sitios[0]["url"] == "https://tentakl.ai/",
+          "lista los sitios verificados del usuario")
+
+    # Reporte SEO (totales + keywords + páginas), CTR a %, sin inventar
+    def router_sa(method, url, kw):
+        if "/searchAnalytics/query" in url:
+            dims = (kw.get("json") or {}).get("dimensions")
+            if not dims:   # totales
+                return FakeResp(200, {"rows": [
+                    {"clicks": 120, "impressions": 4000, "ctr": 0.03, "position": 12.4}]})
+            if dims == ["query"]:
+                return FakeResp(200, {"rows": [
+                    {"keys": ["cafe organico peru"], "clicks": 50, "impressions": 1000,
+                     "ctr": 0.05, "position": 3.2},
+                    {"keys": ["cacao premium"], "clicks": 20, "impressions": 800,
+                     "ctr": 0.025, "position": 8.9}]})
+            if dims == ["page"]:
+                return FakeResp(200, {"rows": [
+                    {"keys": ["https://tentakl.ai/cafe"], "clicks": 40, "impressions": 900,
+                     "ctr": 0.044, "position": 4.1}]})
+        return FakeResp(404, {}, "no")
+    SC.requests = FakeRequests(router_sa)
+    _data, _e = SC.fetch_search_analytics("https://tentakl.ai/", "TOK", dias=28)
+    check(_e is None and _data is not None, "reporte SEO OK sin error")
+    check(_data["totales"]["clicks"] == 120 and _data["totales"]["ctr"] == 3.0,
+          "totales con CTR convertido a %")
+    check(_data["keywords"][0]["query"] == "cafe organico peru"
+          and _data["keywords"][0]["ctr"] == 5.0 and _data["keywords"][0]["position"] == 3.2,
+          "keywords reales con clics/CTR/posición")
+    check(_data["paginas"][0]["pagina"] == "https://tentakl.ai/cafe"
+          and _data["paginas"][0]["clicks"] == 40, "páginas top con tráfico orgánico")
+    check("desde" in _data["rango"] and "hasta" in _data["rango"], "incluye el rango de fechas")
+
+    # Error de API: no inventa datos
+    def router_err(method, url, kw):
+        return FakeResp(403, {}, "forbidden")
+    SC.requests = FakeRequests(router_err)
+    _data, _e = SC.fetch_search_analytics("https://tentakl.ai/", "TOK")
+    check(_data is None and "403" in (_e or ""), "error de API -> sin datos inventados")
+
+
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
                test_listar_propiedades, test_stores, test_agents, test_context,
-               test_gemelo, test_meta_ads):
+               test_gemelo, test_meta_ads, test_search_console):
         _t()
     print("\n" + ("=" * 50))
     if _fallos:
