@@ -61,6 +61,44 @@ def build_auth_url(secrets: dict, state: str = "tentakl") -> str:
     return f"{AUTH_ENDPOINT}?{urlencode(params)}"
 
 
+USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v3/userinfo"
+LOGIN_SCOPE = "openid email profile"
+
+
+def build_login_url(secrets: dict, state: str = "tentakllogin") -> str:
+    """URL para 'Entrar con Google' (login verificado). Reusa la MISMA app OAuth
+    que Analytics, pero con permisos básicos (email/perfil, no sensibles)."""
+    from urllib.parse import urlencode
+    params = {
+        "client_id": secrets.get("GOOGLE_OAUTH_CLIENT_ID", "").strip(),
+        "redirect_uri": secrets.get("GOOGLE_OAUTH_REDIRECT_URI", "").strip(),
+        "response_type": "code",
+        "scope": LOGIN_SCOPE,
+        "access_type": "online",
+        "prompt": "select_account",
+        "state": state,
+    }
+    return f"{AUTH_ENDPOINT}?{urlencode(params)}"
+
+
+def fetch_userinfo(access_token: str):
+    """Devuelve (email_verificado, error) del usuario de Google."""
+    try:
+        r = requests.get(USERINFO_ENDPOINT,
+                         headers={"Authorization": f"Bearer {access_token}"}, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return None, f"Google respondió {r.status_code}: {str(r.text)[:150]}"
+        d = r.json() or {}
+        email = (d.get("email") or "").strip().lower()
+        if not email:
+            return None, "Google no devolvió un email."
+        if d.get("email_verified") is False:
+            return None, "El email de Google no está verificado."
+        return email, None
+    except Exception as ex:  # noqa: BLE001
+        return None, f"Error: {ex}"
+
+
 def exchange_code(secrets: dict, code: str):
     """Canjea el ?code= por un bundle de tokens. Devuelve (bundle, error)."""
     try:

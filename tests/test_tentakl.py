@@ -81,6 +81,19 @@ def test_oauth_helpers():
           "API key vieja se detecta como legacy")
     check(A.parsear_token_guardado("") == {}, "token vacío -> dict vacío")
 
+    # Login con Google (entrar con Google) — misma app OAuth, scope básico
+    _login_url = A.build_login_url(SECRETS)
+    check("scope=openid" in _login_url and "email" in _login_url, "login URL pide openid/email")
+    check("state=tentakllogin" in _login_url, "login URL lleva state de login")
+
+    def _router_ui(method, url, kw):
+        if "userinfo" in url:
+            return FakeResp(200, {"email": "Jair@Gmail.com ", "email_verified": True})
+        return FakeResp(404, {}, "no")
+    A.requests = FakeRequests(_router_ui)
+    _em, _e = A.fetch_userinfo("TOK")
+    check(_e is None and _em == "jair@gmail.com", "fetch_userinfo devuelve email normalizado")
+
 
 def test_token_refresh():
     print("\n[2] access_token_valido (refresh)")
