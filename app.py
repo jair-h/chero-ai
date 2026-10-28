@@ -3473,7 +3473,7 @@ if _es_home:
     st.toggle(("⚙️ Modo avanzado (ver todo mi equipo de agentes)" if not _is_en_ui
                else "⚙️ Advanced mode (see my whole agent team)"), key="inicio_avanzado")
 
-elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto", "gemelo"):
+elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto", "gemelo", "reclamaciones"):
     if st.button("← " + ("Volver a mis agentes" if not _is_en_ui else "Back to my agents"),
                  key="btn_volver_especial"):
         st.session_state.agente_activo = None
@@ -7850,7 +7850,77 @@ if _sec_activa == "gemelo":
             st.code(f"{type(_e_gem).__name__}: {_e_gem}\n\n{_tb_gem.format_exc()}")
         _ignorar_error()
 
+# ── SECCIÓN: LIBRO DE RECLAMACIONES (obligatorio INDECOPI, Perú) ────────────
+def guardar_reclamacion(datos: dict):
+    """Guarda una reclamación en Supabase. Devuelve (ok, error).
+    Tabla sugerida: reclamaciones(codigo text, fecha timestamptz, tipo text,
+    nombre text, doc_tipo text, doc_num text, email text, telefono text,
+    domicilio text, bien_tipo text, bien_desc text, monto text, detalle text,
+    pedido text, atendido bool default false)."""
+    if not supabase:
+        return False, "Sin base de datos."
+    try:
+        supabase.table("reclamaciones").insert(datos).execute()
+        return True, None
+    except Exception as _e_rec:
+        return False, str(_e_rec)
+
+
+if _sec_activa == "reclamaciones":
+    import random as _rnd
+    st.markdown("## 📕 Libro de Reclamaciones")
+    st.caption("Conforme al Código de Protección y Defensa del Consumidor (Perú). "
+               "Tu reclamo será atendido en un plazo no mayor a 15 días hábiles.")
+    with st.form("form_reclamacion"):
+        _r_tipo = st.radio("Tipo", ["Reclamo", "Queja"], horizontal=True,
+                           help="Reclamo: disconformidad con el producto/servicio. "
+                                "Queja: malestar por la atención.")
+        st.markdown("**Tus datos (consumidor)**")
+        _rc1, _rc2 = st.columns(2)
+        _r_nombre = _rc1.text_input("Nombre completo *")
+        _r_email = _rc2.text_input("Correo electrónico *")
+        _rc3, _rc4, _rc5 = st.columns(3)
+        _r_doctipo = _rc3.selectbox("Documento", ["DNI", "CE", "Pasaporte", "RUC"])
+        _r_docnum = _rc4.text_input("N.º de documento *")
+        _r_tel = _rc5.text_input("Teléfono")
+        _r_dom = st.text_input("Domicilio")
+        st.markdown("**Sobre el producto/servicio**")
+        _rc6, _rc7 = st.columns(2)
+        _r_bientipo = _rc6.selectbox("Tipo", ["Servicio", "Producto"])
+        _r_monto = _rc7.text_input("Monto reclamado (opcional)")
+        _r_biendesc = st.text_input("Descripción del producto/servicio")
+        st.markdown("**Detalle**")
+        _r_detalle = st.text_area("Detalle del reclamo/queja *")
+        _r_pedido = st.text_area("Pedido del consumidor *")
+        _r_enviar = st.form_submit_button("📨 Enviar reclamación", use_container_width=True)
+    if _r_enviar:
+        if not (_r_nombre.strip() and _r_email.strip() and _r_docnum.strip()
+                and _r_detalle.strip() and _r_pedido.strip()):
+            st.error("Completa los campos obligatorios (*).")
+        else:
+            _codigo = "REC-" + dt.now().strftime("%Y%m%d") + "-" + str(_rnd.randint(1000, 9999))
+            _ok_rec, _err_rec = guardar_reclamacion({
+                "codigo": _codigo, "fecha": dt.now(timezone.utc).isoformat(),
+                "tipo": _r_tipo, "nombre": _r_nombre.strip(), "doc_tipo": _r_doctipo,
+                "doc_num": _r_docnum.strip(), "email": _r_email.strip().lower(),
+                "telefono": _r_tel.strip(), "domicilio": _r_dom.strip(),
+                "bien_tipo": _r_bientipo, "bien_desc": _r_biendesc.strip(),
+                "monto": _r_monto.strip(), "detalle": _r_detalle.strip(),
+                "pedido": _r_pedido.strip(),
+            })
+            if _ok_rec:
+                st.success(f"✅ Reclamación registrada. Tu código es **{_codigo}**. "
+                           "Te responderemos a tu correo en máximo 15 días hábiles. Guarda este código.")
+            else:
+                st.warning("No se pudo guardar automáticamente. Escríbenos a hola@tentakl.ai "
+                           f"con tu detalle y te atendemos. ({_err_rec})")
+
 st.markdown("---")
+_foot_c1, _foot_c2 = st.columns([3, 1])
+with _foot_c2:
+    if st.button("📕 Libro de Reclamaciones", key="btn_libro_recl", use_container_width=True):
+        st.session_state.agente_activo = "reclamaciones"
+        st.rerun()
 # ✅ FIX: alcance leído desde session_state para el footer (nunca da NameError)
 st.caption(f"© 2026 TENTAKL.AI | V5.1 Full Integrated | {st.session_state.get('alcance', 'NACIONAL')}")
 

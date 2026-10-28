@@ -1,5 +1,26 @@
 # Pendientes de Tentakl
 
+## ⏳ RECORDATORIO: correo hola@tentakl.ai es PROVISIONAL
+Jair decide el correo real (puede ser gratis: reenvío del registrador o Zoho Mail
+con dominio propio). Está en: política de privacidad, términos y el Libro de
+Reclamaciones (fallback). Cambiarlo en esos 3 lugares cuando se decida.
+
+## 📕 Libro de Reclamaciones (INDECOPI, Perú) — HECHO (código)
+Formulario en la app (link en el pie → sección "reclamaciones"): tipo (Reclamo/
+Queja), datos del consumidor, bien, detalle y pedido; genera un código y guarda
+en Supabase. PENDIENTE de Jair: crear la tabla en Supabase:
+```sql
+create table if not exists reclamaciones (
+  id bigint generated always as identity primary key,
+  codigo text, fecha timestamptz, tipo text, nombre text, doc_tipo text,
+  doc_num text, email text, telefono text, domicilio text, bien_tipo text,
+  bien_desc text, monto text, detalle text, pedido text,
+  atendido boolean default false, created_at timestamptz default now()
+);
+```
+Mejora futura: enviar copia por EMAIL al consumidor y a Tentakl (necesita
+servicio de correo) y un panel admin para atender dentro de los 15 días hábiles.
+
 ## 🔐 Login "Entrar con Google" — HECHO (código)
 Botón en el sidebar que reusa la MISMA app OAuth de Google (scope básico
 openid/email/profile). Da email VERIFICADO y lo deja logueado (persiste con ?u=).
