@@ -159,7 +159,7 @@ PRECIOS_PLANES = {"Starter": 19, "Pro": 39, "Agency": 79}
 
 # Fallback si planes_config no está disponible (la fuente de verdad es Supabase)
 _PLANES_FALLBACK = {
-    "Free":    {"creditos": 50,   "imagenes_limite": 2,   "imagenes_limite_diario": 2,  "calidad_imagen": "low",    "precio": 0,  "creditos_renovables": False},
+    "Free":    {"creditos": 20,   "imagenes_limite": 2,   "imagenes_limite_diario": 2,  "calidad_imagen": "low",    "precio": 0,  "creditos_renovables": False},
     "Starter": {"creditos": 200,  "imagenes_limite": 5,   "imagenes_limite_diario": 3,  "calidad_imagen": "medium", "precio": 19, "creditos_renovables": True},
     "Pro":     {"creditos": 500,  "imagenes_limite": 20,  "imagenes_limite_diario": 8,  "calidad_imagen": "high",   "precio": 39, "creditos_renovables": True},
     "Agency":  {"creditos": 1500, "imagenes_limite": 100, "imagenes_limite_diario": 25, "calidad_imagen": "high",   "precio": 79, "creditos_renovables": True},
@@ -1052,7 +1052,7 @@ def asegurar_usuario_desde_db():
             st.session_state.user_sincronizado = True
 
 def crear_cuenta_free(email):
-    """Crea la cuenta Free (50 créditos, 2 imágenes low, una única vez) tras aceptar T&C."""
+    """Crea la cuenta Free (20 créditos, 2 imágenes low, una única vez) tras aceptar T&C."""
     db_upsert_usuario(email, "Free", 0, extra={
         "fecha_aceptacion_tc": dt.now(timezone.utc).isoformat(),
     })
@@ -2092,11 +2092,11 @@ with st.sidebar:
         if st.session_state.get("_cuenta_pendiente_tc") and re.match(r'^[^@]+@[^@]+\.[^@]+$', nuevo_email):
             _en_tc = st.session_state.get("lang") == "en"
             if IMAGENES_ACTIVAS:
-                st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 50 créditos y 2 imágenes gratis, por única vez." if not _en_tc
-                        else "🐙 Welcome! Create your Free account: 50 credits and 2 free images, one time only.")
+                st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 20 créditos y 2 imágenes gratis, por única vez." if not _en_tc
+                        else "🐙 Welcome! Create your Free account: 20 credits and 2 free images, one time only.")
             else:
-                st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 50 créditos gratis, por única vez." if not _en_tc
-                        else "🐙 Welcome! Create your Free account: 50 free credits, one time only.")
+                st.info("🐙 ¡Bienvenido! Crea tu cuenta Free: 20 créditos gratis, por única vez." if not _en_tc
+                        else "🐙 Welcome! Create your Free account: 20 free credits, one time only.")
             _acepta_tc = st.checkbox(
                 "Acepto los Términos y Condiciones y la Política de Privacidad" if not _en_tc
                 else "I accept the Terms and Conditions and the Privacy Policy",
@@ -7660,7 +7660,7 @@ if _sec_activa == "admin_dashboard":
                     _nuevos_sem = 0
             _c_d3.metric("🆕 Nuevos esta semana", _nuevos_sem)
             _free_agotados = _df_u[(_df_u["plan"].fillna("Free") == "Free")
-                                   & (_df_u["creditos_usados"].fillna(0).astype(int) >= 50)]
+                                   & (_df_u["creditos_usados"].fillna(0).astype(int) >= 20)]
             _c_d4.metric("🎯 Free agotados (remarketing)", len(_free_agotados))
 
             st.markdown("**Usuarios por plan**")
