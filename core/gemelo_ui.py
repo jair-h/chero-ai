@@ -46,6 +46,40 @@ def _meses_recientes(n=3):
     return out
 
 
+def _nth_weekday(year, month, weekday, n):
+    """Fecha del n-ésimo `weekday` (0=lun .. 6=dom) del mes."""
+    from datetime import date
+    d = date(year, month, 1)
+    offset = (weekday - d.weekday()) % 7
+    return date(year, month, 1 + offset + (n - 1) * 7)
+
+
+def _eventos_comerciales(year):
+    """Calendario de campañas comerciales (LatAm/Perú) para un año."""
+    from datetime import date
+    return [
+        ("San Valentín 💘", date(year, 2, 14)),
+        ("Día de la Madre 💐", _nth_weekday(year, 5, 6, 2)),   # 2.º domingo de mayo
+        ("Día del Padre 👔", _nth_weekday(year, 6, 6, 3)),     # 3.º domingo de junio
+        ("Fiestas Patrias 🇵🇪", date(year, 7, 28)),
+        ("Cyber Wow 💻", date(year, 11, 3)),                   # aprox. (varía cada año)
+        ("Black Friday 🛍️", _nth_weekday(year, 11, 4, 4)),    # 4.º viernes de noviembre
+        ("Navidad 🎄", date(year, 12, 18)),                    # pico de compras pre-navidad
+    ]
+
+
+def _proxima_campana(dias_max=75):
+    """La próxima campaña comercial dentro de `dias_max` días (o None)."""
+    from datetime import date
+    hoy = date.today()
+    cands = _eventos_comerciales(hoy.year) + _eventos_comerciales(hoy.year + 1)
+    for nombre, f in sorted(cands, key=lambda x: x[1]):
+        dias = (f - hoy).days
+        if 0 <= dias <= dias_max:
+            return nombre, f, dias
+    return None
+
+
 def _noop(*_a, **_k):
     return None
 
@@ -155,6 +189,20 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
         _panel_precision(supabase, user_email, moneda, T, log)
     except Exception:
         log("panel_precision")
+
+    # 🔔 Retención: cuenta regresiva a la próxima campaña comercial (razón para volver)
+    _camp = _proxima_campana()
+    if _camp:
+        _nom, _fecha, _dias = _camp
+        _cuando = (T(f"en {_dias} días", f"in {_dias} days") if _dias > 1
+                   else (T("¡mañana!", "tomorrow!") if _dias == 1 else T("¡hoy!", "today!")))
+        st.info(f"🔥 **{_nom}** {_cuando} ({_fecha.strftime('%d/%m')}). " +
+                T("¿Ya sabes cuánto venderás? Prepárate con tu Gemelo antes de que llegue.",
+                  "Know how much you'll sell? Get ready with your Twin before it arrives."))
+        if st.button("🔥 " + T("Preparar esta campaña", "Prepare this campaign"),
+                     key="gs_nudge_camp", use_container_width=True):
+            st.session_state["gs_pregunta"] = "campana"
+            st.rerun()
 
     # ── 1. ¿Qué quieres saber? ───────────────────────────────────────────────
     st.markdown("##### 1. " + T("¿Qué quieres saber?", "What do you want to know?"))
