@@ -23,6 +23,7 @@ from openai import OpenAI as OpenAIClient
 # Capa de integraciones (tiendas, analytics) — lógica de red fuera del monolito
 from integrations import stores as _stores
 from integrations import analytics as _ganalytics
+from integrations import search_console as _gsc
 
 # Capa de agentes (definición de los 9 agentes + routing por reglas)
 from core.agents import (
@@ -137,6 +138,24 @@ try:
             }, on_conflict="user_email,tipo").execute()
             st.session_state["ga_oauth_recien"] = True
         # Limpia solo los params de OAuth, conserva "u" (email persistido)
+        for _k in ("code", "state", "scope", "authuser", "prompt"):
+            try:
+                del st.query_params[_k]
+            except Exception:
+                _ignorar_error()
+    elif _ga_cb_code and _ga_cb_state.startswith("tentaklsc|") and supabase:
+        # Search Console: mismo patrón que Analytics, tipo "search_console".
+        _sc_cb_email = _ga_cb_state.split("|", 1)[1].strip().lower()
+        _sc_cb_bundle, _sc_cb_err = _gsc.exchange_code(st.secrets, _ga_cb_code)
+        if _sc_cb_bundle and not _sc_cb_err and _sc_cb_email:
+            supabase.table("integraciones").upsert({
+                "user_email": _sc_cb_email,
+                "tipo": "search_console",
+                "account_id": "",
+                "access_token": _gsc.serializar_bundle(_sc_cb_bundle),
+                "activo": False,
+            }, on_conflict="user_email,tipo").execute()
+            st.session_state["sc_oauth_recien"] = True
         for _k in ("code", "state", "scope", "authuser", "prompt"):
             try:
                 del st.query_params[_k]
@@ -6483,6 +6502,150 @@ Sé muy específico con los números que ves en la imagen."""
                                     st.error(f"Error: {_e}")
                             else:
                                 st.warning("Supabase no configurado.")
+
+            # ── SECCIÓN 1.5 — Google Search Console (SEO real) ──────────────
+            # Keywords/posiciones REALES del propio sitio (no inventadas). Es
+            # GRATIS: solo lee datos, no usa IA (coherente con el modelo de costo).
+            st.markdown("---")
+            st.markdown("### 🔎 Google Search Console (SEO)")
+
+            _sc_conectado = False
+            _sc_record = {}
+            _sc_pendiente = {}   # autorizado pero sin sitio elegido (activo=False)
+            if supabase:
+                try:
+                    _rs = supabase.table("integraciones").select("*") \
+                        .eq("user_email", _email_int).eq("tipo", "search_console") \
+                        .limit(1).execute()
+                    if _rs.data:
+                        _row_sc = _rs.data[0]
+                        if _row_sc.get("activo"):
+                            _sc_conectado, _sc_record = True, _row_sc
+                        else:
+                            _sc_pendiente = _row_sc
+                except Exception:
+                    _ignorar_error()
+
+            def _sc_token_valido(_rec):
+                """Devuelve (access_token, error) renovando y persistiendo si hace falta."""
+                _b = _gsc.parsear_token_guardado(_rec.get("access_token", ""))
+                if _b.get("api_key_legacy"):
+                    return None, ("Conexión vieja; desconecta y vuelve a conectar." if not _is_en_int
+                                  else "Old connection; disconnect and reconnect.")
+                _tok, _b2, _e = _gsc.access_token_valido(st.secrets, _b)
+                if not _e and _tok and supabase and _b2 and _b2 != _b:
+                    try:
+                        supabase.table("integraciones").update(
+                            {"access_token": _gsc.serializar_bundle(_b2)}
+                        ).eq("user_email", _email_int).eq("tipo", "search_console").execute()
+                    except Exception:
+                        _ignorar_error()
+                return _tok, _e
+
+            if _sc_conectado:
+                _sc_site = _sc_record.get("account_id", "")
+                st.success(("✅ Search Console conectado" if not _is_en_int
+                            else "✅ Search Console connected"))
+                st.caption((f"Sitio: {_sc_site}" if not _is_en_int else f"Site: {_sc_site}"))
+                _sc_lbl = (["Últimos 28 días", "Últimos 90 días"] if not _is_en_int
+                           else ["Last 28 days", "Last 90 days"])
+                _sc_val = [28, 90]
+                _sc_dias = _sc_val[_sc_lbl.index(
+                    st.selectbox("Período:" if not _is_en_int else "Period:", _sc_lbl, key="sc_periodo"))]
+                _scc1, _scc2 = st.columns([3, 1])
+                with _scc1:
+                    _btn_seo = st.button(("🔎 Ver mis keywords y posiciones (gratis)" if not _is_en_int
+                                          else "🔎 See my keywords and rankings (free)"), key="sc_analizar")
+                with _scc2:
+                    _btn_scdesc = st.button("🔌 Desconectar" if not _is_en_int else "🔌 Disconnect", key="sc_desconectar")
+                if _btn_scdesc and supabase:
+                    try:
+                        supabase.table("integraciones").update({"activo": False}) \
+                            .eq("user_email", _email_int).eq("tipo", "search_console").execute()
+                        st.session_state.pop("sc_data", None)
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(str(_e))
+                if _btn_seo:
+                    _tok, _e = _sc_token_valido(_sc_record)
+                    if _e or not _tok:
+                        st.error(("No se pudo autenticar con Google: " if not _is_en_int
+                                  else "Could not authenticate with Google: ") + str(_e or ""))
+                    else:
+                        with st.spinner("Trayendo tus datos reales de Search Console..." if not _is_en_int
+                                        else "Fetching your real Search Console data..."):
+                            _scd, _sce = _gsc.fetch_search_analytics(_sc_site, _tok, dias=_sc_dias)
+                        if _sce:
+                            st.error(("Search Console: " if not _is_en_int else "Search Console: ") + _sce)
+                        else:
+                            st.session_state["sc_data"] = _scd
+                _scd = st.session_state.get("sc_data")
+                if _scd:
+                    _tt = _scd["totales"]
+                    _m1, _m2, _m3, _m4 = st.columns(4)
+                    _m1.metric("Clics" if not _is_en_int else "Clicks", f"{_tt['clicks']:,}")
+                    _m2.metric("Impresiones" if not _is_en_int else "Impressions", f"{_tt['impressions']:,}")
+                    _m3.metric("CTR", f"{_tt['ctr']}%")
+                    _m4.metric("Posición media" if not _is_en_int else "Avg. position", _tt["position"])
+                    st.caption(f"{_scd['rango']['desde']} → {_scd['rango']['hasta']}")
+                    if _scd["keywords"]:
+                        st.markdown("**🔑 " + ("Palabras por las que te encuentran" if not _is_en_int
+                                               else "Search terms that find you") + "**")
+                        st.dataframe(pd.DataFrame(_scd["keywords"]), use_container_width=True, hide_index=True)
+                    if _scd["paginas"]:
+                        st.markdown("**📄 " + ("Páginas con más tráfico orgánico" if not _is_en_int
+                                               else "Pages with most organic traffic") + "**")
+                        st.dataframe(pd.DataFrame(_scd["paginas"]), use_container_width=True, hide_index=True)
+                    st.caption(("Posición: menor es mejor (1 = primer resultado). CTR = clics ÷ impresiones."
+                                if not _is_en_int else
+                                "Position: lower is better (1 = top result). CTR = clicks ÷ impressions."))
+            elif _sc_pendiente:
+                st.info(("Autorizaste Search Console. Elige tu sitio para activarlo."
+                         if not _is_en_int else "You authorized Search Console. Pick your site to activate it."))
+                _tok, _e = _sc_token_valido(_sc_pendiente)
+                if _e or not _tok:
+                    st.error(("No se pudo autenticar; vuelve a conectar. " if not _is_en_int
+                              else "Could not authenticate; reconnect. ") + str(_e or ""))
+                else:
+                    _sitios, _serr = _gsc.listar_sitios(_tok)
+                    if _serr:
+                        st.error(_serr)
+                    elif not _sitios:
+                        st.warning(("No hay sitios verificados en tu Search Console. Verifica tu web primero en "
+                                    "search.google.com/search-console y vuelve." if not _is_en_int else
+                                    "No verified sites in your Search Console. Verify your site first at "
+                                    "search.google.com/search-console and come back."))
+                    else:
+                        _pick = st.selectbox("Tu sitio:" if not _is_en_int else "Your site:",
+                                             [s["url"] for s in _sitios], key="sc_site_pick")
+                        if st.button("✅ Activar este sitio" if not _is_en_int else "✅ Activate this site",
+                                     key="sc_activar") and supabase:
+                            try:
+                                supabase.table("integraciones").update({"account_id": _pick, "activo": True}) \
+                                    .eq("user_email", _email_int).eq("tipo", "search_console").execute()
+                                st.rerun()
+                            except Exception as _e2:
+                                st.error(str(_e2))
+            else:
+                st.info(("🔎 Conecta Search Console para ver las palabras REALES por las que Google te encuentra, "
+                         "tu posición y tus páginas top. Es gratis (no usa IA)." if not _is_en_int else
+                         "🔎 Connect Search Console to see the REAL terms Google finds you by, your ranking and "
+                         "top pages. It's free (no AI)."))
+                if _gsc.oauth_configurado(st.secrets):
+                    st.link_button("🔗 Conectar con Google" if not _is_en_int else "🔗 Connect with Google",
+                                   _gsc.build_auth_url(st.secrets, state=f"tentaklsc|{_email_int}"))
+                    st.caption(("Autoriza el acceso de solo lectura a Search Console. Luego vuelve y pulsa Actualizar."
+                                if not _is_en_int else
+                                "Grant read-only access to Search Console. Then come back and press Refresh."))
+                    if st.button("🔄 Ya autoricé — actualizar" if not _is_en_int else "🔄 I authorized — refresh",
+                                 key="sc_oauth_refresh"):
+                        st.rerun()
+                else:
+                    st.warning(("⚙ El acceso con Google (OAuth) aún no está configurado. Falta agregar "
+                                "GOOGLE_OAUTH_CLIENT_ID / CLIENT_SECRET / REDIRECT_URI en los secrets."
+                                if not _is_en_int else
+                                "⚙ Google OAuth isn't configured yet. Add GOOGLE_OAUTH_CLIENT_ID / CLIENT_SECRET / "
+                                "REDIRECT_URI to secrets."))
 
             # ── SECCIÓN 2 — Conectar mi Tienda ──────────────────────────────
             st.markdown("---")
