@@ -21,15 +21,19 @@ create table if not exists reclamaciones (
 Mejora futura: enviar copia por EMAIL al consumidor y a Tentakl (necesita
 servicio de correo) y un panel admin para atender dentro de los 15 días hábiles.
 
-## 🔐 Login "Entrar con Google" — HECHO (código)
+## 🔐 Login "Entrar con Google" — HECHO (código, endurecido)
 Botón en el sidebar que reusa la MISMA app OAuth de Google (scope básico
 openid/email/profile). Da email VERIFICADO y lo deja logueado (persiste con ?u=).
 PENDIENTE de Jair: en la pantalla de consentimiento OAuth de Google, poner el
 estado de publicación en **"En producción"** (los scopes de login son NO
 sensibles → NO requieren verificación de Google; solo analytics.readonly la
 requiere). Con eso, cualquiera entra con Google.
-Limitación conocida (MVP): la persistencia usa ?u=email en texto plano
-(falsificable). Endurecer luego con token firmado o cookie de sesión.
+✅ ENDURECIDO: el ?u= ya NO va en texto plano. Ahora es `email~firma` donde la
+firma es HMAC-SHA256 (helpers `firmar_u`/`leer_u`). Si alguien pone
+`?u=otro@correo` sin firma válida, se ignora → no puede suplantar a nadie.
+OPCIONAL de Jair: agregar `SESSION_SECRET` en Streamlit Secrets (una frase
+larga aleatoria) para una clave de firma dedicada; si no, usa como fallback el
+secret de OAuth / la API key de Gemini (igual funciona).
 
 ## 🎣 Gancho gratis (growth) — HECHO
 Conectar tienda/Analytics ya NO requiere Pro: `FUNCION_PLAN_MIN["integraciones"] = "Free"`.
@@ -40,13 +44,22 @@ PROFUNDIDAD (Autopiloto, historial+precisión del Gemelo, multi-cliente).
 Rediseñada (insignia de veredicto en color, titular que se adapta honestamente),
 mostrada al frente del resultado con botón de compartir. Branding tentakl.ai.
 
-## 🎁 Referidos (invita y gana) — HECHO (sin SQL nuevo)
+## 🎁 Referidos (invita y gana) — HECHO (con anti-abuso)
 Cada usuario tiene su link `?ref=<token>` (en el sidebar: "Invita y gana"). Cuando
 un amigo entra por el link y crea su cuenta, AMBOS ganan `CREDITOS_REFERIDO` (30)
 créditos vía `creditos_extra`. Usa el email codificado en base64 como token.
-Limitación conocida (MVP): no hay anti-abuso fuerte (no registra referido_por);
-el bono se da una vez por alta. Mejoras futuras: registrar referido_por, tope de
-referidos, y requerir que el nuevo haga una acción antes de premiar.
+✅ ANTI-ABUSO: tope de `REFERIDO_CAP` (20) referidos premiados por usuario; se
+registra `referido_por` en el nuevo usuario y se cuenta en `referidos_dados` del
+referente. No se puede auto-referir. Si el referente ya llegó al tope, no se
+premia. Con esto, nadie puede fabricar créditos infinitos invitándose a sí mismo
+o repitiendo cuentas sin control.
+PENDIENTE de Jair: agregar 2 columnas a la tabla `usuarios` en Supabase para que
+el tope y el registro persistan (si no existen, el código sigue funcionando pero
+sin contar el tope):
+```sql
+alter table usuarios add column if not exists referidos_dados int default 0;
+alter table usuarios add column if not exists referido_por text;
+```
 
 ## 🔁 Growth — siguientes
 Alerta semanal de retención por EMAIL/WhatsApp (la parte in-app ya está: aviso
