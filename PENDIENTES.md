@@ -18,8 +18,17 @@ el bono se da una vez por alta. Mejoras futuras: registrar referido_por, tope de
 referidos, y requerir que el nuevo haga una acción antes de premiar.
 
 ## 🔁 Growth — siguientes
-Alerta semanal de retención ("tus ventas vs. lo que predije"); hacer el link de
-referido parte de la tarjeta compartible automáticamente.
+Alerta semanal de retención por EMAIL/WhatsApp (la parte in-app ya está: aviso
+de próxima campaña con cuenta regresiva en el Gemelo). El envío necesita un
+servicio de correo (Resend/SendGrid) + disparador semanal — fase aparte.
+
+## 🔵 Meta Ads — CÓDIGO LISTO, falta app de Jair + wiring UI
+`integrations/meta_ads.py` (OAuth + gasto/ROAS por mes) con tests. Pasos de
+configuración en `integrations/README_META_ADS.md`. PENDIENTE de Jair: crear la
+app en Meta for Developers (App ID/Secret + redirect + permiso ads_read) y
+pegar META_APP_ID / META_APP_SECRET / META_OAUTH_REDIRECT_URI en Streamlit.
+PENDIENTE de código (cuando haya app): botón "Conectar con Meta" en
+Integraciones + autollenar la inversión del Gemelo desde el gasto real.
 
 
 ## 🔑 Conectar Google Analytics (OAuth) — PENDIENTE de Jair

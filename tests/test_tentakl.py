@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from integrations import analytics as A
 from integrations import stores as S
+from integrations import meta_ads as MA
 from core import agents as AG
 from core import context as CX
 from core import gemelo as GM
@@ -378,10 +379,51 @@ def test_gemelo():
     check(abs(_rc0["multiplicador"] - 1.0) < 1e-6, "intensidad 0 = mes normal (multiplicador 1.0)")
 
 
+def test_meta_ads():
+    print("\n[9] Meta Ads (OAuth + gasto por mes)")
+    _secrets = {"META_APP_ID": "ID", "META_APP_SECRET": "SEC",
+                "META_OAUTH_REDIRECT_URI": "https://app/"}
+    check(MA.oauth_configurado(_secrets) and not MA.oauth_configurado({}),
+          "detecta si están los secrets de Meta")
+    _url = MA.build_auth_url(_secrets, state="x")
+    check("dialog/oauth" in _url and "ads_read" in _url and "client_id=ID" in _url,
+          "arma la URL de autorización con ads_read")
+
+    from datetime import datetime as _dt
+    _now = _dt.now()
+    _ym_now = _now.strftime("%Y-%m")
+    _lm, _ly = (_now.month - 1, _now.year) if _now.month > 1 else (12, _now.year - 1)
+    _ym_last = f"{_ly:04d}-{_lm:02d}"
+
+    def router_meta(method, url, kw):
+        if "/insights" in url:
+            return FakeResp(200, {"data": [
+                {"date_start": _ym_now + "-01", "spend": "300.50",
+                 "purchase_roas": [{"action_type": "omni_purchase", "value": "2.5"}]},
+                {"date_start": _ym_last + "-01", "spend": "150.00",
+                 "purchase_roas": [{"action_type": "omni_purchase", "value": "3.1"}]},
+            ]})
+        if "/me/adaccounts" in url:
+            return FakeResp(200, {"data": [
+                {"account_id": "123", "name": "Wasai Ads", "currency": "PEN"}]})
+        return FakeResp(500, {}, "err")
+    MA.requests = FakeRequests(router_meta)
+
+    _cuentas, _e1 = MA.listar_cuentas_ads("TOK")
+    check(_e1 is None and _cuentas and _cuentas[0]["id"] == "123" and _cuentas[0]["moneda"] == "PEN",
+          "lista cuentas de ads")
+    _filas, _e2 = MA.fetch_ad_spend_by_month("act_123", "TOK", meses=3)
+    _d = {f["ym"]: f for f in _filas}
+    check(_e2 is None and _d.get(_ym_now, {}).get("gasto") == 300.5, "gasto del mes correcto")
+    check(_d.get(_ym_now, {}).get("roas") == 2.5, "ROAS del mes correcto")
+    check(_d.get(_ym_last, {}).get("gasto") == 150.0, "gasto del mes anterior")
+    check(len(_filas) == 3 and all("mes" in f for f in _filas), "devuelve 3 meses con etiqueta")
+
+
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
                test_listar_propiedades, test_stores, test_agents, test_context,
-               test_gemelo):
+               test_gemelo, test_meta_ads):
         _t()
     print("\n" + ("=" * 50))
     if _fallos:
