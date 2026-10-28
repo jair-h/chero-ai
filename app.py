@@ -77,6 +77,45 @@ elif not SUPABASE_URL:
 elif not SUPABASE_KEY:
     st.warning("⚠ SUPABASE_KEY no configurada en secrets.toml — los datos no se guardarán.")
 
+# ── Sesión firmada: el ?u= de la URL va firmado (HMAC) para que nadie pueda
+#    poner ?u=otro@correo y suplantar. El login verificado sigue siendo Google.
+#    (Definido ARRIBA del callback porque el callback lo usa al volver de Google.)
+def _session_secret():
+    _s = ""
+    try:
+        _s = (st.secrets.get("SESSION_SECRET", "") or st.secrets.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
+              or st.secrets.get("GEMINI_API_KEY", "") or "")
+    except Exception:
+        _s = ""
+    return (_s or "tentakl-fallback-secret").encode()
+
+
+def _firma_email(email):
+    import hashlib
+    import hmac
+    return hmac.new(_session_secret(), (email or "").strip().lower().encode(),
+                    hashlib.sha256).hexdigest()[:16]
+
+
+def firmar_u(email):
+    """Token firmado para el ?u= (email~firma)."""
+    email = (email or "").strip().lower()
+    return f"{email}~{_firma_email(email)}" if email else ""
+
+
+def leer_u(token):
+    """Devuelve el email del ?u= SOLO si la firma es válida; si no, ''."""
+    import hmac
+    t = (token or "").strip()
+    if "~" not in t:
+        return ""
+    _email, _sig = t.rsplit("~", 1)
+    _email = _email.strip().lower()
+    if _email and hmac.compare_digest(_sig, _firma_email(_email)):
+        return _email
+    return ""
+
+
 # ── Callback OAuth de Google Analytics ────────────────────────────────────
 # Google redirige de vuelta con ?code=&state=tentaklga|<email>. Guardamos el
 # bundle de tokens como pendiente (activo=False); la propiedad GA4 se elige
@@ -111,7 +150,7 @@ try:
             if _lg_email and not _lg_e2:
                 st.session_state.user_email = _lg_email
                 try:
-                    st.query_params["u"] = _lg_email   # persiste el login al recargar
+                    st.query_params["u"] = firmar_u(_lg_email)   # persiste el login (firmado)
                 except Exception:
                     _ignorar_error()
                 st.session_state["login_google_ok"] = True
@@ -1090,6 +1129,7 @@ def crear_cuenta_free(email):
 # REFERIDOS (invita y gana créditos) — motor viral, sin SQL nuevo (usa creditos_extra)
 # =========================
 CREDITOS_REFERIDO = 30   # créditos de regalo para AMBOS (referente y nuevo)
+REFERIDO_CAP = 20        # máximo de referidos premiados por usuario (anti-abuso)
 
 
 def _app_url():
@@ -1143,7 +1183,8 @@ def _otorgar_creditos(email, cantidad):
 
 def aplicar_referido(nuevo_email):
     """Si el alta trae un ?ref válido de otro usuario existente, premia a AMBOS
-    (una sola vez, en el alta). Devuelve los créditos otorgados al nuevo (0 si no aplica)."""
+    (una vez, en el alta). Anti-abuso: tope de referidos por usuario y registro
+    de quién refirió. Devuelve los créditos otorgados al nuevo (0 si no aplica)."""
     try:
         _tok = st.query_params.get("ref")
     except Exception:
@@ -1152,17 +1193,38 @@ def aplicar_referido(nuevo_email):
         return 0
     _ref_email = _ref_decode(_tok)
     _nuevo = (nuevo_email or "").strip().lower()
-    if not _ref_email or _ref_email == _nuevo or not db_get_usuario(_ref_email):
+    if not _ref_email or _ref_email == _nuevo:
         return 0
-    # Premia al referente (en DB) y al nuevo (en sesión + DB)
-    _otorgar_creditos(_ref_email, CREDITOS_REFERIDO)
+    _ref_row = db_get_usuario(_ref_email)
+    if not _ref_row:
+        return 0
+    # Anti-abuso: si el referente ya llegó al tope, no se premia a nadie
+    _dados = int(_ref_row.get("referidos_dados", 0) or 0)
+    if _dados >= REFERIDO_CAP:
+        return 0
+    # Premia al referente (créditos + contador de referidos)
+    _ref_extra = int(_ref_row.get("creditos_extra", 0) or 0) + CREDITOS_REFERIDO
+    if supabase:
+        try:
+            supabase.table("usuarios").update({
+                "creditos_extra": _ref_extra, "referidos_dados": _dados + 1,
+            }).eq("email", _ref_email).execute()
+        except Exception:
+            _otorgar_creditos(_ref_email, CREDITOS_REFERIDO)   # columna nueva faltante
+    # Premia al nuevo (sesión + DB) y registra quién lo refirió
     st.session_state.creditos_extra = int(st.session_state.get("creditos_extra", 0) or 0) + CREDITOS_REFERIDO
     try:
         db_upsert_usuario(_nuevo, st.session_state.get("plan", "Free"),
                           int(st.session_state.get("usados", 0) or 0),
-                          extra={"creditos_extra": st.session_state.creditos_extra})
+                          extra={"creditos_extra": st.session_state.creditos_extra,
+                                 "referido_por": _ref_email})
     except Exception:
-        pass
+        try:
+            db_upsert_usuario(_nuevo, st.session_state.get("plan", "Free"),
+                              int(st.session_state.get("usados", 0) or 0),
+                              extra={"creditos_extra": st.session_state.creditos_extra})
+        except Exception:
+            pass
     return CREDITOS_REFERIDO
 
 
@@ -2077,8 +2139,9 @@ with st.sidebar:
             _u_qp = st.query_params.get("u")
         except Exception:
             _u_qp = None
-        if _u_qp and re.match(r'^[^@]+@[^@]+\.[^@]+$', _u_qp.strip().lower()):
-            st.session_state.user_email = _u_qp.strip().lower()
+        _u_verificado = leer_u(_u_qp)   # solo si la firma es válida (anti-suplantación)
+        if _u_verificado:
+            st.session_state.user_email = _u_verificado
 
     # ── 🔓 Entrar con Google (login verificado, sin reescribir el correo) ──────
     if not (st.session_state.get("user_email") or "").strip():
@@ -2100,10 +2163,10 @@ with st.sidebar:
     if email_in:
         nuevo_email = email_in.strip().lower()
 
-        # Persistir el email en la URL para sobrevivir recargas del pulpo
+        # Persistir el email en la URL (FIRMADO) para sobrevivir recargas
         try:
-            if st.query_params.get("u") != nuevo_email:
-                st.query_params["u"] = nuevo_email
+            if leer_u(st.query_params.get("u")) != nuevo_email:
+                st.query_params["u"] = firmar_u(nuevo_email)
         except Exception:
             _ignorar_error()
 
