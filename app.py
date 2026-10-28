@@ -103,6 +103,23 @@ try:
                 del st.query_params[_k]
             except Exception:
                 _ignorar_error()
+    elif _ga_cb_code and _ga_cb_state == "tentakllogin":
+        # "Entrar con Google": obtenemos el email VERIFICADO y lo dejamos logueado.
+        _lg_bundle, _lg_err = _ganalytics.exchange_code(st.secrets, _ga_cb_code)
+        if _lg_bundle and not _lg_err:
+            _lg_email, _lg_e2 = _ganalytics.fetch_userinfo(_lg_bundle.get("access_token", ""))
+            if _lg_email and not _lg_e2:
+                st.session_state.user_email = _lg_email
+                try:
+                    st.query_params["u"] = _lg_email   # persiste el login al recargar
+                except Exception:
+                    _ignorar_error()
+                st.session_state["login_google_ok"] = True
+        for _k in ("code", "state", "scope", "authuser", "prompt"):
+            try:
+                del st.query_params[_k]
+            except Exception:
+                _ignorar_error()
 except Exception:
     _ignorar_error()
 
@@ -2062,6 +2079,21 @@ with st.sidebar:
             _u_qp = None
         if _u_qp and re.match(r'^[^@]+@[^@]+\.[^@]+$', _u_qp.strip().lower()):
             st.session_state.user_email = _u_qp.strip().lower()
+
+    # ── 🔓 Entrar con Google (login verificado, sin reescribir el correo) ──────
+    if not (st.session_state.get("user_email") or "").strip():
+        try:
+            _login_cfg_ok = _ganalytics.oauth_configurado(st.secrets)
+        except Exception:
+            _login_cfg_ok = False
+        if _login_cfg_ok:
+            _en_lg = st.session_state.get("lang") == "en"
+            st.link_button("🔓 " + ("Entrar con Google" if not _en_lg else "Sign in with Google"),
+                           _ganalytics.build_login_url(st.secrets), use_container_width=True)
+            st.caption("o ingresa tu correo 👇" if not _en_lg else "or enter your email 👇")
+    if st.session_state.pop("login_google_ok", False):
+        st.success("✅ " + ("Sesión iniciada con Google." if st.session_state.get("lang") != "en"
+                            else "Signed in with Google."))
 
     email_in = st.text_input(t("email_label"), value=st.session_state.user_email, placeholder="tu@empresa.com")
 

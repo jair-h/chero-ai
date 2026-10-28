@@ -1,5 +1,15 @@
 # Pendientes de Tentakl
 
+## 🔐 Login "Entrar con Google" — HECHO (código)
+Botón en el sidebar que reusa la MISMA app OAuth de Google (scope básico
+openid/email/profile). Da email VERIFICADO y lo deja logueado (persiste con ?u=).
+PENDIENTE de Jair: en la pantalla de consentimiento OAuth de Google, poner el
+estado de publicación en **"En producción"** (los scopes de login son NO
+sensibles → NO requieren verificación de Google; solo analytics.readonly la
+requiere). Con eso, cualquiera entra con Google.
+Limitación conocida (MVP): la persistencia usa ?u=email en texto plano
+(falsificable). Endurecer luego con token firmado o cookie de sesión.
+
 ## 🎣 Gancho gratis (growth) — HECHO
 Conectar tienda/Analytics ya NO requiere Pro: `FUNCION_PLAN_MIN["integraciones"] = "Free"`.
 El anzuelo (conectar + Gemelo básico) es gratis para enganchar; se cobra la
