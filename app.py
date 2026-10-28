@@ -3536,7 +3536,8 @@ if _es_home:
     st.toggle(("⚙️ Modo avanzado (ver todo mi equipo de agentes)" if not _is_en_ui
                else "⚙️ Advanced mode (see my whole agent team)"), key="inicio_avanzado")
 
-elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto", "gemelo", "reclamaciones"):
+elif _agente_activo in ("reportes", "admin_dashboard", "autopiloto", "gemelo",
+                        "reclamaciones", "privacidad", "terminos"):
     if st.button("← " + ("Volver a mis agentes" if not _is_en_ui else "Back to my agents"),
                  key="btn_volver_especial"):
         st.session_state.agente_activo = None
@@ -7978,9 +7979,118 @@ if _sec_activa == "reclamaciones":
                 st.warning("No se pudo guardar automáticamente. Escríbenos a hola@tentakl.ai "
                            f"con tu detalle y te atendemos. ({_err_rec})")
 
+# ── SECCIÓN: POLÍTICA DE PRIVACIDAD ────────────────────────────────────────
+# Se muestra DENTRO de la app (sin depender del dominio). Cuando tentakl.ai
+# exista, la landing enlaza el privacy.html equivalente; el contenido es el mismo.
+if _sec_activa == "privacidad":
+    st.markdown("""
+## 🔒 Política de Privacidad
+*Última actualización: 28 de octubre de 2026*
+
+En Tentakl ("nosotros") cuidamos tus datos. Esta política explica qué recopilamos,
+para qué, y tus derechos. Al usar Tentakl aceptas lo aquí descrito.
+
+### 1. Qué datos recopilamos
+- **Tu cuenta:** tu correo electrónico (para identificarte y guardar tu progreso).
+- **Tu negocio:** marca, rubro, país, productos y datos que ingresas (ventas, inversión, etc.) para que las funciones trabajen.
+- **Cuentas que conectas (solo lectura):** si conectas Google Analytics, tu tienda (p. ej. WooCommerce) o plataformas de anuncios (Meta/TikTok), guardamos los tokens de acceso necesarios para **leer** tus métricas (tráfico, ventas, gasto). No publicamos ni modificamos nada sin tu acción.
+- **Uso:** datos técnicos básicos para operar y mejorar el servicio.
+
+### 2. Para qué los usamos
+- Darte el servicio: análisis, simulaciones del Gemelo, generación de contenido con IA y reportes.
+- Guardar tu historial y medir la precisión de tus predicciones.
+- Mejorar Tentakl y darte soporte.
+
+**No vendemos tus datos** ni los compartimos con terceros con fines publicitarios.
+
+### 3. Datos de Google (API)
+> El uso y la transferencia de la información recibida de las APIs de Google por parte de
+> Tentakl se ajustarán a la [Política de Datos de Usuario de los Servicios de API de Google](https://developers.google.com/terms/api-services-user-data-policy),
+> incluidos los requisitos de Uso Limitado. Solo leemos los datos de Google Analytics que
+> autorizas, únicamente para mostrarte tus métricas dentro de Tentakl; no los usamos para
+> publicidad ni los vendemos, y no permitimos que personas lean esos datos salvo que sea
+> necesario para operar o dar soporte con tu consentimiento, por obligación legal, o de forma
+> agregada/anonimizada.
+
+### 4. Proveedores que usamos
+- **Supabase** — base de datos donde se guarda tu cuenta y tus datos.
+- **Google (Gemini)** — modelo de IA que genera el contenido y las explicaciones.
+- **Google y Meta** — solo si conectas Analytics o tus anuncios (lectura de tus métricas).
+- **Streamlit** — alojamiento de la aplicación.
+
+### 5. Seguridad y retención
+Aplicamos medidas razonables para proteger tu información y la conservamos mientras tu cuenta
+esté activa o según lo requiera la ley. Puedes pedir su eliminación en cualquier momento.
+
+### 6. Tus derechos
+Puedes acceder, corregir o eliminar tus datos, y desconectar cualquier integración cuando
+quieras. Escríbenos y lo gestionamos.
+
+### 7. Cambios
+Podemos actualizar esta política; publicaremos la nueva versión aquí con su fecha.
+
+### 8. Contacto
+Dudas o solicitudes: **hola@tentakl.ai**
+""")
+
+# ── SECCIÓN: TÉRMINOS Y CONDICIONES ────────────────────────────────────────
+if _sec_activa == "terminos":
+    st.markdown("""
+## 📄 Términos y Condiciones
+*Última actualización: 28 de octubre de 2026*
+
+Estos términos rigen el uso de Tentakl. Al crear una cuenta o usar el servicio, los aceptas.
+
+### 1. Qué es Tentakl
+Tentakl es una herramienta de marketing con inteligencia artificial: agentes que crean
+contenido y un Gemelo Digital que simula ventas y decisiones de negocio.
+
+### 2. Tu cuenta
+Eres responsable de la información que ingresas y del uso de tu cuenta. Debes dar datos
+veraces y usar Tentakl conforme a la ley.
+
+### 3. Las predicciones son estimaciones, no garantías
+> El Gemelo Digital entrega **rangos y estimaciones** basados en modelos matemáticos y en los
+> datos que proporcionas. **No garantizan resultados** de ventas ni de campañas. Las decisiones
+> que tomes son tuyas; Tentakl es una ayuda para decidir mejor, no una promesa de resultados.
+
+### 4. Planes, créditos y pagos
+- Hay un plan gratuito con créditos limitados y planes de pago con más capacidad.
+- Los créditos se consumen al usar funciones de IA. Las condiciones y precios pueden cambiar; avisaremos los cambios relevantes.
+
+### 5. Uso aceptable
+No puedes usar Tentakl para fines ilegales, engañosos o que violen derechos de terceros, ni
+intentar vulnerar la seguridad del servicio.
+
+### 6. Contenido e integraciones
+El contenido que generas es tuyo. Si conectas servicios externos (Google, tu tienda, anuncios),
+autorizas a Tentakl a leer tus métricas solo para darte el servicio, según nuestra Política de Privacidad.
+
+### 7. Limitación de responsabilidad
+Tentakl se ofrece "tal cual". En la medida que la ley lo permita, no somos responsables por
+pérdidas derivadas de decisiones de negocio tomadas con base en el servicio.
+
+### 8. Terminación
+Puedes dejar de usar Tentakl cuando quieras. Podemos suspender cuentas que incumplan estos términos.
+
+### 9. Ley aplicable
+Estos términos se rigen por las leyes de la República del Perú.
+
+### 10. Contacto
+**hola@tentakl.ai**
+""")
+
 st.markdown("---")
-_foot_c1, _foot_c2 = st.columns([3, 1])
+_foot_c1, _foot_c2, _foot_c3, _foot_c4 = st.columns([2, 1, 1, 1])
 with _foot_c2:
+    if st.button("🔒 Privacidad", key="btn_privacidad", use_container_width=True):
+        st.session_state.agente_activo = "privacidad"
+        st.rerun()
+with _foot_c3:
+    if st.button("📄 Términos", key="btn_terminos", use_container_width=True):
+        st.session_state.agente_activo = "terminos"
+        st.rerun()
+with _foot_c4:
     if st.button("📕 Libro de Reclamaciones", key="btn_libro_recl", use_container_width=True):
         st.session_state.agente_activo = "reclamaciones"
         st.rerun()
