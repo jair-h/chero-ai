@@ -6241,7 +6241,7 @@ Sé muy específico con los números que ves en la imagen."""
 
                 _col_ga1, _col_ga2 = st.columns([3, 1])
                 with _col_ga1:
-                    _btn_analizar = st.button("📊 Analizar mis métricas (2 créditos)" if not _is_en_int else "📊 Analyze my metrics (2 credits)", key="ga_analizar")
+                    _btn_analizar = st.button("📊 Ver mis métricas (gratis)" if not _is_en_int else "📊 See my metrics (free)", key="ga_analizar")
                 with _col_ga2:
                     _btn_desc = st.button("🔌 Desconectar" if not _is_en_int else "🔌 Disconnect", key="ga_desconectar")
 
@@ -6256,9 +6256,9 @@ Sé muy específico con los números que ves en la imagen."""
                             st.error(str(_e))
 
                 if _btn_analizar:
-                    if verificar_creditos(2):
+                    if verificar_creditos(0):   # ver datos reales = GRATIS (no usa IA)
                         # Datos REALES de GA4 vía OAuth. Nunca datos inventados:
-                        # si algo falla, mostramos el error y no cobramos.
+                        # si algo falla, mostramos el error.
                         _ga_bundle = _ganalytics.parsear_token_guardado(_ga_record.get("access_token", ""))
                         if _ga_bundle.get("api_key_legacy"):
                             st.error("Esta conexión usa el método viejo (API Key), que no sirve para el Data API de GA4. Desconecta y vuelve a conectar con el botón de Google."
@@ -6283,7 +6283,6 @@ Sé muy específico con los números que ves en la imagen."""
                                     st.error(("GA4: " if not _is_en_int else "GA4: ") + _ga_err)
                                 else:
                                     st.session_state["ga_data"] = _ga_data
-                                    consumir(2)
 
                 # Dashboard de datos REALES (tal cual GA4)
                 _gd = st.session_state.get("ga_data")
@@ -6359,8 +6358,9 @@ Sé muy específico con los números que ves en la imagen."""
                             st.dataframe([{"país": _k, "sesiones": _v} for _k, _v in _gd["paises"].items()],
                                          use_container_width=True, hide_index=True)
 
-                    # Análisis con IA (sobre los datos reales)
-                    if st.button("🧠 Analizar con IA" if not _is_en_int else "🧠 AI Analysis", key="ga_ia_btn"):
+                    # Análisis con IA (sobre los datos reales) — ESTO sí cobra (usa IA)
+                    if st.button("🧠 Analizar con IA (2 créditos)" if not _is_en_int else "🧠 AI Analysis (2 credits)", key="ga_ia_btn") \
+                            and verificar_creditos(2):
                         _nicho_ga = st.session_state.get("nicho_guardado", "")
                         _pais_ga = st.session_state.get("pais_guardado", "")
                         _prompt_ga = (
@@ -6383,7 +6383,9 @@ Sé muy específico con los números que ves en la imagen."""
                             f"## 📉 MÉTRICA A MEJORAR PRIMERO\n[Una sola métrica con objetivo numérico]"
                         )
                         _res_ga = generar_analitico(_prompt_ga, max_tokens=4000)
-                        st.session_state["ga_ia_result"] = _res_ga
+                        if _res_ga:
+                            st.session_state["ga_ia_result"] = _res_ga
+                            consumir(2)   # cobra solo si la IA respondió
 
                     if st.session_state.get("ga_ia_result"):
                         st.markdown(st.session_state["ga_ia_result"])
