@@ -15,6 +15,7 @@ from integrations import analytics as A
 from integrations import stores as S
 from integrations import meta_ads as MA
 from integrations import search_console as SC
+from integrations import seo as SEO
 from core import agents as AG
 from core import context as CX
 from core import gemelo as GM
@@ -494,10 +495,60 @@ def test_search_console():
     check(_data is None and "403" in (_e or ""), "error de API -> sin datos inventados")
 
 
+def test_seo():
+    print("\n[11] SEO on-page + Autocomplete (gratis, sin IA)")
+    # Página BIEN hecha -> score alto, sin problemas críticos
+    _ok_html = ("""<!doctype html><html lang="es"><head>
+      <title>Café orgánico peruano de altura — Tentakl</title>
+      <meta name="description" content="Compra café orgánico peruano de altura, tostado
+        artesanalmente. Envios a todo el pais en 24-48h. Grano arabica de Cajamarca listo.">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <link rel="canonical" href="https://x.com/cafe">
+      </head><body>
+      <h1>Café orgánico peruano</h1>
+      <h2>Beneficios</h2><h2>Origen</h2>
+      <img src="a.jpg" alt="bolsa de café"><img src="b.jpg" alt="granos">
+      <p>""" + ("palabra " * 350) + "</p></body></html>")
+    _d, _e = SEO.auditar_onpage(_ok_html, "https://x.com/cafe")
+    check(_e is None and _d is not None, "audita el HTML sin error")
+    check(_d["title_len"] > 0 and _d["h1_count"] == 1 and _d["h2_count"] == 2, "extrae title/H1/H2")
+    check(_d["img_total"] == 2 and _d["img_sin_alt"] == 0, "cuenta imágenes y alt")
+    check(_d["viewport"] is True and _d["https"] is True and _d["lang"] == "es", "detecta viewport/https/lang")
+    check(not any(i["nivel"] == "critico" for i in _d["issues"]) and _d["score"] >= 90,
+          "página buena -> score alto sin críticos")
+
+    # Página MAL hecha -> críticos y score bajo
+    _bad_html = "<html><head></head><body><img src='a.jpg'><p>hola</p></body></html>"
+    _d2, _e2 = SEO.auditar_onpage(_bad_html, "http://x.com")
+    _niveles = {i["nivel"] for i in _d2["issues"]}
+    check(_d2["title_len"] == 0 and _d2["h1_count"] == 0, "página mala: sin title ni H1")
+    check("critico" in _niveles and _d2["score"] < 60, "página mala -> críticos y score bajo")
+    check(_d2["img_sin_alt"] == 1 and _d2["https"] is False, "detecta img sin alt y falta de HTTPS")
+    check(SEO.auditar_onpage("", "")[0] is None, "HTML vacío -> sin datos (no inventa)")
+
+    # Autocomplete real de Google (mock de red): quita el término base y dedup
+    def router_ac(method, url, kw):
+        if "complete/search" in url:
+            return FakeResp(200, ["cafe", ["cafe organico", "cafe organico peru",
+                                            "cafe", "cafe organico precio", "cafe organico precio"]])
+        return FakeResp(404, {}, "no")
+    SEO.requests = FakeRequests(router_ac)
+    _sug, _e3 = SEO.sugerencias_google("cafe", gl="PE")
+    check(_e3 is None and "cafe organico" in _sug and "cafe" not in _sug, "autocomplete quita el término base")
+    check(len(_sug) == len(set(_sug)), "autocomplete sin duplicados")
+    check(SEO.sugerencias_google("")[0] == [], "término vacío -> lista vacía")
+
+    def router_ac_err(method, url, kw):
+        return FakeResp(500, {}, "err")
+    SEO.requests = FakeRequests(router_ac_err)
+    _sug2, _e4 = SEO.sugerencias_google("cafe")
+    check(_sug2 == [] and _e4, "error de red -> lista vacía + aviso (no inventa)")
+
+
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
                test_listar_propiedades, test_stores, test_agents, test_context,
-               test_gemelo, test_meta_ads, test_search_console):
+               test_gemelo, test_meta_ads, test_search_console, test_seo):
         _t()
     print("\n" + ("=" * 50))
     if _fallos:

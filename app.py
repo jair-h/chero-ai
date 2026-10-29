@@ -24,6 +24,7 @@ from openai import OpenAI as OpenAIClient
 from integrations import stores as _stores
 from integrations import analytics as _ganalytics
 from integrations import search_console as _gsc
+from integrations import seo as _seo
 
 # Capa de agentes (definición de los 9 agentes + routing por reglas)
 from core.agents import (
@@ -7111,6 +7112,79 @@ if _sec_activa == "power":
                                   placeholder="Ej: mitienda.com" if not _is_en_pw else "Ex: mystore.com",
                                   key="seo_url_scrape")
         _seo_man = st.text_area(_seo_man_lbl, placeholder=_seo_man_ph, height=200, key="seo_man")
+
+        # ── Diagnóstico técnico GRATIS (reglas, sin IA): score + checklist ──────
+        _seo_free1, _seo_free2 = st.columns(2)
+        with _seo_free1:
+            if st.button(("🔎 Diagnóstico rápido GRATIS (de la URL)" if not _is_en_pw
+                          else "🔎 Quick free diagnosis (from URL)"), key="btn_seo_free"):
+                if not _seo_url.strip():
+                    st.warning("Ingresa la URL de tu página arriba." if not _is_en_pw else "Enter your page URL above.")
+                else:
+                    with st.spinner("Analizando tu página..." if not _is_en_pw else "Analyzing your page..."):
+                        _aud, _aud_err = _seo.fetch_y_auditar(_seo_url)
+                    if _aud_err:
+                        st.warning(f"🌐 {_aud_err}")
+                    else:
+                        st.session_state["_seo_aud"] = _aud
+        with _seo_free2:
+            _seo_kw_base = st.text_input(("💡 Idea base para keywords (gratis)" if not _is_en_pw
+                                          else "💡 Base idea for keywords (free)"),
+                                         placeholder="Ej: café orgánico" if not _is_en_pw else "Ex: organic coffee",
+                                         key="seo_kw_base")
+            if st.button("💡 Ver ideas reales de Google" if not _is_en_pw else "💡 See real Google ideas",
+                         key="btn_seo_kw"):
+                _gl_map = {"Perú": "PE", "México": "MX", "Colombia": "CO", "Chile": "CL",
+                           "Argentina": "AR", "España": "ES", "USA": "US", "Estados Unidos": "US"}
+                _gl = next((v for k, v in _gl_map.items()
+                            if k.lower() in str(st.session_state.get("pais_guardado", pais)).lower()), "PE")
+                with st.spinner("Consultando Google..." if not _is_en_pw else "Querying Google..."):
+                    _sugs, _sug_err = _seo.sugerencias_google(
+                        _seo_kw_base, hl=("en" if _is_en_pw else "es"), gl=_gl)
+                if _sug_err:
+                    st.warning(_sug_err)
+                elif _sugs:
+                    st.session_state["_seo_kw"] = _sugs
+                else:
+                    st.info("Sin sugerencias para ese término; prueba uno más general."
+                            if not _is_en_pw else "No suggestions; try a broader term.")
+
+        _aud = st.session_state.get("_seo_aud")
+        if _aud:
+            _sc_color = "🟢" if _aud["score"] >= 80 else ("🟡" if _aud["score"] >= 55 else "🔴")
+            st.markdown(f"#### {_sc_color} " + ("Score técnico" if not _is_en_pw else "Technical score")
+                        + f": **{_aud['score']}/100**")
+            _am1, _am2, _am3, _am4 = st.columns(4)
+            _am1.metric("Título (car.)" if not _is_en_pw else "Title (chars)", _aud["title_len"])
+            _am2.metric("Meta (car.)" if not _is_en_pw else "Meta (chars)", _aud["meta_len"])
+            _am3.metric("H1", _aud["h1_count"])
+            _am4.metric("Palabras" if not _is_en_pw else "Words", _aud["palabras"])
+            _am5, _am6, _am7, _am8 = st.columns(4)
+            _am5.metric("H2", _aud["h2_count"])
+            _am6.metric("Imágenes" if not _is_en_pw else "Images", _aud["img_total"])
+            _am7.metric("Sin alt" if not _is_en_pw else "No alt", _aud["img_sin_alt"])
+            _am8.metric("Móvil" if not _is_en_pw else "Mobile", "✅" if _aud["viewport"] else "❌")
+            if _aud["issues"]:
+                _ico = {"critico": "🔴", "importante": "🟡", "menor": "⚪"}
+                st.markdown("**" + ("Qué corregir (ordenado por impacto)" if not _is_en_pw
+                                    else "What to fix (by impact)") + ":**")
+                for _it in sorted(_aud["issues"], key=lambda x: {"critico": 0, "importante": 1, "menor": 2}[x["nivel"]]):
+                    st.markdown(f"- {_ico[_it['nivel']]} {_it['msg']}")
+            else:
+                st.success("✅ Sin problemas técnicos detectados." if not _is_en_pw else "✅ No technical issues found.")
+            st.caption(("Diagnóstico por reglas (gratis, sin IA). Para el plan de corrección "
+                        "detallado por la IA, usa el botón de abajo." if not _is_en_pw else
+                        "Rule-based diagnosis (free, no AI). For the detailed AI fix plan, use the button below."))
+
+        _aud_kw = st.session_state.get("_seo_kw")
+        if _aud_kw:
+            st.markdown("**💡 " + ("Lo que la gente realmente busca en Google" if not _is_en_pw
+                                   else "What people actually search on Google") + ":**")
+            st.markdown("\n".join(f"- {s}" for s in _aud_kw))
+            st.caption("Sugerencias reales del Autocompletar de Google (no inventadas)."
+                       if not _is_en_pw else "Real Google Autocomplete suggestions (not AI-invented).")
+
+        st.markdown("---")
         if st.button(_seo_btn, key="btn_seo_gen"):
             _seo_scrape_txt = ""
             if _seo_url.strip():
