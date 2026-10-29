@@ -27,6 +27,13 @@ OPCIONAL de Jair: agregar `SESSION_SECRET` en Streamlit Secrets (una frase
 larga aleatoria) para una clave de firma dedicada; si no, usa como fallback el
 secret de OAuth / la API key de Gemini (igual funciona).
 
+## 🎣 Radiografía gratis de la web (gancho de entrada) — HECHO
+En el inicio (modo simple, lo primero que ve el usuario): caja "🔍 Radiografía
+gratis de tu web (10 segundos)". Pega su URL → score /100 por reglas + las 3
+cosas más urgentes a corregir, al instante. GRATIS, sin IA, sin créditos, sin
+configurar nada. Universal (cualquier negocio con web). Reusa integrations/seo.py.
+Lleva a Power → Auditoría SEO para el detalle completo.
+
 ## 🎣 Gancho gratis (growth) — HECHO
 Conectar tienda/Analytics ya NO requiere Pro: `FUNCION_PLAN_MIN["integraciones"] = "Free"`.
 El anzuelo (conectar + Gemelo básico) es gratis para enganchar; se cobra la

@@ -3422,6 +3422,52 @@ if _es_home:
     # ── Modo simple del inicio (por defecto): camino guiado, esconde lo avanzado
     _inicio_avanzado = st.session_state.get("inicio_avanzado", False)
     if not _inicio_avanzado and _cm_fase not in ("confirmar", "ejecutar", "done"):
+        # ── 🎣 GANCHO: Radiografía gratis de la web (sin IA, sin créditos) ──────
+        st.markdown("##### " + ("🔍 Radiografía gratis de tu web (10 segundos)"
+                                if not _is_en_ui else "🔍 Free website X-ray (10 seconds)"))
+        st.caption(("Pega tu página y te digo al instante qué tan lista está para Google y qué "
+                    "corregir. Gratis, sin gastar créditos." if not _is_en_ui else
+                    "Paste your page and I'll instantly tell you how ready it is for Google and "
+                    "what to fix. Free, no credits."))
+        _hk1, _hk2 = st.columns([4, 1])
+        with _hk1:
+            _hook_url = st.text_input("url", key="hook_url", label_visibility="collapsed",
+                                      placeholder="tunegocio.com")
+        with _hk2:
+            _hook_go = st.button("🔍 " + ("Analizar" if not _is_en_ui else "Scan"),
+                                 key="hook_go", use_container_width=True)
+        if _hook_go:
+            if not _hook_url.strip():
+                st.warning("Escribe la dirección de tu página." if not _is_en_ui else "Enter your page address.")
+            else:
+                with st.spinner("Revisando tu página..." if not _is_en_ui else "Scanning your page..."):
+                    _hk_aud, _hk_err = _seo.fetch_y_auditar(_hook_url)
+                if _hk_err:
+                    st.warning(f"🌐 {_hk_err}")
+                    st.session_state.pop("_hook_aud", None)
+                else:
+                    st.session_state["_hook_aud"] = _hk_aud
+        _hk_aud = st.session_state.get("_hook_aud")
+        if _hk_aud:
+            _hc = "🟢" if _hk_aud["score"] >= 80 else ("🟡" if _hk_aud["score"] >= 55 else "🔴")
+            st.markdown(f"### {_hc} {_hk_aud['score']}/100")
+            _top = sorted(_hk_aud["issues"],
+                          key=lambda x: {"critico": 0, "importante": 1, "menor": 2}[x["nivel"]])[:3]
+            if _top:
+                _ico = {"critico": "🔴", "importante": "🟡", "menor": "⚪"}
+                st.markdown("**" + ("Lo primero a corregir:" if not _is_en_ui else "Fix these first:") + "**")
+                for _it in _top:
+                    st.markdown(f"- {_ico[_it['nivel']]} {_it['msg']}")
+            else:
+                st.success("✅ " + ("Tu página está muy bien optimizada." if not _is_en_ui
+                                    else "Your page is well optimized."))
+            st.caption(("Gratis y con datos reales (no inventados). Para el plan de corrección completo "
+                        "y tus keywords reales de Google, entra a 🚀 Power → Auditoría SEO."
+                        if not _is_en_ui else
+                        "Free and with real data (not invented). For the full fix plan and your real "
+                        "Google keywords, go to 🚀 Power → SEO Audit."))
+        st.divider()
+
         st.markdown("##### " + ("🚀 Empieza en 3 pasos" if not _is_en_ui else "🚀 Start in 3 steps"))
         _g1, _g2, _g3 = st.columns(3)
         with _g1:
