@@ -123,10 +123,19 @@ PENDIENTE de Jair (1 sola vez, en Google Cloud, misma cuenta que Analytics):
 3. El sitio debe estar **verificado** en search.google.com/search-console con esa
    cuenta (si no, "no hay sitios verificados").
 
+## 🔎 Auditoría on-page + ideas de keywords — HECHO (gratis, sin IA)
+`integrations/seo.py`: (1) `auditar_onpage`/`fetch_y_auditar` → diagnóstico técnico
+con score por REGLAS (title, meta, H1, H2, imágenes sin alt, viewport, canonical,
+lang, HTTPS, cantidad de texto) + checklist de qué corregir ordenado por impacto;
+(2) `sugerencias_google` → ideas de keywords del Autocompletar REAL de Google;
+(3) `estacionalidad` → Google Trends con fallback claro si se bloquea (429).
+En Power → "Auditoría SEO Completa": botones GRATIS "Diagnóstico rápido (URL)" e
+"Ideas reales de Google" arriba; la auditoría narrativa por IA (3 créditos) queda
+opcional abajo. Con tests (grupo [11]). Nada pendiente de Jair.
+
 ## 🔎 SEO/SEM de verdad (lo que falta) — roadmap
-- **Fase 1 (gratis, alto valor):** ✅ Search Console (hecho). Falta: auditoría
-  on-page (scrape: title/meta/H1/estructura) + Google Trends (estacionalidad) +
-  Google Autocomplete/"People also ask".
+- **Fase 1 (gratis, alto valor):** ✅ Search Console + ✅ auditoría on-page +
+  ✅ Autocomplete + ✅ Trends (con fallback). Opcional futuro: "People also ask".
 - **Fase 2 (pago barato):** DataForSEO (~$0.05/consulta) para volumen de búsqueda y
   CPC reales → investigación de keywords de verdad.
 - **Fase 3:** Google Ads Keyword Planner (volumen/CPC/competencia) + armar campañas
