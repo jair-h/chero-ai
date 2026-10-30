@@ -234,6 +234,28 @@ def test_stores():
     check(len(filas) == 3 and all("mes" in f for f in filas), "devuelve 3 meses con etiqueta legible")
     check(999.0 not in _d.values(), "ignora pedidos cancelados")
 
+    # Ventas por mes en Shopify (autollenado del Gemelo): suma pagados, ignora cancelados
+    def router_shop_sales(method, url, kw):
+        if "/orders.json" in url:
+            return FakeResp(200, {"orders": [
+                {"created_at": _ym_now + "-05T10:00:00Z", "total_price": "100.00",
+                 "financial_status": "paid", "cancelled_at": None},
+                {"created_at": _ym_now + "-06T10:00:00Z", "total_price": "50.00",
+                 "financial_status": "paid", "cancelled_at": None},
+                {"created_at": _ym_now + "-07T10:00:00Z", "total_price": "999.00",
+                 "financial_status": "paid", "cancelled_at": _ym_now + "-08T10:00:00Z"},
+                {"created_at": _ym_last + "-10T10:00:00Z", "total_price": "80.00",
+                 "financial_status": "paid", "cancelled_at": None},
+            ]})
+        return FakeResp(500, {}, "err")
+    S.requests = FakeRequests(router_shop_sales)
+    filas_s, err_s = S.fetch_shopify_sales_by_month("mitienda.myshopify.com", "shpat_token", meses=3)
+    _ds = {f["ym"]: f["ventas"] for f in filas_s}
+    check(err_s is None and _ds.get(_ym_now) == 150.0, "Shopify: suma pedidos pagados del mes")
+    check(_ds.get(_ym_last) == 80.0, "Shopify: ventas del mes anterior")
+    check(len(filas_s) == 3 and 999.0 not in _ds.values(), "Shopify: 3 meses e ignora cancelados")
+    check(S.fetch_shopify_sales_by_month("", "tok")[0] == [], "Shopify sin URL -> error claro")
+
 
 def test_agents():
     print("\n[6] capa de agentes")

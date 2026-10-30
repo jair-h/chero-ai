@@ -283,17 +283,23 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
                     _cfg = store_config_fn(user_email)
                 except Exception:
                     log("gs_store_cfg")
+                _plat = (_cfg or {}).get("plataforma", "")
                 if not _cfg:
                     st.warning(T("No encuentro tu tienda conectada. Conéctala en 📋 Gestión → Integraciones.",
                                  "No connected store found. Connect it in Management → Integrations."))
-                elif _cfg.get("plataforma") != "WooCommerce":
-                    st.info(T(f"Por ahora el autollenado funciona con WooCommerce (tu tienda es {_cfg.get('plataforma', '—')}).",
-                              f"Auto-fill currently supports WooCommerce (your store is {_cfg.get('plataforma', '—')})."))
+                elif _plat not in ("WooCommerce", "Shopify"):
+                    st.info(T(f"Por ahora el autollenado funciona con WooCommerce y Shopify (tu tienda es {_plat or '—'}).",
+                              f"Auto-fill currently supports WooCommerce and Shopify (your store is {_plat or '—'})."))
                 else:
-                    with st.spinner(T("Leyendo tus ventas de WooCommerce...", "Reading your WooCommerce sales...")):
-                        _filas, _err = _stores.fetch_woocommerce_sales_by_month(
-                            _cfg.get("url", ""), _cfg.get("consumer_key", ""),
-                            _cfg.get("consumer_secret", ""), meses=6)
+                    with st.spinner(T(f"Leyendo tus ventas de {_plat}...", f"Reading your {_plat} sales...")):
+                        if _plat == "Shopify":
+                            # El Access Token de Shopify se guarda en consumer_key.
+                            _filas, _err = _stores.fetch_shopify_sales_by_month(
+                                _cfg.get("url", ""), _cfg.get("consumer_key", ""), meses=6)
+                        else:
+                            _filas, _err = _stores.fetch_woocommerce_sales_by_month(
+                                _cfg.get("url", ""), _cfg.get("consumer_key", ""),
+                                _cfg.get("consumer_secret", ""), meses=6)
                     if _err:
                         st.error(T("No pude traer las ventas: ", "Couldn't fetch sales: ") + _err)
                     elif not any(f["ventas"] > 0 for f in (_filas or [])):

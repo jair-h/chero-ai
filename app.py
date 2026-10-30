@@ -1654,6 +1654,30 @@ def obtener_productos_tienda(email):
                 return productos
             else:
                 return None
+        elif config["plataforma"] == "Shopify":
+            base = config["url"].rstrip("/")
+            if not base.startswith("http"):
+                base = "https://" + base
+            # El Access Token de Shopify se guarda en consumer_key (sin '|').
+            response = requests.get(
+                f"{base}/admin/api/2024-01/products.json?limit=100",
+                headers={"X-Shopify-Access-Token": config["consumer_key"]},
+                timeout=15,
+            )
+            if response.status_code == 200:
+                productos = []
+                for p in response.json().get("products", []):
+                    _var = (p.get("variants") or [{}])
+                    productos.append({
+                        "nombre": p.get("title", ""),
+                        "precio": (_var[0] or {}).get("price", "") if _var else "",
+                        "descripcion": "",
+                        "foto_url": (p.get("image") or {}).get("src", "") if p.get("image") else "",
+                        "id": p.get("id"),
+                    })
+                return productos
+            else:
+                return None
     except Exception as e:
         st.error(f"Error conectando tienda: {e}")
         return None
@@ -6802,21 +6826,34 @@ Sé muy específico con los números que ves en la imagen."""
             else:
                 _ti_plat = st.selectbox(
                     "Plataforma" if not _is_en_int else "Platform",
-                    ["WooCommerce"], key="int_tienda_plat"
+                    ["WooCommerce", "Shopify"], key="int_tienda_plat"
                 )
                 _ti_url = st.text_input(
                     "URL de tu tienda:" if not _is_en_int else "Your store URL:",
-                    placeholder="https://mitienda.com",
+                    placeholder="https://mitienda.com" if _ti_plat == "WooCommerce"
+                    else "https://mitienda.myshopify.com",
                     key="int_tienda_url"
                 )
-                _ti_ck = st.text_input("Consumer Key:", placeholder="ck_...", key="int_woo_ck")
-                _ti_cs = st.text_input("Consumer Secret:", placeholder="cs_...", type="password", key="int_woo_cs")
-                # Google Analytics is optional — only URL, CK and CS are required
-                _ti_ok = bool(_ti_url.strip() and _ti_ck.strip() and _ti_cs.strip())
+                if _ti_plat == "Shopify":
+                    # Shopify: un solo Access Token (lo guardamos en el campo ck, cs vacío).
+                    _ti_ck = st.text_input("Admin API Access Token:", placeholder="shpat_...",
+                                           type="password", key="int_shop_token")
+                    _ti_cs = ""
+                    st.caption(("Sácalo en tu Shopify: Configuración → Apps y canales de venta → "
+                                "Desarrollar apps → crea una app → Admin API token (permisos de lectura "
+                                "de productos y pedidos)." if not _is_en_int else
+                                "Get it in Shopify: Settings → Apps and sales channels → Develop apps → "
+                                "create an app → Admin API token (read products & orders)."))
+                    _ti_ok = bool(_ti_url.strip() and _ti_ck.strip())
+                else:
+                    _ti_ck = st.text_input("Consumer Key:", placeholder="ck_...", key="int_woo_ck")
+                    _ti_cs = st.text_input("Consumer Secret:", placeholder="cs_...", type="password", key="int_woo_cs")
+                    _ti_ok = bool(_ti_url.strip() and _ti_ck.strip() and _ti_cs.strip())
 
                 if st.button("\U0001f517 Conectar Tienda" if not _is_en_int else "\U0001f517 Connect Store", key="tienda_conectar"):
-                    if not _ti_url.strip() or not _ti_ck.strip() or not _ti_cs.strip():
-                        st.warning("Completa URL, Consumer Key y Consumer Secret" if not _is_en_int else "Fill in URL, Consumer Key and Consumer Secret")
+                    if not _ti_ok:
+                        st.warning(("Completa los datos de conexión." if not _is_en_int
+                                    else "Fill in the connection details."))
                     else:
                         try:
                             guardar_config_tienda(_email_int, _ti_plat, _ti_url.strip(), _ti_ck.strip(), _ti_cs.strip())
