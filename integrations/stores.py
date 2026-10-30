@@ -133,6 +133,12 @@ def fetch_woocommerce_sales_by_month(url: str, consumer_key: str, consumer_secre
     except Exception as ex:  # noqa: BLE001 - se reporta al usuario
         return [], f"Error: {ex}"
 
+    return _rellenar_meses(acum, meses, hoy), None
+
+
+def _rellenar_meses(acum: dict, meses: int, hoy) -> list:
+    """Arma la lista de los últimos `meses` (de más antiguo a más reciente),
+    rellenando con 0 los meses sin ventas. Reutilizado por Woo y Shopify."""
     filas = []
     for k in range(int(meses)):
         cm, cy = hoy.month - (meses - 1) + k, hoy.year
@@ -144,4 +150,79 @@ def fetch_woocommerce_sales_by_month(url: str, consumer_key: str, consumer_secre
             cy += 1
         ym = f"{cy:04d}-{cm:02d}"
         filas.append({"mes": f"{_MES_ES[cm - 1]} {cy}", "ventas": round(acum.get(ym, 0.0), 2), "ym": ym})
-    return filas, None
+    return filas
+
+
+def _shopify_next_page_info(headers) -> str:
+    """Extrae el page_info del header Link rel="next" de Shopify (o '' si no hay).
+    Shopify pagina por cursor: el 'siguiente' viene en el header Link."""
+    import re
+    link = ""
+    try:
+        link = headers.get("Link") or headers.get("link") or ""
+    except Exception:
+        link = ""
+    for parte in str(link).split(","):
+        if 'rel="next"' in parte:
+            m = re.search(r"[?&]page_info=([^>&]+)", parte)
+            if m:
+                return m.group(1)
+    return ""
+
+
+def fetch_shopify_sales_by_month(url: str, access_token: str,
+                                 meses: int = 6, max_paginas: int = 20):
+    """Lee los pedidos PAGADOS de Shopify y suma las VENTAS por mes.
+
+    Mismo formato que WooCommerce para autollenar el Gemelo:
+        filas: [{"mes": "Jul 2026", "ventas": <float>, "ym": "2026-07"}, ...]
+    Solo cuenta pedidos pagados (financial_status=paid) e ignora cancelados.
+    Devuelve (filas, error).
+    """
+    base = _normalizar_base(url)
+    tok = (access_token or "").strip()
+    if not base or not tok:
+        return [], "Faltan la URL o el Access Token de Shopify."
+
+    hoy = datetime.now(timezone.utc)
+    _mm, _yy = hoy.month - (meses - 1), hoy.year
+    while _mm <= 0:
+        _mm += 12
+        _yy -= 1
+    desde = f"{_yy:04d}-{_mm:02d}-01T00:00:00Z"
+
+    acum: dict[str, float] = {}
+    headers = {"X-Shopify-Access-Token": tok}
+    params = {"status": "any", "financial_status": "paid",
+              "created_at_min": desde, "limit": 250}
+    try:
+        for _pg in range(int(max_paginas)):
+            r = requests.get(
+                f"{base}/admin/api/{SHOPIFY_API_VERSION}/orders.json",
+                params=params, headers=headers, timeout=_TIMEOUT,
+            )
+            if r.status_code != 200:
+                return [], f"Error {r.status_code}: {str(r.text)[:200]}"
+            pedidos = (r.json() or {}).get("orders", [])
+            if not pedidos:
+                break
+            for o in pedidos:
+                if o.get("cancelled_at"):
+                    continue
+                ym = str(o.get("created_at") or o.get("processed_at") or "")[:7]
+                if len(ym) != 7:
+                    continue
+                try:
+                    total = float(o.get("total_price", 0) or 0)
+                except (TypeError, ValueError):
+                    total = 0.0
+                acum[ym] = acum.get(ym, 0.0) + total
+            # Cursor de la siguiente página (sin header Link -> fin).
+            _next = _shopify_next_page_info(getattr(r, "headers", {}) or {})
+            if not _next:
+                break
+            params = {"limit": 250, "page_info": _next}  # con page_info solo va el limit
+    except Exception as ex:  # noqa: BLE001 - se reporta al usuario
+        return [], f"Error: {ex}"
+
+    return _rellenar_meses(acum, meses, hoy), None

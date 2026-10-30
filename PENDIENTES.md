@@ -159,12 +159,15 @@ Ajustar `PRECIOS_USA` y `_PAISES_ALTO_INGRESO` en app.py si cambias la tabla.
 - HACER: lanzar/ajustar ads, editar web (Shopify/WordPress/VTEX), publicar
   (redes/WhatsApp/email).
 
-## ✅ Autollenado del Gemelo (ventas) — HECHO (WooCommerce)
-El Gemelo ya trae las VENTAS reales por mes desde la tienda conectada
-(`fetch_woocommerce_sales_by_month`), con el botón "📥 Traer mis ventas de mi
-tienda" en Mis datos. Suma pedidos completed/processing, ignora cancelados.
+## ✅ Autollenado del Gemelo (ventas) — HECHO (WooCommerce + Shopify)
+El Gemelo trae las VENTAS reales por mes desde la tienda conectada, con el botón
+"📥 Traer mis ventas de mi tienda". WooCommerce (`fetch_woocommerce_sales_by_month`,
+suma completed/processing) y Shopify (`fetch_shopify_sales_by_month`, suma
+financial_status=paid, paginación por cursor), ambos ignoran cancelados. La UI de
+"Conectar mi Tienda" ya tiene selector WooCommerce/Shopify (Shopify usa un Admin
+API Access Token). Con tests para las dos.
 PENDIENTE para completar el autollenado:
 - **Inversión en ads** (aún a mano): falta conectar Meta/Google/TikTok Ads
   para traer gasto/ROAS y autollenar esa columna.
-- **Shopify/otras**: hoy el autollenado de ventas es solo WooCommerce; falta
-  el equivalente con la Orders API de Shopify y otras plataformas.
+- **Otras tiendas**: TiendaNube, VTEX, Mercado Libre (mismo molde; Mercado Libre
+  es con OAuth).

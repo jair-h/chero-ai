@@ -21,7 +21,7 @@ del servidor ($0 para el negocio).
 | Función | Qué hace |
 |---|---|
 | Conectar Google Analytics | Login con Google, lee el tráfico real del sitio |
-| Conectar mi tienda (WooCommerce) | Lee productos y ventas reales |
+| Conectar mi tienda (WooCommerce / Shopify) | Lee productos y ventas reales |
 | Conectar Search Console | Lee keywords y posiciones reales en Google |
 
 ### 3. Ver datos reales — dashboards (sin IA)
