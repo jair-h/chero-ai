@@ -566,6 +566,33 @@ def test_seo():
     _sug2, _e4 = SEO.sugerencias_google("cafe")
     check(_sug2 == [] and _e4, "error de red -> lista vacía + aviso (no inventa)")
 
+    # Ficha de producto (PDP/CRO): página completa -> score alto sin críticos
+    _pdp_ok = ("""<html><body>
+      <h1>Zapatillas running Pro X</h1>
+      <span>Precio: S/ 199.90</span>
+      <img src="1.jpg"><img src="2.jpg"><img src="3.jpg">
+      <button>Añadir al carrito</button>
+      <div>Reseñas: 4.8 estrellas (120 opiniones)</div>
+      <p>Envío gratis a todo el país, garantía 1 año, devolución en 30 días. Pago seguro.</p>
+      <p>Stock disponible: 15 unidades.</p>
+      <p>""" + ("beneficio " * 130) + "</p></body></html>")
+    _p, _pe = SEO.analizar_ficha_producto(_pdp_ok, "https://x.com/producto")
+    check(_pe is None and _p is not None, "analiza la ficha sin error")
+    check(_p["tiene_titulo"] and _p["tiene_precio"] and _p["tiene_cta"], "detecta título, precio y botón comprar")
+    check(_p["imagenes"] == 3 and _p["tiene_resenas"] and _p["tiene_confianza"] and _p["tiene_stock"],
+          "detecta fotos, reseñas, confianza y stock")
+    check(not any(i["nivel"] == "critico" for i in _p["issues"]) and _p["score"] >= 90,
+          "ficha completa -> score alto sin críticos")
+
+    # Ficha pobre -> críticos (sin precio, sin CTA, sin título) y score bajo
+    _pdp_bad = "<html><body><p>producto bonito</p><img src='1.jpg'></body></html>"
+    _p2, _ = SEO.analizar_ficha_producto(_pdp_bad, "https://x.com/p")
+    _crit = [i for i in _p2["issues"] if i["nivel"] == "critico"]
+    check(not _p2["tiene_precio"] and not _p2["tiene_cta"] and not _p2["tiene_titulo"],
+          "ficha pobre: sin precio, sin CTA, sin título")
+    check(len(_crit) >= 3 and _p2["score"] < 50, "ficha pobre -> varios críticos y score bajo")
+    check(SEO.analizar_ficha_producto("", "")[0] is None, "ficha vacía -> sin datos (no inventa)")
+
 
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
