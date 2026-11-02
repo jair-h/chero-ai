@@ -123,6 +123,116 @@ def auditar_onpage(html: str, url: str = ""):
     return data, None
 
 
+def analizar_ficha_producto(html: str, url: str = ""):
+    """Analiza una página como FICHA DE PRODUCTO (PDP) con foco en CONVERSIÓN (CRO).
+
+    Revisa, por reglas (sin IA, sin inventar), si la ficha tiene los elementos
+    que hacen que la gente compre: título, precio visible, varias fotos, botón de
+    comprar claro, descripción suficiente, reseñas, señales de confianza (envío/
+    garantía/devolución) y stock. Devuelve (data, error) con score y qué agregar.
+    """
+    if not (html or "").strip():
+        return None, "No hay HTML para analizar."
+    try:
+        from bs4 import BeautifulSoup
+    except Exception:
+        return None, "Falta beautifulsoup4 (está en requirements.txt — redeploy)."
+
+    soup = BeautifulSoup(html, "html.parser")
+    for _t in soup(["script", "style", "noscript"]):
+        _t.decompose()
+    texto = soup.get_text(" ", strip=True)
+    bajo = texto.lower()
+
+    tiene_titulo = bool(soup.find("h1") and soup.find("h1").get_text(strip=True))
+    imagenes = len(soup.find_all("img"))
+
+    import re
+    tiene_precio = bool(re.search(r"(s/\.?|\$|usd|pen|mxn|cop|clp|ars|€)\s?\d", bajo))
+
+    _cta_palabras = ("comprar", "añadir al carrito", "agregar al carrito", "agregar al carro",
+                     "lo quiero", "add to cart", "buy now", "add to bag", "comprar ahora")
+    _botones = " ".join(
+        b.get_text(" ", strip=True).lower()
+        for b in soup.find_all(["button", "a"])
+    )
+    _inputs = " ".join((i.get("value") or "").lower() for i in soup.find_all("input"))
+    tiene_cta = any(p in _botones or p in _inputs or p in bajo for p in _cta_palabras)
+
+    desc_palabras = len(texto.split())
+
+    _resena_palabras = ("reseña", "resena", "opinion", "opiniones", "valoracion", "valoración",
+                        "calificac", "review", "rating", "estrella", "★")
+    tiene_resenas = any(p in bajo for p in _resena_palabras) or bool(
+        soup.find(attrs={"itemprop": "ratingValue"}))
+
+    _conf_palabras = ("envío gratis", "envio gratis", "envío", "envio", "garantía", "garantia",
+                      "devoluci", "reembolso", "pago seguro", "compra segura", "free shipping",
+                      "warranty", "return", "refund", "secure")
+    tiene_confianza = any(p in bajo for p in _conf_palabras)
+
+    _stock_palabras = ("stock", "disponible", "agotado", "existencias", "unidades",
+                       "in stock", "sold out", "out of stock")
+    tiene_stock = any(p in bajo for p in _stock_palabras)
+
+    issues = []
+
+    def _add(nivel, msg):
+        issues.append({"nivel": nivel, "msg": msg})
+
+    if not tiene_titulo:
+        _add("critico", "Sin título claro del producto (<h1>): el cliente no sabe qué es.")
+    if not tiene_precio:
+        _add("critico", "No se ve un precio: la gente no compra lo que no sabe cuánto cuesta.")
+    if not tiene_cta:
+        _add("critico", "No hay un botón claro de comprar/añadir al carrito.")
+    if imagenes < 2:
+        _add("importante", f"Pocas fotos del producto ({imagenes}); muestra varias (uso, detalle, tamaño).")
+    if desc_palabras < 120:
+        _add("importante", f"Descripción muy corta ({desc_palabras} palabras); explica beneficios y dudas.")
+    if not tiene_resenas:
+        _add("importante", "Sin reseñas ni valoraciones; la prueba social sube mucho la conversión.")
+    if not tiene_confianza:
+        _add("importante", "Faltan señales de confianza (envío, garantía, devolución, pago seguro).")
+    if not tiene_stock:
+        _add("menor", "No indica disponibilidad/stock; la urgencia ayuda a decidir.")
+
+    _peso = {"critico": 20, "importante": 10, "menor": 4}
+    score = max(0, min(100, 100 - sum(_peso[i["nivel"]] for i in issues)))
+
+    data = {
+        "url": url, "score": score,
+        "tiene_titulo": tiene_titulo, "tiene_precio": tiene_precio,
+        "imagenes": imagenes, "tiene_cta": tiene_cta, "desc_palabras": desc_palabras,
+        "tiene_resenas": tiene_resenas, "tiene_confianza": tiene_confianza,
+        "tiene_stock": tiene_stock, "issues": issues,
+    }
+    return data, None
+
+
+def fetch_y_analizar_ficha(url: str):
+    """Descarga la URL y la analiza como ficha de producto. Devuelve (data, error)."""
+    url = (url or "").strip()
+    if not url:
+        return None, "Falta la URL."
+    if not url.startswith("http"):
+        url = "https://" + url
+    try:
+        r = requests.get(url, timeout=_TIMEOUT, headers={"User-Agent": _UA})
+        if r.status_code in (401, 403):
+            return None, (f"Esa página bloquea el acceso automático (error {r.status_code}). "
+                          "Puedes pegar el contenido a mano.")
+        if r.status_code == 404:
+            return None, "Esa página no existe (404). Revisa la URL."
+        if r.status_code != 200:
+            return None, f"La página respondió {r.status_code}."
+        return analizar_ficha_producto(r.text, url)
+    except requests.exceptions.Timeout:
+        return None, "La página tardó demasiado (timeout). Intenta de nuevo."
+    except requests.exceptions.RequestException:
+        return None, "No se pudo acceder a esa URL. Revisa que esté bien escrita."
+
+
 def fetch_y_auditar(url: str):
     """Descarga la URL y la audita. Devuelve (data, error). No inventa datos."""
     url = (url or "").strip()

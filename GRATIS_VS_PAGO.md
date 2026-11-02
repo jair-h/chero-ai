@@ -44,6 +44,7 @@ del servidor ($0 para el negocio).
 |---|---|
 | 🔎 Diagnóstico on-page | Score técnico + checklist de qué corregir |
 | 💡 Ideas de keywords (Google) | Lo que la gente realmente busca (autocomplete) |
+| 🛒 Analizar ficha de producto (CRO) | Revisa precio, botón comprar, fotos, reseñas, confianza, stock + qué agregar para vender más |
 
 ### 6. Growth (viraliza gratis)
 | Función | Qué hace |

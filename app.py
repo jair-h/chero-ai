@@ -7269,6 +7269,44 @@ if _sec_activa == "power":
             st.caption("Sugerencias reales del Autocompletar de Google (no inventadas)."
                        if not _is_en_pw else "Real Google Autocomplete suggestions (not AI-invented).")
 
+        # ── Analizador de ficha de producto (PDP/CRO) GRATIS, por reglas ───────
+        if st.button(("🛒 Analizar como ficha de producto (conversión)" if not _is_en_pw
+                      else "🛒 Analyze as product page (conversion)"), key="btn_seo_pdp"):
+            if not _seo_url.strip():
+                st.warning("Ingresa la URL de tu página de producto arriba." if not _is_en_pw
+                           else "Enter your product page URL above.")
+            else:
+                with st.spinner("Revisando tu ficha de producto..." if not _is_en_pw
+                                else "Reviewing your product page..."):
+                    _pdp, _pdp_err = _seo.fetch_y_analizar_ficha(_seo_url)
+                if _pdp_err:
+                    st.warning(f"🌐 {_pdp_err}")
+                    st.session_state.pop("_seo_pdp", None)
+                else:
+                    st.session_state["_seo_pdp"] = _pdp
+        _pdp = st.session_state.get("_seo_pdp")
+        if _pdp:
+            _pc = "🟢" if _pdp["score"] >= 80 else ("🟡" if _pdp["score"] >= 55 else "🔴")
+            st.markdown(f"#### {_pc} " + ("Ficha de producto" if not _is_en_pw else "Product page")
+                        + f": **{_pdp['score']}/100** " + ("(conversión)" if not _is_en_pw else "(conversion)"))
+            _pm1, _pm2, _pm3, _pm4 = st.columns(4)
+            _pm1.metric("Precio" if not _is_en_pw else "Price", "✅" if _pdp["tiene_precio"] else "❌")
+            _pm2.metric("Botón comprar" if not _is_en_pw else "Buy button", "✅" if _pdp["tiene_cta"] else "❌")
+            _pm3.metric("Reseñas" if not _is_en_pw else "Reviews", "✅" if _pdp["tiene_resenas"] else "❌")
+            _pm4.metric("Confianza" if not _is_en_pw else "Trust", "✅" if _pdp["tiene_confianza"] else "❌")
+            if _pdp["issues"]:
+                _ico = {"critico": "🔴", "importante": "🟡", "menor": "⚪"}
+                st.markdown("**" + ("Para vender más, agrega:" if not _is_en_pw else "To sell more, add:") + "**")
+                for _it in sorted(_pdp["issues"],
+                                  key=lambda x: {"critico": 0, "importante": 1, "menor": 2}[x["nivel"]]):
+                    st.markdown(f"- {_ico[_it['nivel']]} {_it['msg']}")
+            else:
+                st.success("✅ " + ("Tu ficha tiene todo lo clave para convertir." if not _is_en_pw
+                                    else "Your page has all the key conversion elements."))
+            st.caption(("Gratis y por reglas (sin IA). Para el texto de venta ya redactado, usa la "
+                        "auditoría por IA de abajo." if not _is_en_pw else
+                        "Free and rule-based (no AI). For the ready-to-use sales copy, use the AI audit below."))
+
         st.markdown("---")
         if st.button(_seo_btn, key="btn_seo_gen"):
             _seo_scrape_txt = ""
