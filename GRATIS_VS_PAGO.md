@@ -35,6 +35,7 @@ del servidor ($0 para el negocio).
 | Función | Qué hace |
 |---|---|
 | Predicción + rango p10–p90 | Cuánto venderá con cierto presupuesto |
+| 🎯 Meta inversa (goal-seek) | "Quiero ganar X → cuánto invertir y cómo repartirlo" |
 | Escenarios + proyección 6/12m | Pesimista/base/optimista e ingresos futuros |
 | Modo campaña | Proyecta picos (Cyber, Black, Navidad…) |
 | Mapa de zonas / precio / producto | Compara decisiones de negocio |

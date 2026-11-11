@@ -566,6 +566,78 @@ def sim_zona(precio, costo, inversion, clientes_potenciales, penetracion_pct,
                                  "penetracion_pct": penetracion_pct})
 
 
+def meta_inversa(params, objetivo, tipo="utilidad", precio=None, costo=0.0,
+                 n=600, seed=None, pasos=140):
+    """META INVERSA (goal-seek): "quiero ganar/vender X → ¿cuánto invierto?".
+
+    Dado un `objetivo` (en utilidad, ingresos o unidades), busca el GASTO en ads
+    que lo alcanza repartiéndolo de forma óptima entre canales, al `precio` dado.
+    Usa la misma matemática del Gemelo (curvas calibradas), así que respeta la
+    saturación: si el objetivo no es alcanzable, lo dice y da el MÁXIMO realista.
+
+    Devuelve (data, error). data incluye, además del formato estándar
+    (ventas/ingresos/utilidad p10-p90 + veredicto + escenarios + proyeccion):
+      alcanzable, gasto_recomendado, asignacion, maximo, gasto_optimo,
+      utilidad_maxima, objetivo, tipo, precio.
+    """
+    tipo = tipo if tipo in ("utilidad", "ingresos", "ventas") else "utilidad"
+    objetivo = float(objetivo or 0)
+    precio = float(precio if precio is not None else (params.get("precio_ref") or 0) or 0)
+    costo = float(costo or 0)
+    if objetivo <= 0:
+        return None, "Pon un objetivo mayor a cero."
+    if tipo != "ventas" and precio <= 0:
+        return None, "Falta el precio para calcular ingresos/ganancia."
+    if precio > 0 and costo > precio:
+        return None, "El costo unitario no puede ser mayor que el precio."
+
+    # Techo de gasto útil: ~6x la escala b de cada canal (saturación ~99.7%).
+    b_total = sum(float(params["canales"][c]["b"]) for c in CANALES)
+    gasto_max = max(b_total * 6.0, 100.0)
+    paso = gasto_max / max(int(pasos), 1)
+
+    def _metrica(B):
+        dist = distribuir_optimo(params, B, precio)
+        v = float(dist["ventas_estimadas"])
+        if tipo == "ventas":
+            return v
+        if tipo == "ingresos":
+            return v * precio
+        return v * (precio - costo) - B   # utilidad
+
+    gasto_optimo, util_max = 0.0, _metrica(0.0) if tipo == "utilidad" else None
+    # Para utilidad guardamos el punto más rentable; para todos, el techo.
+    encontrado = None
+    techo_val, techo_B = _metrica(0.0), 0.0
+    if tipo == "utilidad":
+        util_max = techo_val
+    for i in range(int(pasos) + 1):
+        B = paso * i
+        val = _metrica(B)
+        if val > techo_val:
+            techo_val, techo_B = val, B
+        if tipo == "utilidad" and val > util_max:
+            util_max, gasto_optimo = val, B
+        if encontrado is None and val >= objetivo:
+            encontrado = B
+
+    alcanzable = encontrado is not None
+    gasto_rec = float(encontrado) if alcanzable else float(techo_B)
+    dist = distribuir_optimo(params, gasto_rec, precio)
+    mc = monte_carlo(params, dist["asignacion"], precio, costo=costo, n=n, seed=seed)
+    data = _empacar(mc, "meta", {
+        "fuente": params.get("fuente", "datos"),
+        "objetivo": round(objetivo, 2), "tipo_objetivo": tipo, "precio": precio,
+        "alcanzable": bool(alcanzable),
+        "gasto_recomendado": round(gasto_rec, 2),
+        "asignacion": dist["asignacion"],
+        "maximo": round(float(techo_val), 2),
+        "gasto_optimo": round(float(gasto_optimo), 2),
+        "utilidad_maxima": (round(float(util_max), 2) if tipo == "utilidad" else None),
+    })
+    return data, None
+
+
 # Colores del mapa de efectividad por zona (🟢/🟡/🔴 según el veredicto)
 _COLOR_NIVEL = {"hazlo": ("🟢", "#16A34A"), "cuidado": ("🟡", "#D97706"), "no": ("🔴", "#DC2626")}
 
