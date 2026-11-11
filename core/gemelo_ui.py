@@ -170,6 +170,8 @@ _PREGUNTAS_SIMPLE = {
                     "🔥 How much will I sell on a campaign? (Cyber, Black, Xmas)"),
     "precio":      ("🏷 ¿Me conviene subir el precio?",
                     "🏷 Should I raise my price?"),
+    "meta":        ("🎯 ¿Cuánto invertir para ganar lo que quiero?",
+                    "🎯 How much to invest to hit my goal?"),
     "zona":        ("📍 ¿Cómo me irá en una zona o distrito nuevo?",
                     "📍 How would I do in a new area or district?"),
 }
@@ -343,7 +345,19 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
     # ── 3. El dato de la pregunta elegida ────────────────────────────────────
     st.markdown("##### 3. " + T("Un último dato", "One last thing"))
     _intensidad, _precio_nuevo, _precio_act = 1.0, 0.0, 0.0
-    if _pregunta in ("presupuesto", "campana"):
+    _meta_obj, _meta_tipo = 0.0, "utilidad"
+    if _pregunta == "meta":
+        _meta_tipo = st.radio(
+            T("¿Tu meta es de…?", "Your goal is in…?"), ["utilidad", "ingresos"],
+            format_func=lambda k: {"utilidad": T("Ganancia (lo que te queda)", "Profit (what you keep)"),
+                                   "ingresos": T("Ventas en dinero (facturación)", "Revenue (sales in money)")}[k],
+            horizontal=True, key="gs_meta_tipo", label_visibility="collapsed")
+        _meta_obj = st.number_input(
+            T(f"¿Cuánto quieres {'ganar' if _meta_tipo == 'utilidad' else 'facturar'} este mes? ({moneda})",
+              f"How much do you want to {'earn' if _meta_tipo == 'utilidad' else 'bill'} this month? ({moneda})"),
+            min_value=0.0, value=3000.0, step=100.0, key="gs_meta_obj")
+        _inv = float(_gasto_hist or 300)
+    elif _pregunta in ("presupuesto", "campana"):
         _lbl = (T(f"¿Cuánto piensas invertir en ads el próximo mes? ({moneda})", f"Ad budget next month ({moneda})")
                 if _pregunta == "presupuesto"
                 else T(f"Presupuesto TOTAL de la campaña ({moneda})", f"TOTAL campaign budget ({moneda})"))
@@ -375,7 +389,13 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
             return G.params_benchmark(_sector, _precio_def or 20,
                                       {c: _g / 3.0 for c in G.CANALES}, ventas_base=0.0)
 
-        if _pregunta == "presupuesto":
+        res = None
+        if _pregunta == "meta":
+            res, _merr = G.meta_inversa(_params(), _meta_obj, tipo=_meta_tipo,
+                                        precio=_precio, costo=_costo_def)
+            if _merr:
+                st.warning(_merr)
+        elif _pregunta == "presupuesto":
             res = G.sim_presupuesto(_params(), _inv, _precio, costo=_costo_def)
         elif _pregunta == "campana":
             res = G.sim_campana(_params(), _inv, _precio, costo=_costo_def, intensidad=_intensidad)
@@ -383,29 +403,30 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
             _plan = {c: _inv / 3.0 for c in G.CANALES}
             res = G.sim_precio(_params(), _precio_act, _precio_nuevo, _plan, costo=_costo_def)
 
-        # Datos en MESES → la proyección interna (semanal) no aplica: la ocultamos.
-        res.pop("proyeccion", None)
-        res.update({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "semana": datetime.now().strftime("%b %Y"), "moneda": moneda,
-                    "sector": _sector, "precio": _precio, "costo": _costo_def, "periodo": "mes"})
-        res["explicacion"] = ""   # la explicación IA ahora es a pedido (cuesta 1 crédito)
-        st.session_state["gemelo_resultado"] = res
-        st.session_state.pop("gemelo_personas", None)
-        # Guarda los meses (convertidos al formato del motor) para no perderlos.
-        if _situacion == "tengo" and _df is not None and semanas:
-            try:
-                _dfsave = pd.DataFrame([
-                    {"Semana": str(r.get("Mes", f"Mes {i + 1}")),
-                     "Gasto Meta": float(r.get("Inversión en ads", 0) or 0) / 3.0,
-                     "Gasto Google": float(r.get("Inversión en ads", 0) or 0) / 3.0,
-                     "Gasto TikTok": float(r.get("Inversión en ads", 0) or 0) / 3.0,
-                     "Ventas": float(r.get("Ventas", 0) or 0),
-                     "Precio": _precio_def, "Costo": _costo_def, "Campaña": False}
-                    for i, r in _df.iterrows()])
-                _guardar_datos(supabase, user_email, _dfsave, log)
-            except Exception:
-                log("gs_guardar_datos")
-        _guardar_simulacion(supabase, user_email, res, log)
+        if res:
+            # Datos en MESES → la proyección interna (semanal) no aplica: la ocultamos.
+            res.pop("proyeccion", None)
+            res.update({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "semana": datetime.now().strftime("%b %Y"), "moneda": moneda,
+                        "sector": _sector, "precio": _precio, "costo": _costo_def, "periodo": "mes"})
+            res["explicacion"] = ""   # la explicación IA ahora es a pedido (cuesta 1 crédito)
+            st.session_state["gemelo_resultado"] = res
+            st.session_state.pop("gemelo_personas", None)
+            # Guarda los meses (convertidos al formato del motor) para no perderlos.
+            if _situacion == "tengo" and _df is not None and semanas:
+                try:
+                    _dfsave = pd.DataFrame([
+                        {"Semana": str(r.get("Mes", f"Mes {i + 1}")),
+                         "Gasto Meta": float(r.get("Inversión en ads", 0) or 0) / 3.0,
+                         "Gasto Google": float(r.get("Inversión en ads", 0) or 0) / 3.0,
+                         "Gasto TikTok": float(r.get("Inversión en ads", 0) or 0) / 3.0,
+                         "Ventas": float(r.get("Ventas", 0) or 0),
+                         "Precio": _precio_def, "Costo": _costo_def, "Campaña": False}
+                        for i, r in _df.iterrows()])
+                    _guardar_datos(supabase, user_email, _dfsave, log)
+                except Exception:
+                    log("gs_guardar_datos")
+            _guardar_simulacion(supabase, user_email, res, log)
 
     # ── Resultado AQUÍ MISMO (misma pantalla, sin saltar pestañas) ───────────
     if st.session_state.get("gemelo_resultado"):
@@ -906,6 +927,40 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
             <div style="color:inherit;opacity:.85;margin-top:2px;">{_ver['razon']}</div></div>""",
             unsafe_allow_html=True,
         )
+
+    # ── Meta inversa (goal-seek): titular con el gasto recomendado ──────────
+    if r.get("tipo") == "meta":
+        _obj = _num(r.get("objetivo"))
+        _grec = _num(r.get("gasto_recomendado"))
+        _tobj = r.get("tipo_objetivo", "utilidad")
+        _obj_lbl = {"utilidad": T("ganar", "earn"), "ingresos": T("facturar", "bill"),
+                    "ventas": T("vender", "sell")}.get(_tobj, T("lograr", "reach"))
+        _unid = (T("unidades", "units") if _tobj == "ventas" else moneda)
+        _obj_txt = f"{_obj:.0f} {_unid}" if _tobj == "ventas" else f"{moneda}{_obj:.0f}"
+        _asig = r.get("asignacion", {}) or {}
+        _asig_txt = " · ".join(f"{c} {moneda}{_num(g):.0f}" for c, g in _asig.items() if _num(g) > 0)
+        if r.get("alcanzable"):
+            st.markdown(
+                f"""<div style="border:2px solid #16A34A;border-radius:14px;padding:14px 16px;margin-bottom:12px;">
+                <div style="font-size:1.25rem;font-weight:800;color:#16A34A;">🎯 {T('Invierte', 'Invest')} ≈ {moneda}{_grec:.0f}</div>
+                <div style="opacity:.85;margin-top:3px;">{T('para apuntar a', 'to aim to')} {_obj_lbl} {_obj_txt} {T('este mes', 'this month')}.</div></div>""",
+                unsafe_allow_html=True)
+        else:
+            _max = _num(r.get("maximo"))
+            _max_txt = f"{_max:.0f} {_unid}" if _tobj == "ventas" else f"{moneda}{_max:.0f}"
+            st.markdown(
+                f"""<div style="border:2px solid #D97706;border-radius:14px;padding:14px 16px;margin-bottom:12px;">
+                <div style="font-size:1.2rem;font-weight:800;color:#D97706;">⚠️ {T('No llegas a', "You won't reach")} {_obj_txt}</div>
+                <div style="opacity:.85;margin-top:3px;">{T('Con estos números, lo máximo realista es', 'With these numbers, the realistic max is')} ≈ {_max_txt} {T('invirtiendo', 'investing')} ≈ {moneda}{_grec:.0f}. {T('Para más, sube tu precio o mejora la conversión.', 'For more, raise your price or improve conversion.')}</div></div>""",
+                unsafe_allow_html=True)
+        if _asig_txt:
+            st.caption("🧮 " + T("Reparto sugerido del gasto: ", "Suggested spend split: ") + _asig_txt)
+        if _tobj == "utilidad" and r.get("utilidad_maxima") is not None:
+            st.caption("💡 " + T(
+                f"El punto más rentable es invertir ≈ {moneda}{_num(r.get('gasto_optimo')):.0f} "
+                f"(ganancia máxima ≈ {moneda}{_num(r.get('utilidad_maxima')):.0f}).",
+                f"The most profitable point is investing ≈ {moneda}{_num(r.get('gasto_optimo')):.0f} "
+                f"(max profit ≈ {moneda}{_num(r.get('utilidad_maxima')):.0f})."))
 
     _es_camp = r.get("tipo") == "campana"
     if _es_camp:

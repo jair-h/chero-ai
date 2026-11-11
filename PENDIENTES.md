@@ -95,6 +95,14 @@ Sin ellas el Gemelo funciona en memoria pero no guarda datos ni historial.
 > El SQL ya incluye la columna `campana` (modo campaña). Si creaste la tabla
 > antes, corre el `alter table ... add column campana` que está en el README.
 
+## 🎯 Meta Inversa del Gemelo (goal-seek) — HECHO
+Nueva pregunta en el Gemelo (modo simple): "¿Cuánto invertir para ganar lo que
+quiero?". El usuario pone su meta (ganancia o facturación) y el motor
+(`core/gemelo.py::meta_inversa`) busca el GASTO en ads que la alcanza, con reparto
+óptimo por canal, al precio dado. Si la meta no es alcanzable, lo dice y da el
+MÁXIMO realista + el punto más rentable. Gratis el número; la explicación IA es a
+pedido. Con tests. Es el diferenciador que escala del quiosco a la empresa.
+
 ## ✅ Modo campaña del Gemelo — HECHO (para todos los usuarios)
 El Gemelo ya proyecta meses de campaña (Cyber, Black, Navidad, Día de la Madre...).
 Cada negocio marca sus semanas de campaña en "📥 Mis datos" (casilla Campaña) y el

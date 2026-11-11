@@ -415,6 +415,22 @@ def test_gemelo():
     _rc0 = GM.sim_campana(_p_conc, 15.4, 1, costo=0.6, intensidad=0.0, n=800, seed=5)
     check(abs(_rc0["multiplicador"] - 1.0) < 1e-6, "intensidad 0 = mes normal (multiplicador 1.0)")
 
+    # ── META INVERSA (goal-seek): "quiero ganar X -> ¿cuánto invierto?" ─────
+    _mi, _mie = GM.meta_inversa(params, objetivo=200, tipo="utilidad", precio=20, costo=8, seed=3)
+    check(_mie is None and _mi is not None and _mi["tipo"] == "meta", "meta inversa devuelve formato uniforme")
+    check(all(k in _mi for k in _campos) and "asignacion" in _mi, "meta inversa trae rango + asignación")
+    check(_mi["alcanzable"] and _mi["gasto_recomendado"] >= 0, "objetivo alcanzable da gasto recomendado")
+    check(sum(_mi["asignacion"].values()) > 0, "reparte el gasto recomendado entre canales")
+    # Objetivo imposible -> no alcanzable + techo realista (no miente)
+    _mi2, _ = GM.meta_inversa(params, objetivo=10_000_000, tipo="utilidad", precio=20, costo=8, seed=3)
+    check(not _mi2["alcanzable"] and _mi2["maximo"] < 10_000_000, "objetivo imposible -> no alcanzable + máximo")
+    # También por ingresos
+    _mi3, _ = GM.meta_inversa(params, objetivo=500, tipo="ingresos", precio=20, costo=8, seed=3)
+    check(_mi3 is not None and _mi3["tipo_objetivo"] == "ingresos", "meta inversa también por ingresos")
+    # Validaciones
+    check(GM.meta_inversa(params, 0, precio=20)[0] is None, "objetivo <= 0 -> error")
+    check(GM.meta_inversa(params, 100, tipo="utilidad", precio=0)[0] is None, "utilidad sin precio -> error")
+
 
 def test_meta_ads():
     print("\n[9] Meta Ads (OAuth + gasto por mes)")
