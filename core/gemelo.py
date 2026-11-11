@@ -676,12 +676,16 @@ def mapa_zonas(zonas, precio, costo, incertidumbre=0.35, n=400, seed=None):
         icono, color = _COLOR_NIVEL.get(nivel, ("⚪", "#9890ad"))
         util = r["utilidad"]["p50"]
         roi = (util / inv) if inv > 0 else None
+        # Coordenadas opcionales (para el mapa real): se pasan tal cual si vienen.
+        _lat = z.get("lat", None)
+        _lon = z.get("lon", None)
         filas.append({
             "nombre": nombre, "nivel": nivel, "icono": icono, "color": color,
             "ventas_p50": round(r["ventas"]["p50"], 1),
             "utilidad_p50": round(util, 1),
             "roi": (round(roi, 2) if roi is not None else None),
             "clientes": clientes, "penetracion": pen, "inversion": inv,
+            "lat": _lat, "lon": _lon,
         })
     filas.sort(key=lambda f: f["utilidad_p50"], reverse=True)
     return {"tipo": "zonas_mapa", "zonas": filas,

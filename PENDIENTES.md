@@ -95,6 +95,16 @@ Sin ellas el Gemelo funciona en memoria pero no guarda datos ni historial.
 > El SQL ya incluye la columna `campana` (modo campaña). Si creaste la tabla
 > antes, corre el `alter table ... add column campana` que está en el README.
 
+## 🗺 Mapa visual de zonas (ciudad, 2D) — HECHO
+"Comparar zonas (mapa de efectividad)" del Gemelo ahora dibuja un MAPA REAL de la
+ciudad con pines 🟢🟡🔴 por rentabilidad (tamaño = ganancia esperada), sobre calles
+reales (Plotly, open-street-map, sin token, sin costo). `core/geo.py` resuelve las
+coordenadas: tabla de distritos de Lima + ciudades del Perú + capitales LATAM; si
+la zona no está, el usuario pone Lat/Lon (así sirve en cualquier país). El mapa se
+centra y hace zoom solo a las zonas. Compatible con Plotly 5.x y 6.x. Con tests.
+Honesto: sigue siendo estimación por supuestos (rango amplio) hasta meter datos
+reales por zona (ventas por distrito / densidad). Mejora futura: versión 3D (pydeck).
+
 ## 🎯 Meta Inversa del Gemelo (goal-seek) — HECHO
 Nueva pregunta en el Gemelo (modo simple): "¿Cuánto invertir para ganar lo que
 quiero?". El usuario pone su meta (ganancia o facturación) y el motor
