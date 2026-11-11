@@ -610,10 +610,33 @@ def test_seo():
     check(SEO.analizar_ficha_producto("", "")[0] is None, "ficha vacía -> sin datos (no inventa)")
 
 
+def test_geo():
+    print("\n[12] Geo + mapa de zonas (coordenadas)")
+    from core import geo as GEO
+    _m = GEO.resolver("Miraflores")
+    check(_m is not None and abs(_m[0] + 12.12) < 0.1 and abs(_m[1] + 77.03) < 0.1,
+          "resuelve un distrito conocido (Miraflores)")
+    check(GEO.resolver("SAN ISIDRO") is not None and GEO.resolver("san juan de lurigancho") is not None,
+          "match sin importar mayúsculas/tildes")
+    check(GEO.resolver("Pueblo Inventado 123") is None, "distrito desconocido -> None (no inventa)")
+    _c = GEO.centro_y_zoom([(-12.12, -77.03), (-12.15, -76.99)])
+    check(-12.2 < _c[0] < -12.0 and isinstance(_c[2], float) and _c[2] > 0, "centro y zoom encuadran los puntos")
+    check(GEO.centro_y_zoom([])[0] == -12.05, "sin puntos -> centra en Lima por defecto")
+
+    # mapa_zonas conserva lat/lon para el mapa
+    _zonas = [{"nombre": "Miraflores", "clientes": 9000, "penetracion": 4, "inversion": 1500,
+               "lat": -12.1211, "lon": -77.0297},
+              {"nombre": "SJL", "clientes": 15000, "penetracion": 1.5, "inversion": 1200,
+               "lat": -11.99, "lon": -77.0}]
+    _mapa = GM.mapa_zonas(_zonas, precio=25, costo=10, seed=3)
+    check(all("lat" in z and "lon" in z for z in _mapa["zonas"]), "mapa_zonas conserva lat/lon")
+    check(any(z["lat"] is not None for z in _mapa["zonas"]), "las zonas llevan coordenadas al mapa")
+
+
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
                test_listar_propiedades, test_stores, test_agents, test_context,
-               test_gemelo, test_meta_ads, test_search_console, test_seo):
+               test_gemelo, test_meta_ads, test_search_console, test_seo, test_geo):
         _t()
     print("\n" + ("=" * 50))
     if _fallos:

@@ -779,12 +779,19 @@ def _tab_simular(supabase, generar_texto, user_email, marca, sector_nicho, moned
         _zkey = "gemelo_zonas_df"
         if _zkey not in st.session_state:
             st.session_state[_zkey] = pd.DataFrame([
-                {"Zona": "Zona A", "Clientes potenciales": 9000.0, "Penetración %": 4.0, "Inversión": 1500.0},
-                {"Zona": "Zona B", "Clientes potenciales": 15000.0, "Penetración %": 1.5, "Inversión": 1200.0},
-                {"Zona": "Zona C", "Clientes potenciales": 7000.0, "Penetración %": 5.0, "Inversión": 1800.0},
+                {"Zona": "Miraflores", "Clientes potenciales": 9000.0, "Penetración %": 4.0,
+                 "Inversión": 1500.0, "Lat": None, "Lon": None},
+                {"Zona": "San Juan de Lurigancho", "Clientes potenciales": 15000.0, "Penetración %": 1.5,
+                 "Inversión": 1200.0, "Lat": None, "Lon": None},
+                {"Zona": "Santiago de Surco", "Clientes potenciales": 7000.0, "Penetración %": 5.0,
+                 "Inversión": 1800.0, "Lat": None, "Lon": None},
             ])
         datos["zonas_df"] = st.data_editor(st.session_state[_zkey], num_rows="dynamic",
                                            use_container_width=True, key="gemelo_zonas_editor")
+        st.caption(T("Pon el nombre del distrito y lo ubico solo en el mapa (Perú). ¿Otra ciudad/país? "
+                     "escribe Lat/Lon (las copias de Google Maps).",
+                     "Type the district name and I'll place it on the map (Peru). Other city/country? "
+                     "enter Lat/Lon (copy them from Google Maps)."))
 
     if st.button("🔮 " + T("Simular", "Simulate"), key="gemelo_simular_btn", use_container_width=True):
         _ejecutar_simulacion(_tipo, datos, semanas, hay_datos, _sector, moneda, ciudad, distrito,
@@ -806,14 +813,31 @@ def _ejecutar_simulacion(tipo, datos, semanas, hay_datos, sector, moneda, ciudad
 
     # Mapa de efectividad por zona: formato propio (no pasa por _empacar)
     if tipo == "zonas_mapa":
+        from core import geo as _geo
+
+        def _coord(v):
+            try:
+                f = float(v)
+                return f if f == f else None   # descarta NaN
+            except (TypeError, ValueError):
+                return None
+
         _zonas = []
         _df = datos.get("zonas_df")
         if _df is not None:
             for _, _row in _df.iterrows():
-                _zonas.append({"nombre": _row.get("Zona", ""),
+                _nom = _row.get("Zona", "")
+                _lat = _coord(_row.get("Lat", None))
+                _lon = _coord(_row.get("Lon", None))
+                if _lat is None or _lon is None:   # sin coords a mano → tabla por nombre
+                    _c = _geo.resolver(_nom)
+                    if _c:
+                        _lat, _lon = _c
+                _zonas.append({"nombre": _nom,
                                "clientes": _row.get("Clientes potenciales", 0),
                                "penetracion": _row.get("Penetración %", 0),
-                               "inversion": _row.get("Inversión", 0)})
+                               "inversion": _row.get("Inversión", 0),
+                               "lat": _lat, "lon": _lon})
         _mapa = G.mapa_zonas(_zonas, precio, costo)
         if not _mapa["zonas"]:
             st.error(T("Agrega al menos una zona con clientes potenciales > 0.",
@@ -875,6 +899,45 @@ def _render_mapa_zonas(r, moneda, T):
                      f"🏆 Best area to start: **{r['mejor']}**"))
     st.caption("⚠ " + T("Estimación por supuestos (clientes × penetración) — rango amplio a propósito.",
                         "Assumption-based estimate (customers × penetration) — wide range on purpose."))
+
+    # ── Mapa real con pines de colores (si hay coordenadas) ──────────────────
+    _geo = [z for z in zs if z.get("lat") is not None and z.get("lon") is not None]
+    if _geo:
+        try:
+            import plotly.graph_objects as go
+            from core import geo as _G
+            _lat0, _lon0, _zoom = _G.centro_y_zoom([(z["lat"], z["lon"]) for z in _geo])
+            _umax = max((abs(z["utilidad_p50"]) for z in _geo), default=1) or 1
+            _sizes = [12 + 26 * (abs(z["utilidad_p50"]) / _umax) for z in _geo]
+            _traza = dict(
+                lat=[z["lat"] for z in _geo], lon=[z["lon"] for z in _geo],
+                mode="markers+text",
+                marker=dict(size=_sizes, color=[z["color"] for z in _geo], opacity=0.85),
+                text=[z["icono"] for z in _geo], textposition="top center",
+                hovertext=[
+                    f"{z['nombre']}<br>{T('Utilidad', 'Profit')}: {moneda}{z['utilidad_p50']:,.0f}"
+                    + (f"<br>ROI: {z['roi']}x" if z.get("roi") is not None else "")
+                    for z in _geo],
+                hoverinfo="text",
+            )
+            _centro = dict(center=dict(lat=_lat0, lon=_lon0), zoom=_zoom)
+            # Plotly 6.x usa Scattermap/map_style; 5.x usa Scattermapbox/mapbox_style.
+            if hasattr(go, "Scattermap"):
+                fig_m = go.Figure(go.Scattermap(**_traza))
+                fig_m.update_layout(map_style="open-street-map", map=_centro)
+            else:
+                fig_m = go.Figure(go.Scattermapbox(**_traza))
+                fig_m.update_layout(mapbox_style="open-street-map", mapbox=_centro)
+            fig_m.update_layout(height=430, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
+            st.plotly_chart(fig_m, use_container_width=True)
+            st.caption(T("🟢 conviene · 🟡 con cuidado · 🔴 pierde — el tamaño del pin = ganancia esperada.",
+                         "🟢 go · 🟡 careful · 🔴 loses — pin size = expected profit."))
+            _sin = [z["nombre"] for z in zs if z.get("lat") is None or z.get("lon") is None]
+            if _sin:
+                st.caption("📍 " + T("Sin ubicar en el mapa (ponle Lat/Lon): ",
+                                     "Not placed on the map (add Lat/Lon): ") + ", ".join(_sin))
+        except Exception:
+            pass
 
     for z in zs:
         with st.container(border=True):
