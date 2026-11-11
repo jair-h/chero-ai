@@ -625,15 +625,29 @@ def meta_inversa(params, objetivo, tipo="utilidad", precio=None, costo=0.0,
     gasto_rec = float(encontrado) if alcanzable else float(techo_B)
     dist = distribuir_optimo(params, gasto_rec, precio)
     mc = monte_carlo(params, dist["asignacion"], precio, costo=costo, n=n, seed=seed)
+
+    # Coherencia con el rango mostrado: cuando la meta NO es alcanzable, el gasto
+    # recomendado ES el punto máximo, así que el "máximo realista" se toma del
+    # MISMO Monte Carlo que se muestra, para que el tope nunca quede por debajo
+    # del "probable" (p50) en pantalla.
+    _mc_metric = {"utilidad": mc["utilidad"], "ingresos": mc["ingresos"],
+                  "ventas": mc["ventas"]}[tipo]
+    maximo_val = float(techo_val)
+    util_max_val = float(util_max) if tipo == "utilidad" else None
+    if not alcanzable:
+        maximo_val = float(_mc_metric["p50"])
+        if tipo == "utilidad":
+            util_max_val = float(mc["utilidad"]["p50"])
+
     data = _empacar(mc, "meta", {
         "fuente": params.get("fuente", "datos"),
         "objetivo": round(objetivo, 2), "tipo_objetivo": tipo, "precio": precio,
         "alcanzable": bool(alcanzable),
         "gasto_recomendado": round(gasto_rec, 2),
         "asignacion": dist["asignacion"],
-        "maximo": round(float(techo_val), 2),
+        "maximo": round(maximo_val, 2),
         "gasto_optimo": round(float(gasto_optimo), 2),
-        "utilidad_maxima": (round(float(util_max), 2) if tipo == "utilidad" else None),
+        "utilidad_maxima": (round(util_max_val, 2) if util_max_val is not None else None),
     })
     return data, None
 
