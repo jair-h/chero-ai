@@ -431,6 +431,21 @@ def test_gemelo():
     check(GM.meta_inversa(params, 0, precio=20)[0] is None, "objetivo <= 0 -> error")
     check(GM.meta_inversa(params, 100, tipo="utilidad", precio=0)[0] is None, "utilidad sin precio -> error")
 
+    # ── Subir Excel/CSV de ventas: normaliza columnas con nombres flexibles ──
+    import pandas as _pd
+    _df_cliente = _pd.DataFrame([
+        {"Periodo": "Ene", "Facturación": 1200, "Pauta digital": 300},
+        {"Periodo": "Feb", "Facturación": 1500, "Pauta digital": 350},
+    ])
+    _norm, _ne = GM.normalizar_df_ventas(_df_cliente)
+    check(_ne is None and len(_norm) == 2, "lee el Excel/CSV del cliente")
+    check(list(_norm.columns) == ["Mes", "Inversión en ads", "Ventas"], "normaliza a las columnas del Gemelo")
+    check(float(_norm.iloc[0]["Ventas"]) == 1200 and float(_norm.iloc[0]["Inversión en ads"]) == 300,
+          "mapea ventas e inversión por nombre flexible")
+    _sin_ventas = _pd.DataFrame([{"Mes": "Ene", "Gasto": 100}])
+    check(GM.normalizar_df_ventas(_sin_ventas)[0] is None, "sin columna de ventas -> error claro")
+    check(GM.normalizar_df_ventas(_pd.DataFrame())[0] is None, "archivo vacío -> error")
+
 
 def test_meta_ads():
     print("\n[9] Meta Ads (OAuth + gasto por mes)")

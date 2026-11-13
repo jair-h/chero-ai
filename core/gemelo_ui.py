@@ -172,6 +172,8 @@ _PREGUNTAS_SIMPLE = {
                     "🏷 Should I raise my price?"),
     "meta":        ("🎯 ¿Cuánto invertir para ganar lo que quiero?",
                     "🎯 How much to invest to hit my goal?"),
+    "producto":    ("🧪 ¿Mi producto o servicio nuevo tendrá acogida?",
+                    "🧪 Will my new product or service catch on?"),
     "zona":        ("📍 ¿Cómo me irá en una zona o distrito nuevo?",
                     "📍 How would I do in a new area or district?"),
 }
@@ -218,9 +220,13 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
         st.session_state.pop("gemelo_resultado", None)
         st.session_state.pop("gemelo_personas", None)
 
-    # Zona/distrito: flujo propio (es un estimado, no necesita historial mensual).
+    # Zona/distrito y producto nuevo: flujos propios (estimado por supuestos,
+    # no necesitan historial mensual).
     if _pregunta == "zona":
         _render_simple_zona(supabase, generar_texto, user_email, marca, moneda, T, log)
+        return
+    if _pregunta == "producto":
+        _render_simple_producto(supabase, generar_texto, user_email, marca, moneda, T, log)
         return
 
     # ── 2. ¿Ya vendes o recién empiezas? ─────────────────────────────────────
@@ -269,6 +275,35 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
                              "(se agregan solas). Mientras más meses, más preciso.",
                              "Want more months? Type in the empty row at the bottom of the table "
                              "(rows add themselves). More months = more precise."))
+        # 📥 Subir Excel/CSV de ventas (una empresa con su historial lo carga de un jalón)
+        with st.expander("📥 " + T("¿Tienes tu Excel? Súbelo (Excel o CSV)", "Have your Excel? Upload it (Excel or CSV)")):
+            st.caption(T("Debe tener una columna de VENTAS por mes (y opcional: Mes e Inversión en ads). "
+                         "Reconozco los nombres aunque estén distintos.",
+                         "It needs a SALES-per-month column (optional: Month and Ad spend). "
+                         "I recognize the column names even if they differ."))
+            _arch = st.file_uploader(T("Sube tu archivo", "Upload your file"), type=["csv", "xlsx", "xls"],
+                                     key="gs_upload_ventas", label_visibility="collapsed")
+            if _arch is not None and st.button("📥 " + T("Cargar del archivo", "Load from file"), key="gs_upload_btn"):
+                try:
+                    if _arch.name.lower().endswith(".csv"):
+                        _raw = pd.read_csv(_arch)
+                    else:
+                        _raw = pd.read_excel(_arch)   # requiere openpyxl
+                    _norm, _uerr = G.normalizar_df_ventas(_raw)
+                    if _uerr:
+                        st.warning(_uerr)
+                    else:
+                        st.session_state[_key] = _norm
+                        st.session_state.pop("gs_editor", None)
+                        st.success("✅ " + T(f"Cargué {len(_norm)} meses de tu archivo. Revísalos arriba.",
+                                             f"Loaded {len(_norm)} months from your file. Review them above."))
+                        st.rerun()
+                except ImportError:
+                    st.error(T("Para leer Excel falta la librería openpyxl (ya está en requirements — redeploy). "
+                               "Mientras, sube el archivo como CSV.",
+                               "Reading Excel needs openpyxl (already in requirements — redeploy). Meanwhile, upload as CSV."))
+                except Exception as _ue:
+                    st.error(T("No pude leer el archivo: ", "Couldn't read the file: ") + f"{_ue}")
         if st.session_state.pop("gs_autofill_ok", False):
             st.success("✅ " + T("Ventas traídas de tu tienda. Revisa los meses y agrega tu inversión en ads.",
                                  "Sales pulled from your store. Review the months and add your ad spend."))
@@ -429,6 +464,60 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
             _guardar_simulacion(supabase, user_email, res, log)
 
     # ── Resultado AQUÍ MISMO (misma pantalla, sin saltar pestañas) ───────────
+    if st.session_state.get("gemelo_resultado"):
+        st.divider()
+        try:
+            _tab_resultado(marca, moneda, T, generar_texto)
+        except Exception as _e:
+            log("gemelo_render")
+            st.error(T("No pude mostrar el resultado. Comparte este detalle con tu equipo: ",
+                       "Couldn't show the result. Share this detail: ") + f"`{type(_e).__name__}: {_e}`")
+
+
+def _render_simple_producto(supabase, generar_texto, user_email, marca, moneda, T, log):
+    """¿Tendrá acogida mi producto/servicio nuevo? Estimado por supuestos: dado
+    lo que ESPERAS vender, dice si deja ganancia y con qué rango. Honesto: no
+    adivina si gustará; te dice si los números cierran con tu estimado."""
+    st.markdown("##### 2. " + T("Datos del producto nuevo", "New product details"))
+    st.info("🧪 " + T("Estima si tu producto/servicio nuevo DEJA GANANCIA según lo que esperas vender. "
+                      "Es un 'qué pasaría si' por supuestos (rango amplio y honesto): no adivina si va a "
+                      "gustar, te dice si los números cierran. Mientras más realista tu estimado, mejor.",
+                      "Estimates if your new product/service is PROFITABLE based on what you expect to sell. "
+                      "An assumption-based 'what-if' (wide, honest range): it doesn't guess if people will "
+                      "like it, it tells you whether the numbers add up."))
+    _nombre = st.text_input(T("¿Qué producto o servicio?", "Which product or service?"), key="gsp_nombre")
+    _c1, _c2 = st.columns(2)
+    _precio = _c1.number_input(T(f"Precio de venta ({moneda})", f"Selling price ({moneda})"),
+                               min_value=0.0, value=50.0, step=1.0, key="gsp_precio")
+    _costo = _c2.number_input(T(f"Costo por unidad ({moneda})", f"Cost per unit ({moneda})"),
+                              min_value=0.0, value=20.0, step=1.0, key="gsp_costo")
+    _demanda = st.number_input(
+        T("¿Cuántas unidades esperas vender al mes? (tu mejor estimado)",
+          "How many units do you expect to sell per month? (best estimate)"),
+        min_value=0.0, value=100.0, step=10.0, key="gsp_dem",
+        help=T("No tiene que ser exacto. El Gemelo lo convierte en un rango honesto.",
+               "Doesn't need to be exact. The Twin turns it into an honest range."))
+    _inv = st.number_input(T(f"Inversión en marketing para lanzarlo ({moneda}/mes)",
+                             f"Marketing budget to launch it ({moneda}/mo)"),
+                           min_value=0.0, value=500.0, step=100.0, key="gsp_inv")
+
+    if st.button("🔮 " + T("Calcular", "Calculate"), key="gsp_calcular",
+                 use_container_width=True, type="primary"):
+        if _precio <= 0:
+            st.error(T("Pon un precio mayor que 0.", "Enter a price greater than 0."))
+        elif _costo > _precio:
+            st.error(T("El costo no puede ser mayor que el precio.", "Cost can't be higher than price."))
+        else:
+            res = G.sim_producto_nuevo(_precio, _costo, _inv, _demanda)
+            res.pop("proyeccion", None)
+            res.update({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "semana": datetime.now().strftime("%b %Y"), "moneda": moneda,
+                        "producto_nombre": _nombre, "precio": _precio, "costo": _costo, "periodo": "mes"})
+            res["explicacion"] = ""   # la explicación IA es a pedido (cuesta 1 crédito)
+            st.session_state["gemelo_resultado"] = res
+            st.session_state.pop("gemelo_personas", None)
+            _guardar_simulacion(supabase, user_email, res, log)
+
     if st.session_state.get("gemelo_resultado"):
         st.divider()
         try:

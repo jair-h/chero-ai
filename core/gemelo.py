@@ -566,6 +566,46 @@ def sim_zona(precio, costo, inversion, clientes_potenciales, penetracion_pct,
                                  "penetracion_pct": penetracion_pct})
 
 
+def normalizar_df_ventas(df):
+    """Mapea un DataFrame de un Excel/CSV del cliente a las columnas del Gemelo:
+    Mes, Inversión en ads, Ventas. Reconoce nombres flexibles (sin importar
+    mayúsculas). Devuelve (df_normalizado, error); error legible si no se pudo.
+    """
+    import pandas as pd
+    if df is None or len(df) == 0:
+        return None, "El archivo está vacío."
+    cols = {str(c).strip().lower(): c for c in df.columns}
+
+    def _find(claves):
+        for k, orig in cols.items():
+            if any(x in k for x in claves):
+                return orig
+        return None
+
+    c_mes = _find(["mes", "fecha", "periodo", "período", "month", "date"])
+    c_ventas = _find(["venta", "ingreso", "revenue", "sales", "facturac", "monto"])
+    c_inv = _find(["inv", "ads", "gasto", "pauta", "spend", "publicidad", "marketing"])
+    if c_ventas is None:
+        return None, "No encontré una columna de ventas (nómbrala 'Ventas')."
+    filas = []
+    for i, row in df.iterrows():
+        try:
+            v = float(row[c_ventas])
+        except (TypeError, ValueError):
+            continue
+        mes = str(row[c_mes]) if c_mes is not None else f"Mes {len(filas) + 1}"
+        inv = 0.0
+        if c_inv is not None:
+            try:
+                inv = float(row[c_inv])
+            except (TypeError, ValueError):
+                inv = 0.0
+        filas.append({"Mes": mes, "Inversión en ads": inv, "Ventas": v})
+    if not filas:
+        return None, "No pude leer ventas numéricas del archivo."
+    return pd.DataFrame(filas), None
+
+
 def meta_inversa(params, objetivo, tipo="utilidad", precio=None, costo=0.0,
                  n=600, seed=None, pasos=140):
     """META INVERSA (goal-seek): "quiero ganar/vender X → ¿cuánto invierto?".
