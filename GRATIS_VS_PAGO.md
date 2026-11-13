@@ -36,6 +36,8 @@ del servidor ($0 para el negocio).
 |---|---|
 | Predicción + rango p10–p90 | Cuánto venderá con cierto presupuesto |
 | 🎯 Meta inversa (goal-seek) | "Quiero ganar X → cuánto invertir y cómo repartirlo" |
+| 🧪 ¿Tendrá acogida mi producto? | Estima si un producto/servicio nuevo deja ganancia (por supuestos) |
+| 📥 Subir Excel/CSV de ventas | Carga el historial del cliente de un jalón al Gemelo |
 | Escenarios + proyección 6/12m | Pesimista/base/optimista e ingresos futuros |
 | Modo campaña | Proyecta picos (Cyber, Black, Navidad…) |
 | Mapa de zonas / precio / producto | Compara decisiones de negocio |
