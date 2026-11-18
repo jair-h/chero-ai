@@ -566,6 +566,56 @@ def sim_zona(precio, costo, inversion, clientes_potenciales, penetracion_pct,
                                  "penetracion_pct": penetracion_pct})
 
 
+def punto_equilibrio(precio, costo, gasto_fijo):
+    """¿Cuántas unidades vender para NO PERDER (cubrir el gasto)?
+
+    unidades = gasto_fijo / (precio - costo). Devuelve (data, error) con las
+    unidades (y su entero hacia arriba) y los ingresos en ese punto.
+    """
+    precio = float(precio or 0)
+    costo = float(costo or 0)
+    gf = float(gasto_fijo or 0)
+    if precio <= 0:
+        return None, "Falta el precio."
+    margen = precio - costo
+    if margen <= 0:
+        return None, "Con ese precio y costo no hay margen (precio ≤ costo): así nunca cubres gastos."
+    unidades = gf / margen
+    enteras = math.ceil(unidades) if unidades > 0 else 0
+    return {"unidades": round(unidades, 1), "unidades_enteras": int(enteras),
+            "ingresos": round(enteras * precio, 2), "margen_unitario": round(margen, 2),
+            "gasto_fijo": round(gf, 2)}, None
+
+
+def comparar_estrategias(params, precio, costo=0.0, presupuesto=300.0, n=400, seed=None):
+    """Compara, lado a lado, estrategias HONESTAS que el motor puede calcular:
+    mantener, invertir más en ads, bajar precio y subir precio. Devuelve el
+    resultado de cada una (ventas/utilidad p50 + veredicto) ordenado por utilidad.
+    (Fidelización/conversión no se incluyen: el motor no las modela todavía.)
+    """
+    precio = float(precio or 0)
+    costo = float(costo or 0)
+    pres = float(presupuesto or 0)
+    escenarios = [
+        ("Mantener igual", pres, precio),
+        ("Invertir más en ads (+50%)", pres * 1.5, precio),
+        ("Bajar el precio 10%", pres, round(precio * 0.9, 2)),
+        ("Subir el precio 10%", pres, round(precio * 1.1, 2)),
+    ]
+    filas = []
+    for nombre, g, p in escenarios:
+        dist = distribuir_optimo(params, g, p)
+        mc = monte_carlo(params, dist["asignacion"], p, costo=costo, n=n, seed=seed)
+        v = veredicto(mc)
+        filas.append({"nombre": nombre, "gasto": round(g, 2), "precio": p,
+                      "ventas_p50": round(mc["ventas"]["p50"], 1),
+                      "utilidad_p50": round(mc["utilidad"]["p50"], 1),
+                      "icono": v["icono"], "nivel": v["nivel"]})
+    filas.sort(key=lambda f: f["utilidad_p50"], reverse=True)
+    return {"tipo": "comparar", "escenarios": filas,
+            "mejor": (filas[0]["nombre"] if filas else "")}
+
+
 def normalizar_df_ventas(df):
     """Mapea un DataFrame de un Excel/CSV del cliente a las columnas del Gemelo:
     Mes, Inversión en ads, Ventas. Reconoce nombres flexibles (sin importar
