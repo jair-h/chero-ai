@@ -462,6 +462,18 @@ def test_gemelo():
     check(_utils == sorted(_utils, reverse=True), "escenarios ordenados por utilidad (mejor primero)")
     check(_cmp["mejor"] == _cmp["escenarios"][0]["nombre"], "marca la mejor estrategia")
 
+    # ── Recomendador de plan (venta guiada) ─────────────────────────────────
+    from core import planes_reco as PR
+    check(PR.recomendar_plan("agencia" and "con_ads", "agencia", "crecer")["plan"] == "Agency",
+          "agencia -> plan Agency")
+    check(PR.recomendar_plan("con_ads", "solo", "varios")["plan"] == "Agency", "varios clientes -> Agency")
+    check(PR.recomendar_plan("empiezo", "solo", "probar")["plan"] == "Starter", "recién empieza y prueba -> Starter")
+    check(PR.recomendar_plan("sin_ads", "solo", "crecer")["plan"] == "Pro", "negocio normal que quiere crecer -> Pro (medio)")
+    check(PR.recomendar_plan("con_ads", "equipo", "crecer")["plan"] == "Pro", "ya invierte + quiere crecer -> Pro")
+    _r = PR.recomendar_plan("sin_ads", "solo", "crecer")
+    check("razon_es" in _r and "razon_en" in _r and _r["razon_es"], "trae razón bilingüe")
+    check(len(PR.PREGUNTAS_RECO) == 3, "3 preguntas para el recomendador")
+
 
 def test_meta_ads():
     print("\n[9] Meta Ads (OAuth + gasto por mes)")
