@@ -566,7 +566,6 @@ def sim_zona(precio, costo, inversion, clientes_potenciales, penetracion_pct,
                                  "penetracion_pct": penetracion_pct})
 
 
-<<<<<<< HEAD
 def punto_equilibrio(precio, costo, gasto_fijo):
     """¿Cuántas unidades vender para NO PERDER (cubrir el gasto)?
 
@@ -617,8 +616,6 @@ def comparar_estrategias(params, precio, costo=0.0, presupuesto=300.0, n=400, se
             "mejor": (filas[0]["nombre"] if filas else "")}
 
 
-=======
->>>>>>> origin/main
 def normalizar_df_ventas(df):
     """Mapea un DataFrame de un Excel/CSV del cliente a las columnas del Gemelo:
     Mes, Inversión en ads, Ventas. Reconoce nombres flexibles (sin importar
