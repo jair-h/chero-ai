@@ -174,8 +174,11 @@ _PREGUNTAS_SIMPLE = {
                     "🎯 How much to invest to hit my goal?"),
     "producto":    ("🧪 ¿Mi producto o servicio nuevo tendrá acogida?",
                     "🧪 Will my new product or service catch on?"),
+<<<<<<< HEAD
     "comparar":    ("⚖️ ¿Qué me conviene más? (comparar opciones)",
                     "⚖️ What's best for me? (compare options)"),
+=======
+>>>>>>> origin/main
     "zona":        ("📍 ¿Cómo me irá en una zona o distrito nuevo?",
                     "📍 How would I do in a new area or district?"),
 }
@@ -230,9 +233,12 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
     if _pregunta == "producto":
         _render_simple_producto(supabase, generar_texto, user_email, marca, moneda, T, log)
         return
+<<<<<<< HEAD
     if _pregunta == "comparar":
         _render_simple_comparar(supabase, moneda, T, log)
         return
+=======
+>>>>>>> origin/main
 
     # ── 2. ¿Ya vendes o recién empiezas? ─────────────────────────────────────
     st.markdown("##### 2. " + T("¿Ya vendes o recién empiezas?", "Do you already sell or just starting?"))
@@ -479,6 +485,7 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
                        "Couldn't show the result. Share this detail: ") + f"`{type(_e).__name__}: {_e}`")
 
 
+<<<<<<< HEAD
 _ESTRATEGIA_EN = {
     "Mantener igual": "Keep as is",
     "Invertir más en ads (+50%)": "Invest more in ads (+50%)",
@@ -538,6 +545,8 @@ def _render_simple_comparar(supabase, moneda, T, log):
                             "selling more isn't always earning more."))
 
 
+=======
+>>>>>>> origin/main
 def _render_simple_producto(supabase, generar_texto, user_email, marca, moneda, T, log):
     """¿Tendrá acogida mi producto/servicio nuevo? Estimado por supuestos: dado
     lo que ESPERAS vender, dice si deja ganancia y con qué rango. Honesto: no

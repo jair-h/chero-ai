@@ -446,6 +446,7 @@ def test_gemelo():
     check(GM.normalizar_df_ventas(_sin_ventas)[0] is None, "sin columna de ventas -> error claro")
     check(GM.normalizar_df_ventas(_pd.DataFrame())[0] is None, "archivo vacío -> error")
 
+<<<<<<< HEAD
     # ── Punto de equilibrio ("¿cuánto vendo para no perder?") ───────────────
     _pe, _pee = GM.punto_equilibrio(precio=50, costo=20, gasto_fijo=600)
     check(_pee is None and _pe["unidades_enteras"] == 20, "punto de equilibrio: 600/(50-20)=20 unidades")
@@ -462,6 +463,8 @@ def test_gemelo():
     check(_utils == sorted(_utils, reverse=True), "escenarios ordenados por utilidad (mejor primero)")
     check(_cmp["mejor"] == _cmp["escenarios"][0]["nombre"], "marca la mejor estrategia")
 
+=======
+>>>>>>> origin/main
 
 def test_meta_ads():
     print("\n[9] Meta Ads (OAuth + gasto por mes)")
