@@ -60,6 +60,9 @@ from core.context import (
 # Módulo Gemelo Digital (motor matemático + UI propia; no toca el resto)
 from core import gemelo_ui as _gemelo_ui
 
+# Recomendador de plan (venta guiada por reglas)
+from core import planes_reco as _planes_reco
+
 # ✅ SIEMPRE PRIMERO: configuración de página
 st.set_page_config(page_title="Tentakl.ai", page_icon="🐙", layout="wide")
 
@@ -2495,6 +2498,23 @@ Sé muy específico, como si describieras a una persona real."""
                 st.caption(("Copia tu link y compártelo — o comparte la tarjeta de tu Gemelo 📲 con tu link."
                             if not _en_ref else
                             "Copy your link and share it — or share your Twin card 📲 with your link."))
+
+    # ── 🧭 ¿Qué plan me conviene? (venta guiada, por reglas, gratis) ──────────
+    _en_rp = st.session_state.get("lang") == "en"
+    with st.expander("🧭 " + ("¿Qué plan me conviene?" if not _en_rp else "Which plan suits me?")):
+        _resp_reco = {}
+        for _clave_r, _preg_r, _opts_r in _planes_reco.PREGUNTAS_RECO:
+            _lbls_r = [o[1][1 if _en_rp else 0] for o in _opts_r]
+            _sel_r = st.radio(_preg_r[1 if _en_rp else 0], range(len(_opts_r)),
+                              format_func=lambda i, _l=_lbls_r: _l[i], key=f"reco_{_clave_r}")
+            _resp_reco[_clave_r] = _opts_r[_sel_r][0]
+        if st.button("✨ " + ("Ver mi plan ideal" if not _en_rp else "See my ideal plan"), key="reco_btn"):
+            _reco = _planes_reco.recomendar_plan(_resp_reco["venta"], _resp_reco["equipo"], _resp_reco["objetivo"])
+            _precio_reco = cargar_planes_config().get(_reco["plan"], {}).get("precio", "")
+            _precio_txt = (f" (${_precio_reco}/mes)" if not _en_rp else f" (${_precio_reco}/mo)") if _precio_reco else ""
+            st.success(("🏆 " + ("Tu plan ideal" if not _en_rp else "Your ideal plan")
+                        + f": **{_reco['plan']}**" + _precio_txt))
+            st.caption(_reco["razon_en"] if _en_rp else _reco["razon_es"])
 
     # ── Encuesta Free (+15 créditos, una única vez) ────────────────────────────
     if (plan_actual == "Free" and restantes <= 0
