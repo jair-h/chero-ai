@@ -174,6 +174,8 @@ _PREGUNTAS_SIMPLE = {
                     "🎯 How much to invest to hit my goal?"),
     "producto":    ("🧪 ¿Mi producto o servicio nuevo tendrá acogida?",
                     "🧪 Will my new product or service catch on?"),
+    "comparar":    ("⚖️ ¿Qué me conviene más? (comparar opciones)",
+                    "⚖️ What's best for me? (compare options)"),
     "zona":        ("📍 ¿Cómo me irá en una zona o distrito nuevo?",
                     "📍 How would I do in a new area or district?"),
 }
@@ -227,6 +229,9 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
         return
     if _pregunta == "producto":
         _render_simple_producto(supabase, generar_texto, user_email, marca, moneda, T, log)
+        return
+    if _pregunta == "comparar":
+        _render_simple_comparar(supabase, moneda, T, log)
         return
 
     # ── 2. ¿Ya vendes o recién empiezas? ─────────────────────────────────────
@@ -472,6 +477,65 @@ def _render_simple(supabase, generar_texto, user_email, marca, sector_nicho, mon
             log("gemelo_render")
             st.error(T("No pude mostrar el resultado. Comparte este detalle con tu equipo: ",
                        "Couldn't show the result. Share this detail: ") + f"`{type(_e).__name__}: {_e}`")
+
+
+_ESTRATEGIA_EN = {
+    "Mantener igual": "Keep as is",
+    "Invertir más en ads (+50%)": "Invest more in ads (+50%)",
+    "Bajar el precio 10%": "Lower price 10%",
+    "Subir el precio 10%": "Raise price 10%",
+}
+
+
+def _render_simple_comparar(supabase, moneda, T, log):
+    """Compara 4 estrategias lado a lado (mantener / más ads / bajar precio /
+    subir precio) con los mismos números y marca la de mayor utilidad.
+    Estimado direccional por benchmark del sector (honesto)."""
+    import pandas as pd
+    st.markdown("##### 2. " + T("Compara tus opciones", "Compare your options"))
+    st.info("⚖️ " + T("Te comparo lado a lado 4 caminos con los mismos números y te digo cuál deja "
+                      "MÁS UTILIDAD (no solo más ventas). Es un estimado direccional del sector; "
+                      "confírmalo con tus datos reales.",
+                      "I compare 4 paths side by side and tell you which leaves MORE PROFIT (not just "
+                      "more sales). Directional sector estimate; confirm with your real data."))
+    _sector_sel = st.selectbox(T("Tu rubro:", "Your sector:"), list(_SECTORES_LBL.keys()),
+                               format_func=lambda k: _SECTORES_LBL[k], key="gsc_sector")
+    _sector = _sector_sel if _sector_sel in G.BENCHMARKS_SECTOR else "ecommerce_general"
+    _c1, _c2 = st.columns(2)
+    _precio = _c1.number_input(T(f"Precio ({moneda})", f"Price ({moneda})"),
+                               min_value=0.0, value=50.0, step=1.0, key="gsc_precio")
+    _costo = _c2.number_input(T(f"Costo por unidad ({moneda})", f"Cost per unit ({moneda})"),
+                              min_value=0.0, value=20.0, step=1.0, key="gsc_costo")
+    _pres = st.number_input(T(f"Inversión en ads al mes ({moneda})", f"Monthly ad budget ({moneda})"),
+                            min_value=0.0, value=400.0, step=50.0, key="gsc_pres")
+    if st.button("⚖️ " + T("Comparar", "Compare"), key="gsc_btn", use_container_width=True, type="primary"):
+        if _precio <= 0:
+            st.error(T("Pon un precio mayor que 0.", "Enter a price greater than 0."))
+        else:
+            _params = G.params_benchmark(_sector, _precio, {c: _pres / 3.0 for c in G.CANALES})
+            st.session_state["gemelo_comparar"] = G.comparar_estrategias(
+                _params, _precio, costo=_costo, presupuesto=_pres)
+
+    _cmp = st.session_state.get("gemelo_comparar")
+    if _cmp and _cmp.get("escenarios"):
+        st.divider()
+        _mejor = _cmp["mejor"] if _en_lang() is False else _ESTRATEGIA_EN.get(_cmp["mejor"], _cmp["mejor"])
+        st.success("🏆 " + T(f"Lo que más te conviene: **{_mejor}**", f"Best option: **{_mejor}**"))
+        _rows = []
+        for e in _cmp["escenarios"]:
+            _nom = e["nombre"] if not _en_lang() else _ESTRATEGIA_EN.get(e["nombre"], e["nombre"])
+            _rows.append({
+                T("Estrategia", "Strategy"): f"{e['icono']} {_nom}",
+                T("Precio", "Price"): f"{moneda}{e['precio']:,.0f}",
+                T("Inversión", "Budget"): f"{moneda}{e['gasto']:,.0f}",
+                T("Ventas", "Sales"): f"{e['ventas_p50']:.0f}",
+                T("Utilidad", "Profit"): f"{moneda}{e['utilidad_p50']:,.0f}",
+            })
+        st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+        st.caption("🟡 " + T("Estimado direccional del sector (sin tus datos). Confírmalo con tus ventas reales. "
+                            "La utilidad manda: vender más no siempre es ganar más.",
+                            "Directional sector estimate. Confirm with your real sales. Profit is what matters: "
+                            "selling more isn't always earning more."))
 
 
 def _render_simple_producto(supabase, generar_texto, user_email, marca, moneda, T, log):
@@ -1129,15 +1193,33 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
     _c1.metric(T("Pesimista", "Pessimistic"), f"{_p10:.0f}")
     _c2.metric(T("Más probable", "Most likely"), f"{_p50:.0f}", T("ventas", "sales"))
     _c3.metric(T("Optimista", "Optimistic"), f"{_p90:.0f}")
-    st.markdown(f"**{T('Rango de ventas', 'Sales range')}: {_p10:.0f} – {_p90:.0f}** · "
-                f"{T('Ingresos', 'Revenue')} ≈ {moneda}{_ing:.0f} · "
-                f"{T('Utilidad', 'Profit')} ≈ {moneda}{_uti:.0f}")
-    if r.get("fuente") == "benchmark":
-        st.caption("⚠ " + T("Basado en benchmarks del sector (sin tus datos aún).",
-                             "Based on sector benchmarks (no data from you yet)."))
-    elif r.get("fuente") == "supuestos":
-        st.caption("⚠ " + T("Estimación por supuestos (sin historial) — rango amplio a propósito.",
-                             "Assumption-based estimate (no history) — range is wide on purpose."))
+    st.markdown(f"**{T('Rango de ventas', 'Sales range')}: {_p10:.0f} – {_p90:.0f}**")
+    # ── UTILIDAD AL FRENTE: vender más no siempre es ganar más ──────────────
+    _col_u = "#16A34A" if _uti >= 0 else "#DC2626"
+    st.markdown(
+        f"""<div style="background:{_col_u}18;border-left:4px solid {_col_u};border-radius:8px;
+        padding:10px 14px;margin:8px 0;">
+        <span style="font-size:.8rem;opacity:.8;">{T('Lo que de verdad te queda (utilidad probable)', 'What you actually keep (likely profit)')}</span><br>
+        <span style="font-size:1.6rem;font-weight:800;color:{_col_u};">{moneda}{_uti:,.0f}</span>
+        <span style="opacity:.7;"> · {T('ingresos', 'revenue')} {moneda}{_ing:,.0f}</span></div>""",
+        unsafe_allow_html=True)
+    # ── Punto de equilibrio: ¿cuánto vender para no perder? ─────────────────
+    _pe_precio, _pe_costo, _pe_gasto = _num(r.get("precio")), _num(r.get("costo")), _num(r.get("gasto_total"))
+    if _pe_precio > 0 and _pe_gasto > 0:
+        _pe, _pe_err = G.punto_equilibrio(_pe_precio, _pe_costo, _pe_gasto)
+        if _pe and not _pe_err:
+            st.caption("⚖️ " + T(
+                f"Punto de equilibrio: necesitas vender ~{_pe['unidades_enteras']} para cubrir el gasto (no perder).",
+                f"Break-even: you need to sell ~{_pe['unidades_enteras']} to cover costs (not lose)."))
+    # ── Confianza (de dónde salen los números) ──────────────────────────────
+    _conf = {"datos": ("🟢", T("Confianza alta — basado en TUS datos", "High confidence — based on YOUR data")),
+             "benchmark": ("🟡", T("Confianza media — estimado del sector (sin tus datos aún)",
+                                    "Medium confidence — sector estimate (no data from you yet)")),
+             "supuestos": ("🟠", T("Confianza baja — por supuestos tuyos; rango amplio a propósito",
+                                    "Low confidence — your assumptions; wide range on purpose"))
+             }.get(r.get("fuente", "datos"), ("🟢", ""))
+    if _conf[1]:
+        st.caption(f"{_conf[0]} " + _conf[1])
     if _es_camp:
         _mf = r.get("mult_fuente", "benchmark")
         _origen = T("tus propias campañas", "your own campaigns") if _mf == "datos" \
@@ -1225,6 +1307,10 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
     if generar_texto:
         st.divider()
         st.markdown("#### 👥 " + T("Qué opina tu equipo", "What your team thinks"))
+        st.caption("🤖 " + T("Son opiniones SIMULADAS con IA (personajes), no una encuesta a personas reales. "
+                             "Sirven para anticipar reacciones, no como dato validado.",
+                             "These are AI-SIMULATED opinions (characters), not a survey of real people. "
+                             "Useful to anticipate reactions, not as validated data."))
         _ops = st.session_state.get("gemelo_personas")
         if st.button("🗣 " + T("Pedir opinión (comprador · competidor · mercado) — 2 créditos",
                                "Ask the team (buyer · competitor · market) — 2 credits"),
