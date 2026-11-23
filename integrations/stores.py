@@ -136,6 +136,134 @@ def fetch_woocommerce_sales_by_month(url: str, consumer_key: str, consumer_secre
     return _rellenar_meses(acum, meses, hoy), None
 
 
+def fetch_woocommerce_clientes(url: str, consumer_key: str, consumer_secret: str,
+                               meses: int = 12, max_paginas: int = 20):
+    """Arma la lista de CLIENTES reales desde los pedidos de WooCommerce — la base
+    para que el Gemelo aprenda y para el CRM/mapa por zona.
+
+    Agrega por email: nombre, ciudad, provincia (state), país, total gastado,
+    nº de pedidos y última compra. Solo pedidos de venta real (completed/processing).
+    Devuelve (clientes, error). NO inventa datos.
+    """
+    base = _normalizar_base(url)
+    ck, cs = (consumer_key or "").strip(), (consumer_secret or "").strip()
+    if not base or not ck or not cs:
+        return [], "Faltan la URL, Consumer Key o Consumer Secret de WooCommerce."
+    hoy = datetime.now(timezone.utc)
+    _mm, _yy = hoy.month - (meses - 1), hoy.year
+    while _mm <= 0:
+        _mm += 12
+        _yy -= 1
+    desde = f"{_yy:04d}-{_mm:02d}-01T00:00:00"
+    acum: dict[str, dict] = {}
+    try:
+        for page in range(1, int(max_paginas) + 1):
+            r = requests.get(
+                f"{base}/wp-json/wc/v3/orders",
+                params={"per_page": 100, "page": page, "after": desde,
+                        "status": "any", "orderby": "date", "order": "asc"},
+                auth=(ck, cs), timeout=_TIMEOUT,
+            )
+            if r.status_code != 200:
+                return [], f"Error {r.status_code}: {str(r.text)[:200]}"
+            pedidos = r.json() or []
+            if not pedidos:
+                break
+            for o in pedidos:
+                if o.get("status") not in _WOO_ESTADOS_VENTA:
+                    continue
+                b = o.get("billing", {}) or {}
+                email = (b.get("email") or "").strip().lower()
+                if not email:
+                    continue
+                try:
+                    total = float(o.get("total", 0) or 0)
+                except (TypeError, ValueError):
+                    total = 0.0
+                fecha = str(o.get("date_paid") or o.get("date_created") or "")[:10]
+                c = acum.setdefault(email, {
+                    "email": email,
+                    "nombre": (f"{b.get('first_name', '')} {b.get('last_name', '')}").strip(),
+                    "ciudad": (b.get("city") or "").strip(),
+                    "provincia": (b.get("state") or "").strip(),
+                    "pais": (b.get("country") or "").strip(),
+                    "total_gastado": 0.0, "pedidos": 0, "ultima_compra": "",
+                })
+                c["total_gastado"] += total
+                c["pedidos"] += 1
+                if fecha > c["ultima_compra"]:
+                    c["ultima_compra"] = fecha
+            if len(pedidos) < 100:
+                break
+    except Exception as ex:  # noqa: BLE001
+        return [], f"Error: {ex}"
+    clientes = sorted(acum.values(), key=lambda x: x["total_gastado"], reverse=True)
+    for c in clientes:
+        c["total_gastado"] = round(c["total_gastado"], 2)
+    return clientes, None
+
+
+def fetch_shopify_clientes(url: str, access_token: str, meses: int = 12, max_paginas: int = 20):
+    """Clientes reales desde los pedidos de Shopify (pagados). Mismo formato que
+    WooCommerce: agrega por email con ciudad/provincia/país, total y pedidos."""
+    base = _normalizar_base(url)
+    tok = (access_token or "").strip()
+    if not base or not tok:
+        return [], "Faltan la URL o el Access Token de Shopify."
+    hoy = datetime.now(timezone.utc)
+    _mm, _yy = hoy.month - (meses - 1), hoy.year
+    while _mm <= 0:
+        _mm += 12
+        _yy -= 1
+    desde = f"{_yy:04d}-{_mm:02d}-01T00:00:00Z"
+    acum: dict[str, dict] = {}
+    headers = {"X-Shopify-Access-Token": tok}
+    params = {"status": "any", "financial_status": "paid", "created_at_min": desde, "limit": 250}
+    try:
+        for _pg in range(int(max_paginas)):
+            r = requests.get(f"{base}/admin/api/{SHOPIFY_API_VERSION}/orders.json",
+                             params=params, headers=headers, timeout=_TIMEOUT)
+            if r.status_code != 200:
+                return [], f"Error {r.status_code}: {str(r.text)[:200]}"
+            pedidos = (r.json() or {}).get("orders", [])
+            if not pedidos:
+                break
+            for o in pedidos:
+                if o.get("cancelled_at"):
+                    continue
+                email = (o.get("email") or (o.get("customer", {}) or {}).get("email") or "").strip().lower()
+                if not email:
+                    continue
+                addr = o.get("shipping_address") or o.get("billing_address") or {}
+                try:
+                    total = float(o.get("total_price", 0) or 0)
+                except (TypeError, ValueError):
+                    total = 0.0
+                fecha = str(o.get("created_at") or "")[:10]
+                c = acum.setdefault(email, {
+                    "email": email,
+                    "nombre": (addr.get("name") or "").strip(),
+                    "ciudad": (addr.get("city") or "").strip(),
+                    "provincia": (addr.get("province") or "").strip(),
+                    "pais": (addr.get("country") or "").strip(),
+                    "total_gastado": 0.0, "pedidos": 0, "ultima_compra": "",
+                })
+                c["total_gastado"] += total
+                c["pedidos"] += 1
+                if fecha > c["ultima_compra"]:
+                    c["ultima_compra"] = fecha
+            _next = _shopify_next_page_info(getattr(r, "headers", {}) or {})
+            if not _next:
+                break
+            params = {"limit": 250, "page_info": _next}
+    except Exception as ex:  # noqa: BLE001
+        return [], f"Error: {ex}"
+    clientes = sorted(acum.values(), key=lambda x: x["total_gastado"], reverse=True)
+    for c in clientes:
+        c["total_gastado"] = round(c["total_gastado"], 2)
+    return clientes, None
+
+
 def _rellenar_meses(acum: dict, meses: int, hoy) -> list:
     """Arma la lista de los últimos `meses` (de más antiguo a más reciente),
     rellenando con 0 los meses sin ventas. Reutilizado por Woo y Shopify."""
