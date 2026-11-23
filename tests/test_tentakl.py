@@ -256,6 +256,48 @@ def test_stores():
     check(len(filas_s) == 3 and 999.0 not in _ds.values(), "Shopify: 3 meses e ignora cancelados")
     check(S.fetch_shopify_sales_by_month("", "tok")[0] == [], "Shopify sin URL -> error claro")
 
+    # Clientes reales desde la tienda (rebanada 1: Gemelo aprende + CRM + mapa)
+    def router_woo_cli(method, url, kw):
+        if "/wp-json/wc/v3/orders" in url:
+            if kw.get("params", {}).get("page", 1) != 1:
+                return FakeResp(200, [])
+            return FakeResp(200, [
+                {"status": "completed", "total": "100.00", "date_paid": _ym_now + "-05T10:00:00",
+                 "billing": {"first_name": "Ana", "last_name": "Ruiz", "email": "ana@x.com",
+                             "city": "Miraflores", "state": "Lima", "country": "PE"}},
+                {"status": "completed", "total": "50.00", "date_paid": _ym_now + "-09T10:00:00",
+                 "billing": {"first_name": "Ana", "last_name": "Ruiz", "email": "ana@x.com",
+                             "city": "Miraflores", "state": "Lima", "country": "PE"}},
+                {"status": "cancelled", "total": "999.00", "date_created": _ym_now + "-07T10:00:00",
+                 "billing": {"email": "fraude@x.com", "city": "X"}},
+                {"status": "processing", "total": "80.00", "date_created": _ym_last + "-10T10:00:00",
+                 "billing": {"first_name": "Beto", "email": "beto@x.com", "city": "Surco", "state": "Lima", "country": "PE"}},
+            ])
+        return FakeResp(500, {}, "err")
+    S.requests = FakeRequests(router_woo_cli)
+    _cli, _ce = S.fetch_woocommerce_clientes("mitienda.com", "ck", "cs", meses=12)
+    _by = {c["email"]: c for c in _cli}
+    check(_ce is None and _by.get("ana@x.com", {}).get("total_gastado") == 150.0,
+          "clientes Woo: agrega total por email (2 pedidos de Ana = 150)")
+    check(_by.get("ana@x.com", {}).get("pedidos") == 2 and _by["ana@x.com"]["ciudad"] == "Miraflores",
+          "clientes Woo: cuenta pedidos y guarda ciudad/distrito")
+    check("fraude@x.com" not in _by, "clientes Woo: ignora cancelados")
+    check(_cli[0]["email"] == "ana@x.com", "clientes Woo: ordena por total gastado")
+
+    def router_shop_cli(method, url, kw):
+        if "/orders.json" in url:
+            return FakeResp(200, {"orders": [
+                {"email": "cris@x.com", "total_price": "200.00", "created_at": _ym_now + "-05T10:00:00Z",
+                 "cancelled_at": None, "shipping_address": {"name": "Cris", "city": "San Isidro", "province": "Lima", "country": "Peru"}},
+                {"email": "cris@x.com", "total_price": "100.00", "created_at": _ym_now + "-08T10:00:00Z",
+                 "cancelled_at": None, "shipping_address": {"name": "Cris", "city": "San Isidro", "province": "Lima", "country": "Peru"}},
+            ]})
+        return FakeResp(500, {}, "err")
+    S.requests = FakeRequests(router_shop_cli)
+    _clis, _ces = S.fetch_shopify_clientes("mitienda.myshopify.com", "shpat_x", meses=12)
+    check(_ces is None and _clis and _clis[0]["total_gastado"] == 300.0 and _clis[0]["ciudad"] == "San Isidro",
+          "clientes Shopify: agrega total y guarda ciudad")
+
 
 def test_agents():
     print("\n[6] capa de agentes")

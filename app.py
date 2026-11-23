@@ -6764,6 +6764,70 @@ Sé muy específico con los números que ves en la imagen."""
                         except Exception as _te:
                             st.error(str(_te))
 
+                # -- 👥 Traer clientes al CRM (rebanada 1: Gemelo aprende + mapa real) -----------
+                st.markdown("---")
+                st.markdown("#### 👥 " + ("Tus clientes → tu CRM" if not _is_en_int else "Your customers → your CRM"))
+                st.caption(("Traigo tus clientes reales de la tienda (con su ciudad/distrito y cuánto gastaron) a tu CRM. "
+                            "Así el Gemelo aprende de ventas reales y el mapa de zonas se vuelve real. Nada se comparte."
+                            if not _is_en_int else
+                            "I bring your real store customers (with city and spend) into your CRM. The Twin then learns "
+                            "from real sales and the zone map becomes real. Nothing is shared."))
+                if st.button("👥 " + ("Traer mis clientes al CRM" if not _is_en_int else "Bring my customers to CRM"),
+                             key="tienda_sync_clientes"):
+                    with st.spinner("Leyendo tus clientes..." if not _is_en_int else "Reading your customers..."):
+                        if _tplat == "Shopify":
+                            _clientes, _cli_err = _stores.fetch_shopify_clientes(_turl, _twoo_ck, meses=12)
+                        else:
+                            _clientes, _cli_err = _stores.fetch_woocommerce_clientes(_turl, _twoo_ck, _twoo_cs, meses=12)
+                    if _cli_err:
+                        st.error(("No pude traer los clientes: " if not _is_en_int else "Couldn't fetch customers: ") + _cli_err)
+                    elif not _clientes:
+                        st.warning(("Tu tienda respondió, pero no veo clientes con correo en los pedidos."
+                                    if not _is_en_int else "Store responded, but no customers with email in orders."))
+                    else:
+                        # CRM directo por Supabase (las funciones crm_* se definen más abajo en el script).
+                        _existentes = set()
+                        try:
+                            _rex = supabase.table("crm_contactos").select("email_contacto") \
+                                .eq("user_email", _email_int).execute()
+                            for _cc in (_rex.data or []):
+                                _existentes.add((_cc.get("email_contacto") or "").strip().lower())
+                        except Exception:
+                            _ignorar_error()
+                        _nuevos = 0
+                        from datetime import datetime as _dt_cli
+                        for _cl in _clientes:
+                            if _cl["email"] in _existentes:
+                                continue
+                            _notas = (f"Ciudad: {_cl['ciudad']} · {_cl['provincia']} · {_cl['pais']} · "
+                                      f"{_cl['pedidos']} pedido(s) · última compra {_cl['ultima_compra']}")
+                            try:
+                                supabase.table("crm_contactos").insert({
+                                    "user_email": _email_int,
+                                    "nombre": _cl["nombre"] or _cl["email"],
+                                    "email_contacto": _cl["email"], "telefono": "", "empresa": "",
+                                    "pais": _cl["pais"], "fuente": "Tienda",
+                                    "valor_estimado": float(_cl["total_gastado"]) if _cl["total_gastado"] else None,
+                                    "notas": _notas, "estado": "nuevo",
+                                    "ultima_interaccion": _dt_cli.now().isoformat(),
+                                }).execute()
+                                _nuevos += 1
+                            except Exception:
+                                _ignorar_error()
+                        # Ciudad top (para el aviso)
+                        _ciudades = {}
+                        for _cl in _clientes:
+                            _cd = (_cl["ciudad"] or "").strip()
+                            if _cd:
+                                _ciudades[_cd] = _ciudades.get(_cd, 0) + 1
+                        _top_ciudad = max(_ciudades, key=_ciudades.get) if _ciudades else "—"
+                        st.success(("✅ " + f"{len(_clientes)} clientes leídos · {_nuevos} nuevos al CRM · zona top: {_top_ciudad}."
+                                    if not _is_en_int else
+                                    "✅ " + f"{len(_clientes)} customers read · {_nuevos} new to CRM · top area: {_top_ciudad}."))
+                        st.caption(("Ya están en 👥 CRM con IA. El Gemelo usará estas ventas y zonas reales."
+                                    if not _is_en_int else
+                                    "They're now in 👥 AI CRM. The Twin will use these real sales and areas."))
+
                 # -- Gestión de productos -------------------------------------------------------
                 st.markdown("---")
                 st.markdown("#### 📦 Gestión de productos")
