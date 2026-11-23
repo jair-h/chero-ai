@@ -1,6 +1,6 @@
 # Conexión de Google Analytics (OAuth) — guía de configuración
 
-Esto se hace **UNA sola vez** (tú, como dueño de Tentakl). Después, cada
+Esto se hace **UNA sola vez** (tú, como dueño de Tentakul). Después, cada
 usuario conecta su Analytics con **un clic**, sin crear nada.
 
 ## 1. Crear la app OAuth en Google Cloud
@@ -19,7 +19,7 @@ usuario conecta su Analytics con **un clic**, sin crear nada.
 5. **APIs y servicios → Credenciales → Crear credenciales → ID de cliente OAuth**:
    - Tipo: *Aplicación web*.
    - **URI de redirección autorizado:** la URL pública de tu app en
-     Streamlit Cloud, por ejemplo `https://tentakl.streamlit.app/`
+     Streamlit Cloud, por ejemplo `https://tentakul.streamlit.app/`
      (debe coincidir EXACTO con `GOOGLE_OAUTH_REDIRECT_URI`).
    - Copia el **Client ID** y el **Client Secret**.
 
@@ -37,7 +37,7 @@ GOOGLE_OAUTH_REDIRECT_URI = "https://TU-APP.streamlit.app/"
 
 1. Gestión → Integraciones → **Conectar con Google**.
 2. Inicia sesión con Google y autoriza (solo lectura).
-3. Vuelve a Tentakl, pulsa **Actualizar**, y elige su propiedad GA4.
+3. Vuelve a Tentakul, pulsa **Actualizar**, y elige su propiedad GA4.
 4. Listo: **Analizar mis métricas** trae datos reales (tráfico, fuentes,
    páginas top, dispositivos, países y tendencia diaria) — sin datos demo.
 

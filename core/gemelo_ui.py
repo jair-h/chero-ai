@@ -157,7 +157,7 @@ def render(*, supabase=None, generar_texto=None, user_email="", marca="",
                               "The Twin's history and cumulative accuracy are in the Pro plan. "
                               "On your current plan you can simulate as much as you want; "
                               "saving the history to track weekly accuracy is Pro."))
-            st.caption("👉 tentakl.ai/planes")
+            st.caption("👉 tentakul.com/planes")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1344,9 +1344,9 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
             st.image(png, use_container_width=True)
         with _cbtn:
             st.markdown(T("Descárgala y compártela en WhatsApp, Instagram o tus estados. "
-                          "Cada vez que la compartes, más gente descubre Tentakl. 🐙",
+                          "Cada vez que la compartes, más gente descubre Tentakul. 🐙",
                           "Download it and share on WhatsApp, Instagram or your stories. "
-                          "Every share helps more people discover Tentakl. 🐙"))
+                          "Every share helps more people discover Tentakul. 🐙"))
             st.download_button("📲 " + T("Descargar para compartir", "Download to share"),
                                data=png, file_name="gemelo_tentakl.png", mime="image/png",
                                key="gemelo_card_dl", use_container_width=True)

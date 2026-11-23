@@ -1,6 +1,6 @@
 # Conexión de Meta Ads (Facebook/Instagram) — guía de configuración
 
-Igual que Analytics: se hace **UNA sola vez** (tú, dueño de Tentakl). Después
+Igual que Analytics: se hace **UNA sola vez** (tú, dueño de Tentakul). Después
 cada usuario conecta sus ads con **un clic** y el Gemelo se autollena con el
 gasto real (y el ROAS).
 
@@ -12,7 +12,7 @@ El código ya está listo en `integrations/meta_ads.py`. Falta la parte tuya:
 3. En la app, agrega el producto **Marketing API**.
 4. **Configuración → Básica:** copia el **App ID** y el **App Secret**.
 5. **Facebook Login → Configuración:** agrega como **URI de redireccionamiento
-   OAuth válido** la URL de tu app (ej. `https://tentakl.streamlit.app/`), igual
+   OAuth válido** la URL de tu app (ej. `https://tentakul.streamlit.app/`), igual
    que hiciste con Google. Debe coincidir EXACTO con `META_OAUTH_REDIRECT_URI`.
 6. Permiso necesario: **`ads_read`**. En modo desarrollo funciona para ti y los
    testers que agregues; para abrirlo a todos, Meta pide **App Review** (igual

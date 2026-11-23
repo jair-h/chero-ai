@@ -1,4 +1,4 @@
-"""Gemelo Digital de Tentakl — MOTOR MATEMÁTICO (Python puro, SIN IA).
+"""Gemelo Digital de Tentakul — MOTOR MATEMÁTICO (Python puro, SIN IA).
 
 Separación estricta de capas: AQUÍ se calcula el número; la IA (en la UI) solo
 explica en palabras lo que este motor produce. Nada de este archivo llama a

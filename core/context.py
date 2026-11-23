@@ -1,4 +1,4 @@
-"""Capa de contexto y validación del motor de texto de Tentakl.
+"""Capa de contexto y validación del motor de texto de Tentakul.
 
 Funciones PURAS (sin Streamlit ni cliente de IA) que el motor de generación
 usa para armar y sanear los prompts:

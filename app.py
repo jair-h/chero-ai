@@ -64,7 +64,7 @@ from core import gemelo_ui as _gemelo_ui
 from core import planes_reco as _planes_reco
 
 # ✅ SIEMPRE PRIMERO: configuración de página
-st.set_page_config(page_title="Tentakl", page_icon="🐙", layout="wide")
+st.set_page_config(page_title="Tentakul", page_icon="🐙", layout="wide")
 
 # --- SECRETOS ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
@@ -225,7 +225,7 @@ if not IMAGENES_ACTIVAS:
     _ocultar_generador_imagenes(AGENTES)
 
 # =========================
-# COSTOS Y LÍMITES (esquema Tentakl)
+# COSTOS Y LÍMITES (esquema Tentakul)
 # =========================
 COSTO_CREDITOS = {
     "funcion_texto": 1,      # cualquier subfunción de texto
@@ -404,7 +404,7 @@ _TRANS = {
         "plan_semanal_titulo": "## 🧠 Plan de Contenido Semanal",
         "btn_regenerar_plan": "🔄 Regenerar Plan Semanal (1 crédito)",
         "btn_generar_plan": "🚀 Generar Plan Semanal",
-        "onboarding": "### 👋 ¡Bienvenido a Tentakl!\n**Empieza en 1 minuto:**\n1. **Regístrate** con tu correo (o entra con Google) en el panel de la izquierda.\n2. **Pon tu negocio**: marca, rubro y qué vendes.\n3. **Prueba gratis** el Gemelo (cuánto venderás) o la Radiografía de tu web. ¡Listo!",
+        "onboarding": "### 👋 ¡Bienvenido a Tentakul!\n**Empieza en 1 minuto:**\n1. **Regístrate** con tu correo (o entra con Google) en el panel de la izquierda.\n2. **Pon tu negocio**: marca, rubro y qué vendes.\n3. **Prueba gratis** el Gemelo (cuánto venderás) o la Radiografía de tu web. ¡Listo!",
         "motor_atraccion": "🚀 Motor de Atracción",
         "motor_desc": "Herramientas avanzadas para crear contenido que vende.",
         "sel_herramienta": "Herramienta:",
@@ -466,7 +466,7 @@ _TRANS = {
         "plan_semanal_titulo": "## 🧠 Weekly Content Plan",
         "btn_regenerar_plan": "🔄 Regenerate Weekly Plan (1 credit)",
         "btn_generar_plan": "🚀 Generate Weekly Plan",
-        "onboarding": "### 👋 Welcome to Tentakl!\n**Start in 1 minute:**\n1. **Sign up** with your email (or log in with Google) in the left panel.\n2. **Add your business**: brand, niche and what you sell.\n3. **Try it free**: the Twin (how much you'll sell) or your website X-ray. Done!",
+        "onboarding": "### 👋 Welcome to Tentakul!\n**Start in 1 minute:**\n1. **Sign up** with your email (or log in with Google) in the left panel.\n2. **Add your business**: brand, niche and what you sell.\n3. **Try it free**: the Twin (how much you'll sell) or your website X-ray. Done!",
         "motor_atraccion": "🚀 Attraction Engine",
         "motor_desc": "Advanced tools to create content that sells.",
         "sel_herramienta": "Tool:",
@@ -1937,7 +1937,7 @@ st.markdown("""
     /* Títulos siempre en tinta oscura, nunca rojos ni morado chillón */
     h1, h2, h3, h4 { color: #15112B !important; font-weight: 700; }
     .stMarkdown h1 span, .stMarkdown h2 span { color: #15112B !important; }
-    /* Links y acentos en morado Tentakl */
+    /* Links y acentos en morado Tentakul */
     a, a:visited { color: #7C3AED !important; }
 
     /* Botones por defecto (secundarios): estilo suave ghost, nada de rojo */
@@ -2063,7 +2063,7 @@ def _mostrar_upgrade(mensaje=None):
             )
     if es_region_alto_ingreso():
         st.caption(("💲 Precios en USD para tu región." if not _en else "💲 Prices in USD for your region."))
-    st.caption("👉 tentakl.com/planes" if not _en else "👉 tentakl.com/plans")
+    st.caption("👉 tentakul.com/planes" if not _en else "👉 tentakul.com/plans")
 
 
 def verificar_creditos(costo=1, video=False):
@@ -2160,7 +2160,7 @@ def registrar_uso_creditos(email, tipo_accion, creditos):
 # =========================
 with st.sidebar:
     st.markdown("<div style='font-size:46px;text-align:center;line-height:1;'>🐙</div>", unsafe_allow_html=True)
-    st.markdown("<div style='text-align:center;font-size:22px;font-weight:700;color:#7C3AED;margin-top:2px;'>Tentakl</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center;font-size:22px;font-weight:700;color:#7C3AED;margin-top:2px;'>Tentakul</div>", unsafe_allow_html=True)
     st.caption("Tu equipo de marketing con IA" if st.session_state.get("lang") != "en" else "Your AI marketing team")
     st.markdown("---")
     _lang_actual = st.session_state.get("lang", "es")
@@ -2252,11 +2252,11 @@ with st.sidebar:
                     crear_cuenta_free(nuevo_email)
                     _bono = st.session_state.pop("_ref_bono_nuevo", 0)
                     if _bono:
-                        st.success((f"✅ Cuenta creada con +{_bono} créditos de regalo por tu invitación. ¡Bienvenido a Tentakl!"
+                        st.success((f"✅ Cuenta creada con +{_bono} créditos de regalo por tu invitación. ¡Bienvenido a Tentakul!"
                                     if not _en_tc else
-                                    f"✅ Account created with +{_bono} bonus credits from your invite. Welcome to Tentakl!"))
+                                    f"✅ Account created with +{_bono} bonus credits from your invite. Welcome to Tentakul!"))
                     else:
-                        st.success("✅ Cuenta creada. ¡Bienvenido a Tentakl!" if not _en_tc else "✅ Account created. Welcome to Tentakl!")
+                        st.success("✅ Cuenta creada. ¡Bienvenido a Tentakul!" if not _en_tc else "✅ Account created. Welcome to Tentakul!")
                     st.rerun()
 
         try:
@@ -2525,7 +2525,7 @@ Sé muy específico, como si describieras a una persona real."""
                          else "🎁 Earn 15 extra credits by answering 3 questions"):
             _enc_fav = st.text_input("¿Cuál fue tu función favorita?" if not _en_enc else "What was your favorite feature?", key="enc_fav")
             _enc_mej = st.text_input("¿Qué mejorarías?" if not _en_enc else "What would you improve?", key="enc_mej")
-            _enc_pag = st.selectbox("¿Pagarías por Tentakl?" if not _en_enc else "Would you pay for Tentakl?",
+            _enc_pag = st.selectbox("¿Pagarías por Tentakul?" if not _en_enc else "Would you pay for Tentakul?",
                                     ["Sí", "Tal vez", "No"] if not _en_enc else ["Yes", "Maybe", "No"], key="enc_pag")
             if st.button("Enviar y recibir mis créditos" if not _en_enc else "Submit and get my credits", key="btn_enc_free"):
                 _email_enc = (st.session_state.get("user_email") or "").strip().lower()
@@ -2607,7 +2607,7 @@ Sé muy específico, como si describieras a una persona real."""
 # PDF GENERATION (ReportLab)
 # =========================
 def generar_pdf_reportlab(titulo, contenido, email=""):
-    """Genera un PDF con formato Tentakl y retorna bytes."""
+    """Genera un PDF con formato Tentakul y retorna bytes."""
     _buf = io.BytesIO()
     _doc = SimpleDocTemplate(
         _buf,
@@ -2622,7 +2622,7 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
     _rojo = colors.HexColor("#D32F2F")
 
     _style_header = ParagraphStyle(
-        "TentaklHeader",
+        "TentakulHeader",
         parent=_styles["Heading1"],
         fontSize=22,
         textColor=_rojo,
@@ -2630,7 +2630,7 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
         fontName="Helvetica-Bold",
     )
     _style_titulo = ParagraphStyle(
-        "TentaklTitulo",
+        "TentakulTitulo",
         parent=_styles["Heading2"],
         fontSize=14,
         textColor=colors.black,
@@ -2639,14 +2639,14 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
         fontName="Helvetica-Bold",
     )
     _style_meta = ParagraphStyle(
-        "TentaklMeta",
+        "TentakulMeta",
         parent=_styles["Normal"],
         fontSize=9,
         textColor=colors.HexColor("#555555"),
         spaceAfter=2,
     )
     _style_body = ParagraphStyle(
-        "TentaklBody",
+        "TentakulBody",
         parent=_styles["Normal"],
         fontSize=10,
         leading=15,
@@ -2654,7 +2654,7 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
         wordWrap="CJK",
     )
     _style_h2 = ParagraphStyle(
-        "TentaklH2",
+        "TentakulH2",
         parent=_styles["Heading2"],
         fontSize=12,
         textColor=colors.HexColor("#1A237E"),
@@ -2663,7 +2663,7 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
         fontName="Helvetica-Bold",
     )
     _style_h3 = ParagraphStyle(
-        "TentaklH3",
+        "TentakulH3",
         parent=_styles["Heading3"],
         fontSize=11,
         textColor=colors.HexColor("#333333"),
@@ -2674,8 +2674,8 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
 
     _story = []
 
-    # Encabezado Tentakl
-    _story.append(Paragraph("Tentakl", _style_header))
+    # Encabezado Tentakul
+    _story.append(Paragraph("Tentakul", _style_header))
     _story.append(HRFlowable(width="100%", thickness=2, color=_rojo, spaceAfter=6))
 
     # Título del reporte
@@ -2983,7 +2983,7 @@ def seleccionar_agentes_para_objetivo(objetivo_usuario, perfil_negocio=None):
         "metricas": ("", "KPIs, ROI, analítica, optimización"),
     }.items()])
     _prompt_sel = (
-        "Eres el coordinador del equipo de agentes de marketing de Tentakl.\n"
+        "Eres el coordinador del equipo de agentes de marketing de Tentakul.\n"
         f"AGENTES DISPONIBLES (id: especialidad):\n{_cat}\n\n"
         f"PERFIL DEL NEGOCIO: {_json_sel.dumps(perfil_negocio, ensure_ascii=False)}\n"
         f"OBJETIVO DEL USUARIO: {objetivo_usuario}\n\n"
@@ -3228,7 +3228,7 @@ def _cm_render_ejecucion(_en):
                                  text=(f"Paso {_n_cm + 1}/{_total_cm}" if not _en else f"Step {_n_cm + 1}/{_total_cm}"))
             st.write(f"{_agr.get('emoji', '🤖')} **{_nomr}** — {_msgr}")
             _prompt_r = (
-                f"Eres el agente {_nomr} del equipo de marketing Tentakl.\n"
+                f"Eres el agente {_nomr} del equipo de marketing Tentakul.\n"
                 f"OBJETIVO GENERAL DEL USUARIO: {_pedido_cm}\n"
                 + (f"TRABAJO PREVIO DE TUS COLEGAS (sé coherente):\n{_ctx_cm[-3000:]}\n" if _ctx_cm else "")
                 + f"\nTU TAREA ESPECÍFICA: {_tarea_r}\n"
@@ -4038,7 +4038,7 @@ if _sec_activa == "inicio" and _opcion_activa == "radar":
 if _es_home and not st.session_state.get("nicho_guardado") and not st.session_state.get("producto_servicio"):
     # ── RUTA DEL USUARIO ──────────────────────────────────────────────────────
     st.divider()
-    _ruta_title = "\U0001f5fa\ufe0f How do you want to use Tentakl today?" if st.session_state.get("lang") == "en" else "\U0001f5fa\ufe0f \u00bfC\u00f3mo quieres usar Tentakl hoy?"
+    _ruta_title = "\U0001f5fa\ufe0f How do you want to use Tentakul today?" if st.session_state.get("lang") == "en" else "\U0001f5fa\ufe0f \u00bfC\u00f3mo quieres usar Tentakul hoy?"
     st.subheader(_ruta_title)
 
     _RUTAS_ES = [
@@ -4488,7 +4488,7 @@ Hook 3: [primeros 3 segundos opción C]
             elif modo_ideas == "✨ Mejorar una idea que me gustó":
                 idea_usuario = st.text_area(
                     "¿Qué idea quieres potenciar?",
-                    placeholder="Pega o describe la idea que generó Tentakl o que se te ocurrió...",
+                    placeholder="Pega o describe la idea que generó Tentakul o que se te ocurrió...",
                     height=150,
                     key="idea_mejorar_input"
                 )
@@ -4569,7 +4569,7 @@ Genera 5 variaciones mejoradas con hooks distintos:
             elif modo_guion == "✏ Mejorar mi guión existente":
                 guion_usuario = st.text_area(
                     "Pega tu guión aquí",
-                    placeholder="Escribe o pega el guión que ya tienes y Tentakl lo mejorará...",
+                    placeholder="Escribe o pega el guión que ya tienes y Tentakul lo mejorará...",
                     height=200,
                     key="guion_mejorar_input"
                 )
@@ -4618,7 +4618,7 @@ Entrega:
             elif modo_guion == "✅ Revisar si mi guión funcionará":
                 guion_usuario = st.text_area(
                     "Pega tu guión aquí",
-                    placeholder="Escribe o pega el guión que ya tienes y Tentakl lo mejorará...",
+                    placeholder="Escribe o pega el guión que ya tienes y Tentakul lo mejorará...",
                     height=200,
                     key="guion_revisar_input"
                 )
@@ -6292,10 +6292,10 @@ Sé muy específico con los números que ves en la imagen."""
         if not plan_permite("integraciones"):
             st.markdown("### 🔗 " + ("Integraciones" if not _is_en_int else "Integrations"))
             _mostrar_upgrade("🔒 " + ("Conectar Google Analytics y tu tienda está disponible desde el plan Pro. "
-                                      "Así Tentakl lee tus datos reales por ti:"
+                                      "Así Tentakul lee tus datos reales por ti:"
                                       if not _is_en_int else
                                       "Connecting Google Analytics and your store is available from the Pro plan. "
-                                      "So Tentakl reads your real data for you:"))
+                                      "So Tentakul reads your real data for you:"))
         elif not _email_int:
             st.warning("Ingresa tu email para usar integraciones." if not _is_en_int else "Enter your email to use integrations.")
         else:
@@ -6548,9 +6548,9 @@ Sé muy específico con los números que ves en la imagen."""
                                 _ignorar_error()
                 else:
                     # ── NO conectado: botón OAuth de un clic ──────────────────────
-                    st.info("📊 Conecta Google Analytics para que Tentakl lea el tráfico real de tu web y te dé reportes claros."
+                    st.info("📊 Conecta Google Analytics para que Tentakul lea el tráfico real de tu web y te dé reportes claros."
                             if not _is_en_int else
-                            "📊 Connect Google Analytics so Tentakl reads your real web traffic and gives you clear reports.")
+                            "📊 Connect Google Analytics so Tentakul reads your real web traffic and gives you clear reports.")
                     if _ganalytics.oauth_configurado(st.secrets):
                         _auth_url = _ganalytics.build_auth_url(st.secrets, state=f"tentaklga|{_email_int}")
                         st.link_button("🔗 Conectar con Google" if not _is_en_int else "🔗 Connect with Google", _auth_url)
@@ -8174,7 +8174,7 @@ if _sec_activa == "admin_dashboard":
     elif not supabase:
         st.warning("Supabase no está conectado.")
     else:
-        st.subheader("🛠 Dashboard Admin — Tentakl")
+        st.subheader("🛠 Dashboard Admin — Tentakul")
         _hoy_dash = dt.now().strftime("%Y-%m-%d")
         _mes_dash = dt.now().strftime("%Y-%m")
 
@@ -8420,19 +8420,19 @@ if _sec_activa == "reclamaciones":
                 st.success(f"✅ Reclamación registrada. Tu código es **{_codigo}**. "
                            "Te responderemos a tu correo en máximo 15 días hábiles. Guarda este código.")
             else:
-                st.warning("No se pudo guardar automáticamente. Escríbenos a hola@tentakl.com "
+                st.warning("No se pudo guardar automáticamente. Escríbenos a hola@tentakul.com "
                            f"con tu detalle y te atendemos. ({_err_rec})")
 
 # ── SECCIÓN: POLÍTICA DE PRIVACIDAD ────────────────────────────────────────
-# Se muestra DENTRO de la app (sin depender del dominio). Cuando tentakl.com
+# Se muestra DENTRO de la app (sin depender del dominio). Cuando tentakul.com
 # exista, la landing enlaza el privacy.html equivalente; el contenido es el mismo.
 if _sec_activa == "privacidad":
     st.markdown("""
 ## 🔒 Política de Privacidad
 *Última actualización: 28 de octubre de 2026*
 
-En Tentakl ("nosotros") cuidamos tus datos. Esta política explica qué recopilamos,
-para qué, y tus derechos. Al usar Tentakl aceptas lo aquí descrito.
+En Tentakul ("nosotros") cuidamos tus datos. Esta política explica qué recopilamos,
+para qué, y tus derechos. Al usar Tentakul aceptas lo aquí descrito.
 
 ### 1. Qué datos recopilamos
 - **Tu cuenta:** tu correo electrónico (para identificarte y guardar tu progreso).
@@ -8443,15 +8443,15 @@ para qué, y tus derechos. Al usar Tentakl aceptas lo aquí descrito.
 ### 2. Para qué los usamos
 - Darte el servicio: análisis, simulaciones del Gemelo, generación de contenido con IA y reportes.
 - Guardar tu historial y medir la precisión de tus predicciones.
-- Mejorar Tentakl y darte soporte.
+- Mejorar Tentakul y darte soporte.
 
 **No vendemos tus datos** ni los compartimos con terceros con fines publicitarios.
 
 ### 3. Datos de Google (API)
 > El uso y la transferencia de la información recibida de las APIs de Google por parte de
-> Tentakl se ajustarán a la [Política de Datos de Usuario de los Servicios de API de Google](https://developers.google.com/terms/api-services-user-data-policy),
+> Tentakul se ajustarán a la [Política de Datos de Usuario de los Servicios de API de Google](https://developers.google.com/terms/api-services-user-data-policy),
 > incluidos los requisitos de Uso Limitado. Solo leemos los datos de Google Analytics que
-> autorizas, únicamente para mostrarte tus métricas dentro de Tentakl; no los usamos para
+> autorizas, únicamente para mostrarte tus métricas dentro de Tentakul; no los usamos para
 > publicidad ni los vendemos, y no permitimos que personas lean esos datos salvo que sea
 > necesario para operar o dar soporte con tu consentimiento, por obligación legal, o de forma
 > agregada/anonimizada.
@@ -8474,7 +8474,7 @@ quieras. Escríbenos y lo gestionamos.
 Podemos actualizar esta política; publicaremos la nueva versión aquí con su fecha.
 
 ### 8. Contacto
-Dudas o solicitudes: **hola@tentakl.com**
+Dudas o solicitudes: **hola@tentakul.com**
 """)
 
 # ── SECCIÓN: TÉRMINOS Y CONDICIONES ────────────────────────────────────────
@@ -8483,45 +8483,45 @@ if _sec_activa == "terminos":
 ## 📄 Términos y Condiciones
 *Última actualización: 28 de octubre de 2026*
 
-Estos términos rigen el uso de Tentakl. Al crear una cuenta o usar el servicio, los aceptas.
+Estos términos rigen el uso de Tentakul. Al crear una cuenta o usar el servicio, los aceptas.
 
-### 1. Qué es Tentakl
-Tentakl es una herramienta de marketing con inteligencia artificial: agentes que crean
+### 1. Qué es Tentakul
+Tentakul es una herramienta de marketing con inteligencia artificial: agentes que crean
 contenido y un Gemelo Digital que simula ventas y decisiones de negocio.
 
 ### 2. Tu cuenta
 Eres responsable de la información que ingresas y del uso de tu cuenta. Debes dar datos
-veraces y usar Tentakl conforme a la ley.
+veraces y usar Tentakul conforme a la ley.
 
 ### 3. Las predicciones son estimaciones, no garantías
 > El Gemelo Digital entrega **rangos y estimaciones** basados en modelos matemáticos y en los
 > datos que proporcionas. **No garantizan resultados** de ventas ni de campañas. Las decisiones
-> que tomes son tuyas; Tentakl es una ayuda para decidir mejor, no una promesa de resultados.
+> que tomes son tuyas; Tentakul es una ayuda para decidir mejor, no una promesa de resultados.
 
 ### 4. Planes, créditos y pagos
 - Hay un plan gratuito con créditos limitados y planes de pago con más capacidad.
 - Los créditos se consumen al usar funciones de IA. Las condiciones y precios pueden cambiar; avisaremos los cambios relevantes.
 
 ### 5. Uso aceptable
-No puedes usar Tentakl para fines ilegales, engañosos o que violen derechos de terceros, ni
+No puedes usar Tentakul para fines ilegales, engañosos o que violen derechos de terceros, ni
 intentar vulnerar la seguridad del servicio.
 
 ### 6. Contenido e integraciones
 El contenido que generas es tuyo. Si conectas servicios externos (Google, tu tienda, anuncios),
-autorizas a Tentakl a leer tus métricas solo para darte el servicio, según nuestra Política de Privacidad.
+autorizas a Tentakul a leer tus métricas solo para darte el servicio, según nuestra Política de Privacidad.
 
 ### 7. Limitación de responsabilidad
-Tentakl se ofrece "tal cual". En la medida que la ley lo permita, no somos responsables por
+Tentakul se ofrece "tal cual". En la medida que la ley lo permita, no somos responsables por
 pérdidas derivadas de decisiones de negocio tomadas con base en el servicio.
 
 ### 8. Terminación
-Puedes dejar de usar Tentakl cuando quieras. Podemos suspender cuentas que incumplan estos términos.
+Puedes dejar de usar Tentakul cuando quieras. Podemos suspender cuentas que incumplan estos términos.
 
 ### 9. Ley aplicable
 Estos términos se rigen por las leyes de la República del Perú.
 
 ### 10. Contacto
-**hola@tentakl.com**
+**hola@tentakul.com**
 """)
 
 st.markdown("---")
@@ -8539,7 +8539,7 @@ with _foot_c4:
         st.session_state.agente_activo = "reclamaciones"
         st.rerun()
 # ✅ FIX: alcance leído desde session_state para el footer (nunca da NameError)
-st.caption(f"© 2026 Tentakl | V5.1 Full Integrated | {st.session_state.get('alcance', 'NACIONAL')}")
+st.caption(f"© 2026 Tentakul | V5.1 Full Integrated | {st.session_state.get('alcance', 'NACIONAL')}")
 
 
 
