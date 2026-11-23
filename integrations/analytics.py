@@ -2,7 +2,7 @@
 
 Reemplaza el enfoque viejo (API Key + datos "demo" falsos). Ahora:
   1. OAuth de un clic: el usuario hace "Conectar" e inicia sesión con Google.
-     Tentakl se registra UNA vez como app OAuth; el usuario no crea nada.
+     Tentakul se registra UNA vez como app OAuth; el usuario no crea nada.
   2. Trae el panorama COMPLETO (totales, canales, páginas top, dispositivos,
      países y serie diaria), tal cual lo reporta GA4 — sin inventar nada.
 

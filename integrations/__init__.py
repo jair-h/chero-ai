@@ -1,4 +1,4 @@
-"""Paquete de integraciones de Tentakl.
+"""Paquete de integraciones de Tentakul.
 
 Capa de conexión con servicios externos (tiendas, analytics, ads).
 Mantiene la lógica de red/APIs fuera del monolito `app.py`:

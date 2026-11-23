@@ -1,4 +1,4 @@
-"""Capa de agentes de Tentakl: definición de los 9 agentes y routing por reglas.
+"""Capa de agentes de Tentakul: definición de los 9 agentes y routing por reglas.
 
 Datos puros + una función de selección por reglas (sin Streamlit ni llamadas
 al modelo), extraídos de `app.py` para adelgazar el monolito. La selección con

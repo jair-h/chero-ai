@@ -1,6 +1,20 @@
-# Pendientes de Tentakl
+# Pendientes de Tentakul
 
-## ⏳ RECORDATORIO: correo hola@tentakl.ai es PROVISIONAL
+## 🎛 Dashboard Admin editable (blog / imágenes / SEO / tema estacional) — PENDIENTE
+Jair quiere editar desde el Dashboard Admin (sin tocar código): escribir/editar
+posts del blog (ES/EN/PT), subir imágenes/banner, editar título y descripción SEO,
+y activar un tema estacional (ej. Navidad). Hoy el blog vive en el HTML del landing
+(estático). Plan: guardar estos contenidos en Supabase (tabla p.ej. `sitio_contenido`)
+y que el landing los lea por fetch; el admin los edita en la app. Jair dijo "todavía
+no" — retomar cuando lo pida.
+
+## 🌐 Dominio y marca — DECIDIDO: "Tentakul" + tentakul.com
+tentakl.com estaba ocupado; tentakul.com (con 'u') está libre. Se renombró TODO
+(app + landing) de "Tentakl" a "Tentakul". Falta: Jair compra tentakul.com y renombra
+el subdominio de Streamlit a tentakul.streamlit.app. Los `state` de OAuth y nombres
+internos del componente siguen en minúscula "tentakl" a propósito (no son visibles).
+
+## ⏳ RECORDATORIO: correo hola@tentakul.com es PROVISIONAL
 Jair decide el correo real (puede ser gratis: reenvío del registrador o Zoho Mail
 con dominio propio). Está en: política de privacidad, términos y el Libro de
 Reclamaciones (fallback). Cambiarlo en esos 3 lugares cuando se decida.
@@ -10,7 +24,7 @@ Formulario en la app (link en el pie → sección "reclamaciones"): tipo (Reclam
 Queja), datos del consumidor, bien, detalle y pedido; genera un código y guarda
 en Supabase. ✅ Tabla `reclamaciones` ya CREADA en Supabase (proyecto CHERO) con
 RLS activado. No hay nada pendiente de Jair aquí.
-Mejora futura: enviar copia por EMAIL al consumidor y a Tentakl (necesita
+Mejora futura: enviar copia por EMAIL al consumidor y a Tentakul (necesita
 servicio de correo) y un panel admin para atender dentro de los 15 días hábiles.
 
 ## 🔐 Login "Entrar con Google" — HECHO (código, endurecido)
@@ -41,7 +55,7 @@ PROFUNDIDAD (Autopiloto, historial+precisión del Gemelo, multi-cliente).
 
 ## 📲 Tarjeta compartible del Gemelo — HECHO
 Rediseñada (insignia de veredicto en color, titular que se adapta honestamente),
-mostrada al frente del resultado con botón de compartir. Branding tentakl.ai.
+mostrada al frente del resultado con botón de compartir. Branding tentakul.com.
 
 ## 🎁 Referidos (invita y gana) — HECHO (con anti-abuso)
 Cada usuario tiene su link `?ref=<token>` (en el sidebar: "Invita y gana"). Cuando
@@ -76,7 +90,7 @@ Integraciones + autollenar la inversión del Gemelo desde el gasto real.
 
 ## 🔑 Conectar Google Analytics (OAuth) — PENDIENTE de Jair
 El código ya está listo (ver `integrations/README_ANALYTICS.md`). Falta que Jair,
-**desde su laptop con la cuenta de Google de Tentakl**, haga una sola vez:
+**desde su laptop con la cuenta de Google de Tentakul**, haga una sola vez:
 
 1. Google Cloud: crear proyecto → habilitar **Analytics Data API** + **Admin API**.
 2. Crear **ID de cliente OAuth (web)** con la URL de la app como redirect.
@@ -86,7 +100,7 @@ El código ya está listo (ver `integrations/README_ANALYTICS.md`). Falta que Ja
    - `GOOGLE_OAUTH_REDIRECT_URI`
 4. Avisar para **probar el flujo en vivo** y ajustar el redirect si hace falta.
 
-> Ideal: cuenta de Google propia de Tentakl (no la personal), pero cualquiera
+> Ideal: cuenta de Google propia de Tentakul (no la personal), pero cualquiera
 > que Jair controle permanentemente sirve para empezar.
 
 ## 🗄️ Crear tablas del Gemelo en Supabase — PENDIENTE de Jair

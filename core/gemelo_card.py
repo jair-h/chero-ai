@@ -118,7 +118,7 @@ def generar_tarjeta(marca, ventas_p10, ventas_p90, semana, moneda="S/",
             d.line([(0, y), (W, y)], fill=(r, g, b))
 
         # Marca
-        _centrar(d, "TENTAKL", 86, _fuente(76, bold=True), BLANCO, W)
+        _centrar(d, "TENTAKUL", 86, _fuente(76, bold=True), BLANCO, W)
         _centrar(d, "Gemelo Digital", 184, _fuente(36), LILA, W)
 
         # Insignia de veredicto (color honesto según el resultado)
@@ -148,7 +148,7 @@ def generar_tarjeta(marca, ventas_p10, ventas_p90, semana, moneda="S/",
                  884, _fuente(46, bold=True), BLANCO, W)
         _centrar(d, (f"calculado con mi Gemelo · {semana}" if not en else f"made with my Twin · {semana}"),
                  956, _fuente(30), LILA, W)
-        _centrar(d, "tentakl.ai", 1012, _fuente(32, bold=True), LILA, W)
+        _centrar(d, "tentakul.com", 1012, _fuente(32, bold=True), LILA, W)
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")

@@ -6,7 +6,7 @@ OAuth (el usuario autoriza con 1 clic) + lectura por la Graph API.
 
 Self-contained: solo usa `requests`. Nunca inventa datos: si falla, error claro.
 
-Secrets necesarios (una sola vez, los pone el dueño de Tentakl):
+Secrets necesarios (una sola vez, los pone el dueño de Tentakul):
     META_APP_ID, META_APP_SECRET, META_OAUTH_REDIRECT_URI
 La app de Meta necesita el permiso `ads_read` (y revisión para uso público).
 """

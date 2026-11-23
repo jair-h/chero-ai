@@ -1,4 +1,4 @@
-# Tentakl — Gratis vs. Pago (modelo de costo)
+# Tentakul — Gratis vs. Pago (modelo de costo)
 
 Regla de oro:
 > **GRATIS** = conectar, ver datos reales y calcular con matemática.
