@@ -64,7 +64,7 @@ from core import gemelo_ui as _gemelo_ui
 from core import planes_reco as _planes_reco
 
 # ✅ SIEMPRE PRIMERO: configuración de página
-st.set_page_config(page_title="Tentakl.ai", page_icon="🐙", layout="wide")
+st.set_page_config(page_title="Tentakl", page_icon="🐙", layout="wide")
 
 # --- SECRETOS ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
@@ -404,7 +404,7 @@ _TRANS = {
         "plan_semanal_titulo": "## 🧠 Plan de Contenido Semanal",
         "btn_regenerar_plan": "🔄 Regenerar Plan Semanal (1 crédito)",
         "btn_generar_plan": "🚀 Generar Plan Semanal",
-        "onboarding": "### 👋 ¡Bienvenido a TENTAKL.AI!\nComienza configurando tu perfil de negocio en el sidebar izquierdo: tu marca, nicho y qué vendes.",
+        "onboarding": "### 👋 ¡Bienvenido a Tentakl!\n**Empieza en 1 minuto:**\n1. **Regístrate** con tu correo (o entra con Google) en el panel de la izquierda.\n2. **Pon tu negocio**: marca, rubro y qué vendes.\n3. **Prueba gratis** el Gemelo (cuánto venderás) o la Radiografía de tu web. ¡Listo!",
         "motor_atraccion": "🚀 Motor de Atracción",
         "motor_desc": "Herramientas avanzadas para crear contenido que vende.",
         "sel_herramienta": "Herramienta:",
@@ -466,7 +466,7 @@ _TRANS = {
         "plan_semanal_titulo": "## 🧠 Weekly Content Plan",
         "btn_regenerar_plan": "🔄 Regenerate Weekly Plan (1 credit)",
         "btn_generar_plan": "🚀 Generate Weekly Plan",
-        "onboarding": "### 👋 Welcome to TENTAKL.AI!\nStart by setting up your business profile in the left sidebar: your brand, niche and what you sell.",
+        "onboarding": "### 👋 Welcome to Tentakl!\n**Start in 1 minute:**\n1. **Sign up** with your email (or log in with Google) in the left panel.\n2. **Add your business**: brand, niche and what you sell.\n3. **Try it free**: the Twin (how much you'll sell) or your website X-ray. Done!",
         "motor_atraccion": "🚀 Attraction Engine",
         "motor_desc": "Advanced tools to create content that sells.",
         "sel_herramienta": "Tool:",
@@ -2063,7 +2063,7 @@ def _mostrar_upgrade(mensaje=None):
             )
     if es_region_alto_ingreso():
         st.caption(("💲 Precios en USD para tu región." if not _en else "💲 Prices in USD for your region."))
-    st.caption("👉 tentakl.ai/planes" if not _en else "👉 tentakl.ai/plans")
+    st.caption("👉 tentakl.com/planes" if not _en else "👉 tentakl.com/plans")
 
 
 def verificar_creditos(costo=1, video=False):
@@ -2160,7 +2160,7 @@ def registrar_uso_creditos(email, tipo_accion, creditos):
 # =========================
 with st.sidebar:
     st.markdown("<div style='font-size:46px;text-align:center;line-height:1;'>🐙</div>", unsafe_allow_html=True)
-    st.markdown("<div style='text-align:center;font-size:22px;font-weight:700;color:#7C3AED;margin-top:2px;'>TENTAKL.AI</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center;font-size:22px;font-weight:700;color:#7C3AED;margin-top:2px;'>Tentakl</div>", unsafe_allow_html=True)
     st.caption("Tu equipo de marketing con IA" if st.session_state.get("lang") != "en" else "Your AI marketing team")
     st.markdown("---")
     _lang_actual = st.session_state.get("lang", "es")
@@ -2607,7 +2607,7 @@ Sé muy específico, como si describieras a una persona real."""
 # PDF GENERATION (ReportLab)
 # =========================
 def generar_pdf_reportlab(titulo, contenido, email=""):
-    """Genera un PDF con formato TENTAKL.AI y retorna bytes."""
+    """Genera un PDF con formato Tentakl y retorna bytes."""
     _buf = io.BytesIO()
     _doc = SimpleDocTemplate(
         _buf,
@@ -2674,8 +2674,8 @@ def generar_pdf_reportlab(titulo, contenido, email=""):
 
     _story = []
 
-    # Encabezado TENTAKL.AI
-    _story.append(Paragraph("TENTAKL.AI", _style_header))
+    # Encabezado Tentakl
+    _story.append(Paragraph("Tentakl", _style_header))
     _story.append(HRFlowable(width="100%", thickness=2, color=_rojo, spaceAfter=6))
 
     # Título del reporte
@@ -8110,7 +8110,7 @@ if _sec_activa == "admin_dashboard":
     elif not supabase:
         st.warning("Supabase no está conectado.")
     else:
-        st.subheader("🛠 Dashboard Admin — Tentakl.ai")
+        st.subheader("🛠 Dashboard Admin — Tentakl")
         _hoy_dash = dt.now().strftime("%Y-%m-%d")
         _mes_dash = dt.now().strftime("%Y-%m")
 
@@ -8356,11 +8356,11 @@ if _sec_activa == "reclamaciones":
                 st.success(f"✅ Reclamación registrada. Tu código es **{_codigo}**. "
                            "Te responderemos a tu correo en máximo 15 días hábiles. Guarda este código.")
             else:
-                st.warning("No se pudo guardar automáticamente. Escríbenos a hola@tentakl.ai "
+                st.warning("No se pudo guardar automáticamente. Escríbenos a hola@tentakl.com "
                            f"con tu detalle y te atendemos. ({_err_rec})")
 
 # ── SECCIÓN: POLÍTICA DE PRIVACIDAD ────────────────────────────────────────
-# Se muestra DENTRO de la app (sin depender del dominio). Cuando tentakl.ai
+# Se muestra DENTRO de la app (sin depender del dominio). Cuando tentakl.com
 # exista, la landing enlaza el privacy.html equivalente; el contenido es el mismo.
 if _sec_activa == "privacidad":
     st.markdown("""
@@ -8410,7 +8410,7 @@ quieras. Escríbenos y lo gestionamos.
 Podemos actualizar esta política; publicaremos la nueva versión aquí con su fecha.
 
 ### 8. Contacto
-Dudas o solicitudes: **hola@tentakl.ai**
+Dudas o solicitudes: **hola@tentakl.com**
 """)
 
 # ── SECCIÓN: TÉRMINOS Y CONDICIONES ────────────────────────────────────────
@@ -8457,7 +8457,7 @@ Puedes dejar de usar Tentakl cuando quieras. Podemos suspender cuentas que incum
 Estos términos se rigen por las leyes de la República del Perú.
 
 ### 10. Contacto
-**hola@tentakl.ai**
+**hola@tentakl.com**
 """)
 
 st.markdown("---")
@@ -8475,7 +8475,7 @@ with _foot_c4:
         st.session_state.agente_activo = "reclamaciones"
         st.rerun()
 # ✅ FIX: alcance leído desde session_state para el footer (nunca da NameError)
-st.caption(f"© 2026 TENTAKL.AI | V5.1 Full Integrated | {st.session_state.get('alcance', 'NACIONAL')}")
+st.caption(f"© 2026 Tentakl | V5.1 Full Integrated | {st.session_state.get('alcance', 'NACIONAL')}")
 
 
 
