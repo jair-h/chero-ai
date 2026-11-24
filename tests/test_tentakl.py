@@ -718,10 +718,41 @@ def test_geo():
     check(any(z["lat"] is not None for z in _mapa["zonas"]), "las zonas llevan coordenadas al mapa")
 
 
+def test_insights():
+    print("\n[13] Insights de productos (radiografía)")
+    from core import insights as I
+    prods = [
+        {"nombre": "Zapatilla Running X", "unidades": 120, "ingresos": 60000,
+         "unidades_rec": 40, "unidades_prev": 20, "ultima_venta": "2026-11-20"},
+        {"nombre": "Zapatilla Trail Y", "unidades": 30, "ingresos": 15000,
+         "unidades_rec": 3, "unidades_prev": 15, "ultima_venta": "2026-11-02"},
+        {"nombre": "Medias Z", "unidades": 200, "ingresos": 4000,
+         "unidades_rec": 50, "unidades_prev": 48, "ultima_venta": "2026-11-22"},
+    ]
+    r = I.analizar_productos(prods)
+    check(r["top"][0]["nombre"] == "Zapatilla Running X", "ordena top por ingresos")
+    check(abs(r["top"][0]["share"] - 75.9) < 0.5, "calcula el % del producto estrella")
+    check(r["n_productos"] == 3 and r["total_ingresos"] == 79000.0, "totales correctos")
+    check(any(p["nombre"] == "Zapatilla Trail Y" for p in r["estancados"]),
+          "detecta estancado (cayó >40%)")
+    check(any(p["nombre"] == "Zapatilla Running X" for p in r["en_alza"]),
+          "detecta en alza (subió >40%)")
+    check(r["concentracion_top1"] >= 40, "mide la concentración en 1 producto")
+    check("Zapatilla Running X" in I.resumen_texto(r), "resumen menciona al estrella")
+    # sin datos: no inventa
+    _vac = I.analizar_productos([])
+    check(_vac["top"] == [] and _vac["n_productos"] == 0 and I.resumen_texto(_vac) == "",
+          "sin productos -> vacío (no inventa)")
+    # tendencia None cuando no hay base previa
+    check(I.tendencia({"unidades_rec": 5, "unidades_prev": 0}) is None,
+          "sin base previa -> tendencia None (no inventa)")
+
+
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
                test_listar_propiedades, test_stores, test_agents, test_context,
-               test_gemelo, test_meta_ads, test_search_console, test_seo, test_geo):
+               test_gemelo, test_meta_ads, test_search_console, test_seo, test_geo,
+               test_insights):
         _t()
     print("\n" + ("=" * 50))
     if _fallos:
