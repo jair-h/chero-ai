@@ -1348,7 +1348,7 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
                           "Download it and share on WhatsApp, Instagram or your stories. "
                           "Every share helps more people discover Tentakul. 🐙"))
             st.download_button("📲 " + T("Descargar para compartir", "Download to share"),
-                               data=png, file_name="gemelo_tentakl.png", mime="image/png",
+                               data=png, file_name="gemelo_tentakul.png", mime="image/png",
                                key="gemelo_card_dl", use_container_width=True)
             # 🔗 Mensaje listo para pegar CON tu link de referido (invita y gana)
             _ref_link = st.session_state.get("_gemelo_ref_link", "")
