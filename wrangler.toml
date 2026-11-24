@@ -1,0 +1,8 @@
+name = "tentakul-landing"
+compatibility_date = "2024-11-01"
+
+# Sitio estático: sirve los archivos de la carpeta landing/ (index, privacy, terms).
+# No hay código de Worker; solo assets. Cloudflare publica esto con `wrangler deploy`.
+[assets]
+directory = "./landing"
+not_found_handling = "404-page"
