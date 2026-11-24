@@ -234,14 +234,14 @@ COSTO_CREDITOS = {
     "autopiloto": 8,         # una corrida completa de Autopiloto
 }
 
-PRECIOS_PLANES = {"Starter": 19, "Pro": 39, "Agency": 79}
+PRECIOS_PLANES = {"Starter": 20, "Pro": 40, "Agency": 80}
 
 # Fallback si planes_config no está disponible (la fuente de verdad es Supabase)
 _PLANES_FALLBACK = {
     "Free":    {"creditos": 20,   "imagenes_limite": 2,   "imagenes_limite_diario": 2,  "calidad_imagen": "low",    "precio": 0,  "creditos_renovables": False},
-    "Starter": {"creditos": 200,  "imagenes_limite": 5,   "imagenes_limite_diario": 3,  "calidad_imagen": "medium", "precio": 19, "creditos_renovables": True},
-    "Pro":     {"creditos": 500,  "imagenes_limite": 20,  "imagenes_limite_diario": 8,  "calidad_imagen": "high",   "precio": 39, "creditos_renovables": True},
-    "Agency":  {"creditos": 1500, "imagenes_limite": 100, "imagenes_limite_diario": 25, "calidad_imagen": "high",   "precio": 79, "creditos_renovables": True},
+    "Starter": {"creditos": 200,  "imagenes_limite": 5,   "imagenes_limite_diario": 3,  "calidad_imagen": "medium", "precio": 20, "creditos_renovables": True},
+    "Pro":     {"creditos": 500,  "imagenes_limite": 20,  "imagenes_limite_diario": 8,  "calidad_imagen": "high",   "precio": 40, "creditos_renovables": True},
+    "Agency":  {"creditos": 1500, "imagenes_limite": 100, "imagenes_limite_diario": 25, "calidad_imagen": "high",   "precio": 80, "creditos_renovables": True},
     "Admin":   {"creditos": 9999, "imagenes_limite": 999, "imagenes_limite_diario": 999,"calidad_imagen": "high",   "precio": 0,  "creditos_renovables": True},
 }
 
