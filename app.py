@@ -6828,23 +6828,27 @@ Sé muy específico con los números que ves en la imagen."""
                                     if not _is_en_int else
                                     "They're now in 👥 AI CRM. The Twin will use these real sales and areas."))
 
-                # -- 📊 Radiografía de productos (qué se vende más / estancados) — GRATIS --------
+                # -- 📊 Radiografía de tu negocio (productos + zona + ticket + acciones) — GRATIS --
                 st.markdown("---")
-                st.markdown("#### 📊 " + ("Radiografía: qué se vende más" if not _is_en_int
-                                          else "X-ray: what sells most"))
-                st.caption(("Leo tus ventas reales y te digo tu producto estrella, los que están "
-                            "estancados y los que vienen subiendo. Gratis — ver tus datos no cuesta."
+                st.markdown("#### 📊 " + ("Radiografía de tu negocio" if not _is_en_int
+                                          else "Your business X-ray"))
+                st.caption(("Con tus ventas reales te digo: qué se vende más, qué está estancado, "
+                            "de qué zona viene la plata, tu ticket promedio y QUÉ HACER. "
+                            "Todo real, sin IA — ver tus datos no cuesta créditos."
                             if not _is_en_int else
-                            "I read your real sales and show your star product, which ones are stalling "
-                            "and which are rising. Free — seeing your data costs nothing."))
-                if st.button("📊 " + ("Ver qué se vende más" if not _is_en_int else "See what sells most"),
+                            "From your real sales: what sells most, what's stalling, which area your money "
+                            "comes from, your average ticket and WHAT TO DO. All real, no AI — free."))
+                if st.button("📊 " + ("Hacer la radiografía" if not _is_en_int else "Run the X-ray"),
                              key="tienda_radiografia"):
-                    with st.spinner("Leyendo tus ventas..." if not _is_en_int else "Reading your sales..."):
+                    with st.spinner("Leyendo tu tienda..." if not _is_en_int else "Reading your store..."):
                         if _tplat == "Shopify":
                             _prods_v, _pv_err = _stores.fetch_shopify_productos_vendidos(_turl, _twoo_ck, meses=3)
+                            _clis_v, _ = _stores.fetch_shopify_clientes(_turl, _twoo_ck, meses=6)
                         else:
                             _prods_v, _pv_err = _stores.fetch_woocommerce_productos_vendidos(
                                 _turl, _twoo_ck, _twoo_cs, meses=3)
+                            _clis_v, _ = _stores.fetch_woocommerce_clientes(
+                                _turl, _twoo_ck, _twoo_cs, meses=6)
                     if _pv_err:
                         st.error(("No pude leer las ventas: " if not _is_en_int else "Couldn't read sales: ") + _pv_err)
                     elif not _prods_v:
@@ -6852,19 +6856,29 @@ Sé muy específico con los números que ves en la imagen."""
                                     if not _is_en_int else "Store responded, but no products sold in the period."))
                     else:
                         from core import insights as _insights
-                        _rad = _insights.analizar_productos(_prods_v, top_n=5)
-                        _cma, _cmb, _cmc = st.columns(3)
-                        _cma.metric("💰 " + ("Ingresos" if not _is_en_int else "Revenue"),
-                                    f"S/{_rad['total_ingresos']:,.0f}")
-                        _cmb.metric("📦 " + ("Unidades" if not _is_en_int else "Units"), f"{_rad['total_unidades']:,}")
-                        _cmc.metric("🏷 " + ("Productos" if not _is_en_int else "Products"), _rad["n_productos"])
+                        _rn = _insights.radiografia_negocio(_prods_v, _clis_v or [], moneda="S/")
+                        _rad = _rn["productos"]
 
-                        _res = _insights.resumen_texto(_rad, moneda="S/")
-                        if _res:
-                            st.info("🎯 " + _res)
+                        # Métricas clave
+                        _ca, _cb, _cc, _cd = st.columns(4)
+                        _ca.metric("💰 " + ("Ingresos" if not _is_en_int else "Revenue"),
+                                   f"S/{_rad['total_ingresos']:,.0f}")
+                        _cb.metric("📦 " + ("Unidades" if not _is_en_int else "Units"), f"{_rad['total_unidades']:,}")
+                        _tk = _rn["ticket_promedio"]
+                        _cc.metric("🧾 " + ("Ticket promedio" if not _is_en_int else "Avg ticket"),
+                                   f"S/{_tk:,.0f}" if _tk else "—")
+                        _zt = _rn["zona_top"]
+                        _cd.metric("📍 " + ("Zona que más compra" if not _is_en_int else "Top area"),
+                                   (_zt["zona"] if _zt else "—"))
 
-                        st.markdown("**🏆 " + ("Top productos (por ingresos)" if not _is_en_int
-                                               else "Top products (by revenue)") + "**")
+                        # 🎯 Recomendaciones concretas (lo "vendedor")
+                        if _rn["recomendaciones"]:
+                            st.markdown("#### 🎯 " + ("Qué hacer ahora" if not _is_en_int else "What to do now"))
+                            for _r in _rn["recomendaciones"]:
+                                st.success(_r)
+
+                        # 🏆 Top productos
+                        st.markdown("**🏆 " + ("Qué se vende más" if not _is_en_int else "What sells most") + "**")
                         try:
                             import pandas as _pd_r
                             _df_top = _pd_r.DataFrame([{
@@ -6878,34 +6892,39 @@ Sé muy específico con los números que ves en la imagen."""
                             for _p in _rad["top"]:
                                 st.write(f"• {_p['nombre']} — {_p['unidades']} u · S/{_p['ingresos']:,.0f} ({_p['share']:.0f}%)")
 
-                        if _rad["concentracion_top1"] >= 40:
-                            st.warning(("⚠️ Dependes mucho de un solo producto "
-                                        f"({_rad['concentracion_top1']:.0f}% de tus ingresos). "
-                                        "Conviene empujar más variedad."
-                                        if not _is_en_int else
-                                        f"⚠️ You depend heavily on one product ({_rad['concentracion_top1']:.0f}% of revenue)."))
-
+                        # 📉/📈 Estancados y en alza
                         _cestan, _calza = st.columns(2)
                         with _cestan:
-                            st.markdown("**📉 " + ("Estancados (cayeron)" if not _is_en_int else "Stalling (dropped)") + "**")
-                            if _rad["estancados"]:
-                                for _p in _rad["estancados"]:
-                                    st.caption(f"🔻 {_p['nombre']} · {abs(_p['tendencia']):.0f}% "
-                                               + ("menos" if not _is_en_int else "less"))
-                            else:
+                            st.markdown("**📉 " + ("Estancados" if not _is_en_int else "Stalling") + "**")
+                            for _p in (_rad["estancados"] or []):
+                                st.caption(f"🔻 {_p['nombre']} · {abs(_p['tendencia']):.0f}% "
+                                           + ("menos" if not _is_en_int else "less"))
+                            if not _rad["estancados"]:
                                 st.caption("—")
                         with _calza:
-                            st.markdown("**📈 " + ("En alza (subiendo)" if not _is_en_int else "Rising") + "**")
-                            if _rad["en_alza"]:
-                                for _p in _rad["en_alza"]:
-                                    st.caption(f"🔼 {_p['nombre']} · +{_p['tendencia']:.0f}%")
-                            else:
+                            st.markdown("**📈 " + ("En alza" if not _is_en_int else "Rising") + "**")
+                            for _p in (_rad["en_alza"] or []):
+                                st.caption(f"🔼 {_p['nombre']} · +{_p['tendencia']:.0f}%")
+                            if not _rad["en_alza"]:
                                 st.caption("—")
-                        st.caption(("Dato real de tu tienda, sin IA. Para una estrategia escrita por los agentes, "
-                                    "usa la pestaña de contenido (eso sí usa créditos)."
+
+                        # 💰 De dónde viene la plata (por zona)
+                        if _rn["zonas_top"]:
+                            st.markdown("**💰 " + ("De dónde viene la plata (por zona)" if not _is_en_int
+                                                   else "Where your money comes from (by area)") + "**")
+                            for _z in _rn["zonas_top"]:
+                                st.caption(f"📍 {_z['zona']} · S/{_z['gasto']:,.0f} ({_z['share']:.0f}%) · "
+                                           f"{_z['clientes']} " + ("clientes" if not _is_en_int else "customers"))
+                        elif not (_clis_v or []):
+                            st.caption(("💡 Conecta/trae tus clientes al CRM para ver tu zona top y ticket real."
+                                        if not _is_en_int else
+                                        "💡 Bring your customers to the CRM to see your top area and real ticket."))
+
+                        st.caption(("Todo es dato REAL de tu tienda, por reglas (sin IA). Para una estrategia "
+                                    "redactada por los agentes, usa la pestaña de contenido (eso sí usa créditos)."
                                     if not _is_en_int else
-                                    "Real data from your store, no AI. For a written strategy from the agents, "
-                                    "use the content tab (that uses credits)."))
+                                    "All REAL data from your store, rule-based (no AI). For a written strategy "
+                                    "from the agents, use the content tab (that uses credits)."))
 
                 # -- Gestión de productos -------------------------------------------------------
                 st.markdown("---")

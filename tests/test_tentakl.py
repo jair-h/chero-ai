@@ -747,6 +747,31 @@ def test_insights():
     check(I.tendencia({"unidades_rec": 5, "unidades_prev": 0}) is None,
           "sin base previa -> tendencia None (no inventa)")
 
+    # Radiografía completa: zona, ticket y recomendaciones
+    clientes = [
+        {"ciudad": "Lima Norte", "total_gastado": 6000, "pedidos": 20},
+        {"ciudad": "Lima Norte", "total_gastado": 2000, "pedidos": 10},
+        {"ciudad": "Arequipa", "total_gastado": 2000, "pedidos": 10},
+    ]
+    _z = I.zonas_desde_clientes(clientes)
+    check(_z["zona_top"]["zona"] == "Lima Norte", "zona top por gasto")
+    check(_z["ticket_promedio"] == 250.0, "ticket promedio = gasto/pedidos")
+    import datetime as _dt
+    rn = I.radiografia_negocio(prods, clientes, hoy=_dt.date(2026, 6, 15))
+    check(rn["zona_top"]["zona"] == "Lima Norte" and rn["ticket_promedio"] == 250.0,
+          "radiografía junta productos + zona + ticket")
+    check(len(rn["recomendaciones"]) >= 2, "genera recomendaciones concretas")
+    check(any("Running X" in r for r in rn["recomendaciones"]),
+          "recomendación menciona un producto real")
+    # Sin señal no inventa recomendaciones de producto
+    _rn_vac = I.radiografia_negocio([], [], hoy=_dt.date(2026, 6, 15))
+    check(_rn_vac["zona_top"] is None and _rn_vac["recomendaciones"] == [],
+          "sin datos -> sin zona ni recomendaciones (no inventa)")
+    # En diciembre añade la recomendación de Navidad
+    _rn_dic = I.radiografia_negocio(prods, clientes, hoy=_dt.date(2026, 12, 10))
+    check(any("Navidad" in r for r in _rn_dic["recomendaciones"]),
+          "en diciembre recomienda aprovechar Navidad")
+
 
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
