@@ -1,12 +1,13 @@
 # Pendientes de Tentakul
 
-## 🎛 Dashboard Admin editable (blog / imágenes / SEO / tema estacional) — PENDIENTE
-Jair quiere editar desde el Dashboard Admin (sin tocar código): escribir/editar
-posts del blog (ES/EN/PT), subir imágenes/banner, editar título y descripción SEO,
-y activar un tema estacional (ej. Navidad). Hoy el blog vive en el HTML del landing
-(estático). Plan: guardar estos contenidos en Supabase (tabla p.ej. `sitio_contenido`)
-y que el landing los lea por fetch; el admin los edita en la app. Jair dijo "todavía
-no" — retomar cuando lo pida.
+## 🎛 Dashboard Admin editable (blog / banner / SEO / tema estacional) — HECHO
+En el Dashboard Admin → "🌐 Contenido del sitio web": editar blog (crear/editar/
+borrar posts ES/EN/PT), banner (por URL), SEO (título+descripción por idioma) y
+tema de temporada. Se guarda en Supabase (`sitio_config` y `blog_posts`, con RLS de
+lectura pública). El landing (artifact) lee el blog y el tema por fetch a la REST de
+Supabase (publishable key, es pública).
+Mejoras futuras: subir imágenes como archivo (hoy es por URL) usando Supabase Storage;
+y cuando el landing esté en dominio propio (tentakul.com) el blog ya saldrá solo.
 
 ## 🌐 Dominio y marca — DECIDIDO: "Tentakul" + tentakul.com
 tentakl.com estaba ocupado; tentakul.com (con 'u') está libre. Se renombró TODO
