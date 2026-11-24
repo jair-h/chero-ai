@@ -8322,6 +8322,150 @@ if _sec_activa == "admin_dashboard":
             except Exception:
                 _ignorar_error()
 
+        # ── Contenido del sitio web: blog, SEO, banner, tema estacional ─────────
+        st.divider()
+        st.markdown("### 🌐 Contenido del sitio web (landing)")
+        st.caption("Edita tu blog, el SEO, el banner y el tema de temporada sin tocar código. "
+                   "El landing lee esto de tu base de datos.")
+
+        def _cfg_get(_clave, _default=""):
+            try:
+                _r = supabase.table("sitio_config").select("valor").eq("clave", _clave).limit(1).execute().data or []
+                return (_r[0].get("valor") if _r else _default) or _default
+            except Exception:
+                return _default
+
+        def _cfg_set(_clave, _valor):
+            supabase.table("sitio_config").upsert(
+                {"clave": _clave, "valor": _valor, "updated_at": dt.now().isoformat()},
+                on_conflict="clave").execute()
+
+        _tablas_sitio_ok = True
+        try:
+            supabase.table("sitio_config").select("clave").limit(1).execute()
+        except Exception:
+            _tablas_sitio_ok = False
+
+        if not _tablas_sitio_ok:
+            st.warning("Faltan las tablas `sitio_config` y `blog_posts` en Supabase. "
+                       "Avísame y las creo en 1 minuto; después este editor queda 100% funcional.")
+        else:
+            # 1) Tema de temporada
+            with st.expander("🎄 Tema de temporada (barra superior del landing)"):
+                _temas = ["ninguno", "navidad", "fiestas_patrias", "black_friday", "año_nuevo"]
+                _tema_act = _cfg_get("tema_estacional", "ninguno")
+                _tema_sel = st.selectbox("Tema activo:", _temas,
+                                         index=_temas.index(_tema_act) if _tema_act in _temas else 0,
+                                         key="adm_tema")
+                if st.button("💾 Guardar tema", key="adm_tema_btn"):
+                    try:
+                        _cfg_set("tema_estacional", _tema_sel)
+                        st.success("✅ Tema guardado")
+                    except Exception as _e_tm:
+                        st.error(str(_e_tm))
+
+            # 2) SEO (título + descripción por idioma)
+            with st.expander("🔎 SEO (título y descripción del sitio)"):
+                for _lg, _etq in [("es", "Español"), ("en", "English"), ("pt", "Português")]:
+                    st.markdown(f"**{_etq}**")
+                    _seo_t = st.text_input("Título SEO", value=_cfg_get(f"seo_title_{_lg}"), key=f"adm_seo_t_{_lg}")
+                    _seo_d = st.text_area("Descripción SEO (1-2 líneas)", value=_cfg_get(f"seo_desc_{_lg}"),
+                                          key=f"adm_seo_d_{_lg}", height=70)
+                    if st.button(f"💾 Guardar SEO {_etq}", key=f"adm_seo_btn_{_lg}"):
+                        try:
+                            _cfg_set(f"seo_title_{_lg}", _seo_t)
+                            _cfg_set(f"seo_desc_{_lg}", _seo_d)
+                            st.success("✅ SEO guardado")
+                        except Exception as _e_seo:
+                            st.error(str(_e_seo))
+
+            # 3) Banner / imagen principal
+            with st.expander("🖼 Banner / imagen principal"):
+                st.caption("Pega el enlace directo de una imagen (.jpg o .png). Puedes subirla gratis a "
+                           "postimages.org o imgur.com y copiar el link de la imagen.")
+                _banner = st.text_input("URL del banner", value=_cfg_get("banner_url"), key="adm_banner")
+                if _banner.strip():
+                    try:
+                        st.image(_banner.strip(), use_container_width=True)
+                    except Exception:
+                        st.caption("No pude previsualizar ese enlace.")
+                if st.button("💾 Guardar banner", key="adm_banner_btn"):
+                    try:
+                        _cfg_set("banner_url", _banner.strip())
+                        st.success("✅ Banner guardado")
+                    except Exception as _e_bn:
+                        st.error(str(_e_bn))
+
+            # 4) Blog (crear / editar / borrar)
+            with st.expander("📝 Blog (crear, editar y borrar posts)"):
+                st.markdown("**➕ Nuevo post**")
+                _c_bl1, _c_bl2 = st.columns(2)
+                _nb_lang = _c_bl1.selectbox("Idioma", ["es", "en", "pt"], key="adm_nb_lang")
+                _nb_orden = _c_bl2.number_input("Orden (menor = primero)", min_value=0, max_value=999,
+                                                value=0, key="adm_nb_orden")
+                _nb_tag = st.text_input("Etiqueta (ej. Guía, Caso, Tip)", key="adm_nb_tag")
+                _nb_tit = st.text_input("Título", key="adm_nb_tit")
+                _nb_img = st.text_input("URL de imagen (opcional)", key="adm_nb_img")
+                _nb_cuerpo = st.text_area("Cuerpo (puedes usar HTML simple: <p>, <b>, <ul><li>)",
+                                          key="adm_nb_cuerpo", height=150)
+                _nb_pub = st.checkbox("Publicado", value=True, key="adm_nb_pub")
+                if st.button("➕ Crear post", key="adm_nb_btn"):
+                    if not _nb_tit.strip():
+                        st.warning("Ponle un título al post.")
+                    else:
+                        try:
+                            supabase.table("blog_posts").insert({
+                                "lang": _nb_lang, "tag": _nb_tag.strip(), "titulo": _nb_tit.strip(),
+                                "cuerpo": _nb_cuerpo, "imagen_url": _nb_img.strip(),
+                                "orden": int(_nb_orden), "publicado": _nb_pub,
+                            }).execute()
+                            st.success("✅ Post creado")
+                            st.rerun()
+                        except Exception as _e_nb:
+                            st.error(str(_e_nb))
+
+                st.divider()
+                st.markdown("**✏️ Posts existentes**")
+                try:
+                    _posts = supabase.table("blog_posts").select("*").order("lang").order("orden").execute().data or []
+                except Exception:
+                    _posts = []
+                if not _posts:
+                    st.caption("Aún no hay posts.")
+                for _p in _posts:
+                    _pid = _p.get("id")
+                    with st.container(border=True):
+                        st.markdown(f"[{(_p.get('lang') or 'es').upper()}] **{_p.get('titulo', '')}** · "
+                                    f"{_p.get('tag', '') or '—'} · orden {_p.get('orden', 0)} · "
+                                    f"{'🟢 publicado' if _p.get('publicado') else '⚪ oculto'}")
+                        _e_tit = st.text_input("Título", value=_p.get("titulo", "") or "", key=f"adm_e_tit_{_pid}")
+                        _e_tag = st.text_input("Etiqueta", value=_p.get("tag", "") or "", key=f"adm_e_tag_{_pid}")
+                        _e_cuerpo = st.text_area("Cuerpo", value=_p.get("cuerpo", "") or "",
+                                                 key=f"adm_e_cuerpo_{_pid}", height=120)
+                        _e_img = st.text_input("Imagen URL", value=_p.get("imagen_url", "") or "", key=f"adm_e_img_{_pid}")
+                        _cc1, _cc2, _cc3, _cc4 = st.columns([1, 1, 1, 1])
+                        _e_orden = _cc1.number_input("Orden", min_value=0, max_value=999,
+                                                     value=int(_p.get("orden", 0) or 0), key=f"adm_e_orden_{_pid}")
+                        _e_pub = _cc2.checkbox("Publicado", value=bool(_p.get("publicado")), key=f"adm_e_pub_{_pid}")
+                        if _cc3.button("💾 Guardar", key=f"adm_e_save_{_pid}"):
+                            try:
+                                supabase.table("blog_posts").update({
+                                    "titulo": _e_tit.strip(), "tag": _e_tag.strip(), "cuerpo": _e_cuerpo,
+                                    "imagen_url": _e_img.strip(), "orden": int(_e_orden), "publicado": _e_pub,
+                                    "updated_at": dt.now().isoformat(),
+                                }).eq("id", _pid).execute()
+                                st.success("✅ Guardado")
+                                st.rerun()
+                            except Exception as _e_up:
+                                st.error(str(_e_up))
+                        if _cc4.button("🗑 Borrar", key=f"adm_e_del_{_pid}"):
+                            try:
+                                supabase.table("blog_posts").delete().eq("id", _pid).execute()
+                                st.success("🗑 Borrado")
+                                st.rerun()
+                            except Exception as _e_del:
+                                st.error(str(_e_del))
+
 # ── SECCIÓN: GEMELO DIGITAL (módulo nuevo) ──────────────────────────────────
 def _gemelo_cobrar(costo=1):
     """Cobra `costo` créditos por la explicación IA del Gemelo (a pedido).
