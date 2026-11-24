@@ -773,11 +773,32 @@ def test_insights():
           "en diciembre recomienda aprovechar Navidad")
 
 
+def test_mercadopago():
+    print("\n[14] Mercado Pago (cobro de planes)")
+    from integrations import mercadopago as MP
+    pref = MP.construir_preferencia("Plan Pro", 145.0, "PEN", "jair@x.com|Pro",
+                                    "https://tentakul.com/app", notification_url="https://x/hook")
+    check(pref["items"][0]["unit_price"] == 145.0 and pref["items"][0]["currency_id"] == "PEN",
+          "arma el item con precio y moneda")
+    check(pref["external_reference"] == "jair@x.com|Pro", "lleva la referencia (email|plan)")
+    check(pref["back_urls"]["success"] == "https://tentakul.com/app" and pref["auto_return"] == "approved",
+          "configura back_urls y auto_return")
+    check(pref["notification_url"] == "https://x/hook", "incluye el webhook si se da")
+    _pref2 = MP.construir_preferencia("X", 10, "USD", "a@b.com|Starter", "https://u")
+    check("notification_url" not in _pref2, "sin webhook no agrega la clave")
+    _em, _pl = MP.plan_desde_referencia("Jair@X.com|Pro")
+    check(_em == "jair@x.com" and _pl == "Pro", "separa email|plan de la referencia")
+    check(MP.crear_preferencia("", "X", 10, "PEN", "r", "u")[2] is not None,
+          "sin token -> error claro (no revienta)")
+    check(MP.verificar_pago("tok", None)[1] is not None,
+          "sin payment_id -> error claro (no revienta)")
+
+
 if __name__ == "__main__":
     for _t in (test_oauth_helpers, test_token_refresh, test_ga4_report,
                test_listar_propiedades, test_stores, test_agents, test_context,
                test_gemelo, test_meta_ads, test_search_console, test_seo, test_geo,
-               test_insights):
+               test_insights, test_mercadopago):
         _t()
     print("\n" + ("=" * 50))
     if _fallos:
