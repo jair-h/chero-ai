@@ -1211,15 +1211,31 @@ def _tab_resultado(marca, moneda, T, generar_texto=None):
             st.caption("⚖️ " + T(
                 f"Punto de equilibrio: necesitas vender ~{_pe['unidades_enteras']} para cubrir el gasto (no perder).",
                 f"Break-even: you need to sell ~{_pe['unidades_enteras']} to cover costs (not lose)."))
-    # ── Confianza (de dónde salen los números) ──────────────────────────────
-    _conf = {"datos": ("🟢", T("Confianza alta — basado en TUS datos", "High confidence — based on YOUR data")),
-             "benchmark": ("🟡", T("Confianza media — estimado del sector (sin tus datos aún)",
-                                    "Medium confidence — sector estimate (no data from you yet)")),
-             "supuestos": ("🟠", T("Confianza baja — por supuestos tuyos; rango amplio a propósito",
-                                    "Low confidence — your assumptions; wide range on purpose"))
-             }.get(r.get("fuente", "datos"), ("🟢", ""))
-    if _conf[1]:
-        st.caption(f"{_conf[0]} " + _conf[1])
+    # ── Confianza + MARGEN de la predicción (qué tan certero es, claro) ──────
+    _mid = (_p10 + _p90) / 2.0
+    _margen = ((_p90 - _p10) / (2.0 * _mid) * 100.0) if _mid > 0 else 0.0
+    _conf_map = {
+        "datos":     ("🟢", "#16A34A", T("ALTA", "HIGH"),
+                      T("basada en TUS datos reales", "based on YOUR real data")),
+        "benchmark": ("🟡", "#D97706", T("MEDIA", "MEDIUM"),
+                      T("estimado del sector — aún sin tus datos", "sector estimate — no data from you yet")),
+        "supuestos": ("🟠", "#EA580C", T("BAJA", "LOW"),
+                      T("por supuestos tuyos", "based on your assumptions")),
+    }
+    _ci, _cc, _cn, _cd = _conf_map.get(r.get("fuente", "datos"), _conf_map["datos"])
+    _sube = (T("Ya usa tus datos; con más meses afina aún más.",
+               "Already uses your data; more months sharpen it.")
+             if r.get("fuente") == "datos" else
+             T("Carga 2-3 meses de ventas reales en 📥 Mis datos y el margen se angosta.",
+               "Load 2-3 months of real sales in 📥 My data and the margin narrows."))
+    st.markdown(
+        f"""<div style="background:{_cc}14;border-left:4px solid {_cc};border-radius:8px;
+        padding:10px 14px;margin:8px 0;">
+        <span style="font-weight:700;color:{_cc};">{_ci} {T('Confianza', 'Confidence')}: {_cn}</span>
+        <span style="opacity:.75;"> · {_cd}</span><br>
+        <span style="font-size:.9rem;">{T('Margen de la predicción', 'Prediction margin')}:
+        <b>±{_margen:.0f}%</b> — {_sube}</span></div>""",
+        unsafe_allow_html=True)
     if _es_camp:
         _mf = r.get("mult_fuente", "benchmark")
         _origen = T("tus propias campañas", "your own campaigns") if _mf == "datos" \
