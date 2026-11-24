@@ -1,5 +1,14 @@
 # Pendientes de Tentakul
 
+## 🔄 Sincronización AUTOMÁTICA tienda → CRM (hoy es manual) — PENDIENTE
+Hoy "Traer clientes al CRM" y el import de Excel son por botón (jalan todo hasta
+ese momento, sin duplicar). Para que se actualice SOLO en cada venta hay 2 caminos:
+(a) sync programado (ej. diario) con un worker/Supabase Edge Function + cron;
+(b) webhooks de Shopify/WooCommerce (la tienda avisa en cada pedido) → CRM en vivo,
+necesita un endpoint serverless (Streamlit no recibe webhooks). Recomendado: empezar
+por (a) diario, luego (b) para tiempo real. Import de clientes desde Excel/CSV al CRM
+ya HECHO (sirve para quienes venden por WhatsApp/redes).
+
 ## 🎛 Dashboard Admin editable (blog / banner / SEO / tema estacional) — HECHO
 En el Dashboard Admin → "🌐 Contenido del sitio web": editar blog (crear/editar/
 borrar posts ES/EN/PT), banner (por URL), SEO (título+descripción por idioma) y

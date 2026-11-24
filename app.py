@@ -7972,6 +7972,106 @@ if _sec_activa == "crm":
                                 st.session_state.pop(_k, None)
                             st.rerun()
 
+        # ── SECCIÓN 2b — Importar clientes desde Excel/CSV (WhatsApp, redes, cuaderno) ──
+        with st.expander("📥 Importar clientes desde Excel/CSV" if not _is_en_crm
+                         else "📥 Import customers from Excel/CSV"):
+            st.caption(("¿Vendes por WhatsApp, redes o tienes tus clientes en un Excel? Súbelo aquí. "
+                        "Detecto las columnas (nombre, teléfono, ciudad, cuánto gastó…) y los meto a tu CRM "
+                        "sin duplicar. Así el Gemelo y el mapa de zonas también aprenden de tus ventas reales."
+                        if not _is_en_crm else
+                        "Sell via WhatsApp, social or keep customers in Excel? Upload it here. I detect the "
+                        "columns (name, phone, city, spend…) and add them to your CRM without duplicates."))
+            _imp_file = st.file_uploader("Excel (.xlsx) o CSV", type=["csv", "xlsx"], key="crm_imp_file")
+            if _imp_file is not None:
+                try:
+                    _dfi = (pd.read_csv(_imp_file, encoding="utf-8-sig") if _imp_file.name.lower().endswith(".csv")
+                            else pd.read_excel(_imp_file))
+                except Exception as _e_imp_rd:
+                    _dfi = None
+                    st.error(("No pude leer el archivo: " if not _is_en_crm else "Couldn't read the file: ") + str(_e_imp_rd))
+                if _dfi is not None and len(_dfi.columns):
+                    _cols = [str(c) for c in _dfi.columns]
+                    _dfi.columns = _cols
+
+                    def _auto_col(_cands):
+                        for _c in _cols:
+                            _cl = _c.strip().lower()
+                            if any(_k in _cl for _k in _cands):
+                                return _c
+                        return "(ninguna)"
+
+                    _opts = ["(ninguna)"] + _cols
+                    def _idx(_v):
+                        return _opts.index(_v) if _v in _opts else 0
+                    st.markdown("**Mapea las columnas**" if not _is_en_crm else "**Map the columns**")
+                    _mc1, _mc2, _mc3 = st.columns(3)
+                    _m_nombre = _mc1.selectbox("Nombre", _opts, index=_idx(_auto_col(["nombre", "name", "cliente", "contacto"])), key="crm_imp_nombre")
+                    _m_tel    = _mc2.selectbox("Teléfono/WhatsApp", _opts, index=_idx(_auto_col(["telefono", "teléfono", "phone", "whatsapp", "celular", "cel", "movil", "móvil"])), key="crm_imp_tel")
+                    _m_email  = _mc3.selectbox("Email", _opts, index=_idx(_auto_col(["email", "correo", "mail"])), key="crm_imp_email")
+                    _mc4, _mc5, _mc6 = st.columns(3)
+                    _m_ciudad = _mc4.selectbox("Ciudad/Distrito", _opts, index=_idx(_auto_col(["ciudad", "distrito", "city", "zona", "ubicac", "provincia"])), key="crm_imp_ciudad")
+                    _m_valor  = _mc5.selectbox("Cuánto gastó", _opts, index=_idx(_auto_col(["gast", "total", "valor", "monto", "importe", "venta", "amount", "spent"])), key="crm_imp_valor")
+                    _m_notas  = _mc6.selectbox("Notas", _opts, index=_idx(_auto_col(["nota", "comentario", "detalle", "note"])), key="crm_imp_notas")
+
+                    st.markdown("**Vista previa**" if not _is_en_crm else "**Preview**")
+                    st.dataframe(_dfi.head(8), use_container_width=True)
+
+                    if _m_nombre == "(ninguna)":
+                        st.warning("Elige al menos la columna de **Nombre**." if not _is_en_crm else "Pick at least the **Name** column.")
+                    elif st.button(f"📥 Importar {len(_dfi)} filas al CRM" if not _is_en_crm else f"📥 Import {len(_dfi)} rows to CRM",
+                                   key="crm_imp_btn"):
+                        def _val(_row, _col):
+                            if _col == "(ninguna)":
+                                return ""
+                            _v = _row.get(_col, "")
+                            return "" if (_v is None or (isinstance(_v, float) and pd.isna(_v))) else str(_v).strip()
+                        def _num(_s):
+                            _s = (_s or "").replace("S/", "").replace("$", "").replace(",", "").replace(" ", "")
+                            try:
+                                return float(_s) if _s not in ("", "nan") else None
+                            except Exception:
+                                return None
+                        # Dedupe contra lo que ya existe (email o teléfono)
+                        _ex_mail, _ex_tel = set(), set()
+                        try:
+                            for _cc in (crm_get_contactos(_email_crm) or []):
+                                if _cc.get("email_contacto"):
+                                    _ex_mail.add(str(_cc["email_contacto"]).strip().lower())
+                                if _cc.get("telefono"):
+                                    _ex_tel.add("".join(ch for ch in str(_cc["telefono"]) if ch.isdigit()))
+                        except Exception:
+                            _ignorar_error()
+                        _n_ok, _n_dup, _n_err = 0, 0, 0
+                        for _row in _dfi.fillna("").to_dict("records"):
+                            _nom = _val(_row, _m_nombre)
+                            if not _nom:
+                                continue
+                            _eml = _val(_row, _m_email).lower()
+                            _tel = _val(_row, _m_tel)
+                            _teld = "".join(ch for ch in _tel if ch.isdigit())
+                            if (_eml and _eml in _ex_mail) or (_teld and _teld in _ex_tel):
+                                _n_dup += 1
+                                continue
+                            _ciu = _val(_row, _m_ciudad)
+                            _notas_imp = _val(_row, _m_notas)
+                            if _ciu:
+                                _notas_imp = (f"Ciudad: {_ciu}" + (f" · {_notas_imp}" if _notas_imp else ""))
+                            try:
+                                if crm_add_contacto(_email_crm, _nom, _eml, _tel, "", "",
+                                                    "Importado", _num(_val(_row, _m_valor)), _notas_imp):
+                                    _n_ok += 1
+                                    if _eml: _ex_mail.add(_eml)
+                                    if _teld: _ex_tel.add(_teld)
+                                else:
+                                    _n_err += 1
+                            except Exception:
+                                _n_err += 1
+                        st.success((f"✅ {_n_ok} clientes importados · {_n_dup} ya existían · {_n_err} con error."
+                                    if not _is_en_crm else
+                                    f"✅ {_n_ok} imported · {_n_dup} already existed · {_n_err} errors."))
+                        if _n_ok:
+                            st.rerun()
+
         # ── SECCIÓN 3 + 4 — Detalle del contacto ──────────────────────────────
         _cid = st.session_state.get("crm_contacto_id")
         if _cid:
