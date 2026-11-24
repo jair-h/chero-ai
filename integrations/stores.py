@@ -264,6 +264,152 @@ def fetch_shopify_clientes(url: str, access_token: str, meses: int = 12, max_pag
     return clientes, None
 
 
+def _ventanas_tendencia(hoy):
+    """Devuelve (corte_reciente, corte_previo) como strings YYYY-MM-DD:
+    'reciente' = últimos 30 días; 'previo' = los 30 días anteriores a esos."""
+    from datetime import timedelta
+    return ((hoy - timedelta(days=30)).strftime("%Y-%m-%d"),
+            (hoy - timedelta(days=60)).strftime("%Y-%m-%d"))
+
+
+def fetch_woocommerce_productos_vendidos(url: str, consumer_key: str, consumer_secret: str,
+                                         meses: int = 3, max_paginas: int = 20):
+    """Productos MÁS/MENOS vendidos desde los pedidos de WooCommerce.
+
+    Agrega por nombre de producto: unidades, ingresos, unidades recientes (30d)
+    vs previas (30-60d) para medir tendencia, y última venta. Solo ventas reales.
+    Devuelve (productos, error). NO inventa datos.
+    """
+    base = _normalizar_base(url)
+    ck, cs = (consumer_key or "").strip(), (consumer_secret or "").strip()
+    if not base or not ck or not cs:
+        return [], "Faltan la URL, Consumer Key o Consumer Secret de WooCommerce."
+    hoy = datetime.now(timezone.utc)
+    _mm, _yy = hoy.month - (meses - 1), hoy.year
+    while _mm <= 0:
+        _mm += 12
+        _yy -= 1
+    desde = f"{_yy:04d}-{_mm:02d}-01T00:00:00"
+    _c_rec, _c_prev = _ventanas_tendencia(hoy)
+    acum: dict[str, dict] = {}
+    try:
+        for page in range(1, int(max_paginas) + 1):
+            r = requests.get(
+                f"{base}/wp-json/wc/v3/orders",
+                params={"per_page": 100, "page": page, "after": desde,
+                        "status": "any", "orderby": "date", "order": "asc"},
+                auth=(ck, cs), timeout=_TIMEOUT,
+            )
+            if r.status_code != 200:
+                return [], f"Error {r.status_code}: {str(r.text)[:200]}"
+            pedidos = r.json() or []
+            if not pedidos:
+                break
+            for o in pedidos:
+                if o.get("status") not in _WOO_ESTADOS_VENTA:
+                    continue
+                f10 = str(o.get("date_paid") or o.get("date_created") or "")[:10]
+                for li in (o.get("line_items") or []):
+                    nombre = (li.get("name") or "").strip()
+                    if not nombre:
+                        continue
+                    try:
+                        qty = int(li.get("quantity") or 0)
+                    except (TypeError, ValueError):
+                        qty = 0
+                    try:
+                        ing = float(li.get("total") or 0)
+                    except (TypeError, ValueError):
+                        ing = 0.0
+                    p = acum.setdefault(nombre, {
+                        "nombre": nombre, "sku": (li.get("sku") or ""),
+                        "unidades": 0, "ingresos": 0.0,
+                        "unidades_rec": 0, "unidades_prev": 0, "ultima_venta": ""})
+                    p["unidades"] += qty
+                    p["ingresos"] += ing
+                    if f10 > p["ultima_venta"]:
+                        p["ultima_venta"] = f10
+                    if f10 >= _c_rec:
+                        p["unidades_rec"] += qty
+                    elif f10 >= _c_prev:
+                        p["unidades_prev"] += qty
+            if len(pedidos) < 100:
+                break
+    except Exception as ex:  # noqa: BLE001
+        return [], f"Error: {ex}"
+    prods = sorted(acum.values(), key=lambda x: x["ingresos"], reverse=True)
+    for p in prods:
+        p["ingresos"] = round(p["ingresos"], 2)
+    return prods, None
+
+
+def fetch_shopify_productos_vendidos(url: str, access_token: str,
+                                     meses: int = 3, max_paginas: int = 20):
+    """Productos MÁS/MENOS vendidos desde los pedidos de Shopify (pagados).
+    Mismo formato que WooCommerce (unidades, ingresos, tendencia 30d vs 30-60d)."""
+    base = _normalizar_base(url)
+    tok = (access_token or "").strip()
+    if not base or not tok:
+        return [], "Faltan la URL o el Access Token de Shopify."
+    hoy = datetime.now(timezone.utc)
+    _mm, _yy = hoy.month - (meses - 1), hoy.year
+    while _mm <= 0:
+        _mm += 12
+        _yy -= 1
+    desde = f"{_yy:04d}-{_mm:02d}-01T00:00:00Z"
+    _c_rec, _c_prev = _ventanas_tendencia(hoy)
+    acum: dict[str, dict] = {}
+    headers = {"X-Shopify-Access-Token": tok}
+    params = {"status": "any", "financial_status": "paid", "created_at_min": desde, "limit": 250}
+    try:
+        for _pg in range(int(max_paginas)):
+            r = requests.get(f"{base}/admin/api/{SHOPIFY_API_VERSION}/orders.json",
+                             params=params, headers=headers, timeout=_TIMEOUT)
+            if r.status_code != 200:
+                return [], f"Error {r.status_code}: {str(r.text)[:200]}"
+            pedidos = (r.json() or {}).get("orders", [])
+            if not pedidos:
+                break
+            for o in pedidos:
+                if o.get("cancelled_at"):
+                    continue
+                f10 = str(o.get("created_at") or "")[:10]
+                for li in (o.get("line_items") or []):
+                    nombre = (li.get("title") or li.get("name") or "").strip()
+                    if not nombre:
+                        continue
+                    try:
+                        qty = int(li.get("quantity") or 0)
+                    except (TypeError, ValueError):
+                        qty = 0
+                    try:
+                        ing = float(li.get("price") or 0) * qty
+                    except (TypeError, ValueError):
+                        ing = 0.0
+                    p = acum.setdefault(nombre, {
+                        "nombre": nombre, "sku": (li.get("sku") or ""),
+                        "unidades": 0, "ingresos": 0.0,
+                        "unidades_rec": 0, "unidades_prev": 0, "ultima_venta": ""})
+                    p["unidades"] += qty
+                    p["ingresos"] += ing
+                    if f10 > p["ultima_venta"]:
+                        p["ultima_venta"] = f10
+                    if f10 >= _c_rec:
+                        p["unidades_rec"] += qty
+                    elif f10 >= _c_prev:
+                        p["unidades_prev"] += qty
+            _next = _shopify_next_page_info(getattr(r, "headers", {}) or {})
+            if not _next:
+                break
+            params = {"limit": 250, "page_info": _next}
+    except Exception as ex:  # noqa: BLE001
+        return [], f"Error: {ex}"
+    prods = sorted(acum.values(), key=lambda x: x["ingresos"], reverse=True)
+    for p in prods:
+        p["ingresos"] = round(p["ingresos"], 2)
+    return prods, None
+
+
 def _rellenar_meses(acum: dict, meses: int, hoy) -> list:
     """Arma la lista de los últimos `meses` (de más antiguo a más reciente),
     rellenando con 0 los meses sin ventas. Reutilizado por Woo y Shopify."""
