@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://tentakul.com/sitemap.xml
